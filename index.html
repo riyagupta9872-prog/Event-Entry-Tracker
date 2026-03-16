@@ -137,9 +137,34 @@ a { text-decoration: none; color: inherit; }
 .login-form { display: flex; flex-direction: column; gap: 1rem; }
 .login-hint {
   text-align: center; color: var(--text-muted);
-  font-size: 0.75rem; margin-top: 1.5rem;
+  font-size: 0.75rem; margin-top: 1rem;
   font-family: var(--font-mono);
+  transition: color var(--transition);
 }
+.login-hint:hover { color: var(--accent); }
+.first-time-banner {
+  background: linear-gradient(135deg, rgba(201,162,39,0.15), rgba(123,94,167,0.15));
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 1rem;
+  text-align: center;
+  color: var(--accent);
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+.login-quick-btns {
+  display: flex; align-items: center; gap: 0.5rem;
+  justify-content: center; margin-top: 1rem;
+  flex-wrap: wrap;
+}
+.login-quick-btn {
+  padding: 0.25rem 0.75rem;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: 20px; color: var(--text-secondary);
+  font-size: 0.78rem; cursor: pointer; font-family: var(--font-mono);
+  transition: all var(--transition);
+}
+.login-quick-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ===== APP LAYOUT ===== */
 #screen-app {
@@ -734,26 +759,63 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
         <div class="login-logo">🪷</div>
         <h1 class="login-title">PRERNA</h1>
         <p class="login-subtitle">Festival Management</p>
-        <div class="login-form">
-          <div class="input-group">
-            <label>Username</label>
-            <input type="text" id="login-username" placeholder="Enter username" autocomplete="username" />
+
+        <!-- First-time setup panel (shown when no custom admin exists) -->
+        <div id="first-time-setup" class="hidden">
+          <div class="first-time-banner">
+            <span>🎉 First time? Create your admin account</span>
           </div>
-          <div class="input-group">
-            <label>Password</label>
-            <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password" />
+          <div class="login-form">
+            <div class="input-group">
+              <label>Your Name</label>
+              <input type="text" id="setup-name" placeholder="e.g. Riya Gupta" />
+            </div>
+            <div class="input-group">
+              <label>Choose Username</label>
+              <input type="text" id="setup-username" placeholder="e.g. riya" autocomplete="username" />
+            </div>
+            <div class="input-group">
+              <label>Choose Password</label>
+              <input type="password" id="setup-password" placeholder="Min 4 characters" autocomplete="new-password" />
+            </div>
+            <button class="btn-primary full-width" id="btn-setup">Create Admin & Sign In</button>
+            <div id="setup-error" class="error-msg hidden"></div>
           </div>
-          <div class="input-group">
-            <label>Role</label>
-            <select id="login-role">
-              <option value="admin">Admin</option>
-              <option value="volunteer">Volunteer</option>
-            </select>
-          </div>
-          <button class="btn-primary full-width" id="btn-login">Sign In</button>
-          <div id="login-error" class="error-msg hidden"></div>
+          <p class="login-hint" style="cursor:pointer" onclick="document.getElementById('first-time-setup').classList.add('hidden');document.getElementById('normal-login').classList.remove('hidden')">
+            Already have an account? Sign in →
+          </p>
         </div>
-        <p class="login-hint">Default: admin/admin123 · volunteer/vol123</p>
+
+        <!-- Normal login panel -->
+        <div id="normal-login">
+          <div class="login-form">
+            <div class="input-group">
+              <label>Username</label>
+              <input type="text" id="login-username" placeholder="Enter username" autocomplete="username" />
+            </div>
+            <div class="input-group">
+              <label>Password</label>
+              <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password" />
+            </div>
+            <div class="input-group">
+              <label>Role</label>
+              <select id="login-role">
+                <option value="admin">Admin</option>
+                <option value="volunteer">Volunteer</option>
+              </select>
+            </div>
+            <button class="btn-primary full-width" id="btn-login">Sign In</button>
+            <div id="login-error" class="error-msg hidden"></div>
+          </div>
+          <div class="login-quick-btns">
+            <span style="color:var(--text-muted);font-size:.75rem">Quick fill:</span>
+            <button class="login-quick-btn" onclick="document.getElementById('login-username').value='admin';document.getElementById('login-password').value='admin123';document.getElementById('login-role').value='admin'">admin</button>
+            <button class="login-quick-btn" onclick="document.getElementById('login-username').value='volunteer';document.getElementById('login-password').value='vol123';document.getElementById('login-role').value='volunteer'">volunteer</button>
+          </div>
+          <p class="login-hint" style="cursor:pointer" onclick="document.getElementById('first-time-setup').classList.remove('hidden');document.getElementById('normal-login').classList.add('hidden')">
+            New here? Create your account →
+          </p>
+        </div>
       </div>
     </div>
 
@@ -2052,16 +2114,27 @@ const App = (() => {
     setTimeout(() => {
       const splash = document.getElementById('splash');
       splash.style.opacity = '0';
-      setTimeout(() => {
+      setTimeout(async () => {
         splash.style.display = 'none';
         document.getElementById('screen-login').classList.remove('hidden');
-        document.getElementById('login-username').focus();
+        // Check if only default users exist → show first-time setup
+        const users = await DB.getAll(DB.STORES.users);
+        const onlyDefaults = users.every(u => u.username === 'admin' || u.username === 'volunteer');
+        if (onlyDefaults) {
+          document.getElementById('first-time-setup').classList.remove('hidden');
+          document.getElementById('normal-login').classList.add('hidden');
+          document.getElementById('setup-name').focus();
+        } else {
+          document.getElementById('login-username').focus();
+        }
       }, 500);
     }, 1800);
 
     // Events
     document.getElementById('btn-login').addEventListener('click', handleLogin);
     document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+    document.getElementById('btn-setup').addEventListener('click', handleFirstTimeSetup);
+    document.getElementById('setup-password').addEventListener('keydown', e => { if (e.key === 'Enter') handleFirstTimeSetup(); });
     document.getElementById('btn-logout').addEventListener('click', handleLogout);
     document.getElementById('btn-menu').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
     document.getElementById('btn-sidebar-close').addEventListener('click', () => document.getElementById('sidebar').classList.remove('open'));
@@ -2098,6 +2171,30 @@ const App = (() => {
   }
 
   // ===== AUTH =====
+  async function handleFirstTimeSetup() {
+    const name = document.getElementById('setup-name').value.trim();
+    const username = document.getElementById('setup-username').value.trim().toLowerCase().replace(/\s+/g, '');
+    const password = document.getElementById('setup-password').value;
+    const errEl = document.getElementById('setup-error');
+
+    if (!name || !username || !password) {
+      errEl.textContent = 'Please fill in all fields';
+      errEl.classList.remove('hidden'); return;
+    }
+    if (password.length < 4) {
+      errEl.textContent = 'Password must be at least 4 characters';
+      errEl.classList.remove('hidden'); return;
+    }
+
+    // Save new admin user and remove default admin
+    await DB.put(DB.STORES.users, { username, password, role: 'admin', name });
+    // Keep default volunteer for now, remove default admin
+    await DB.deleteRecord(DB.STORES.users, 'admin');
+
+    currentUser = { username, password, role: 'admin', name };
+    loginSuccess(currentUser);
+  }
+
   async function handleLogin() {
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value;
@@ -2115,18 +2212,20 @@ const App = (() => {
       errEl.classList.remove('hidden'); return;
     }
     if (user.role !== role) {
-      errEl.textContent = `This account has role: ${user.role}`;
+      errEl.textContent = `This account has role: ${user.role}. Please select "${user.role}" in the Role dropdown.`;
       errEl.classList.remove('hidden'); return;
     }
 
     currentUser = user;
     errEl.classList.add('hidden');
+    loginSuccess(user);
+  }
 
+  function loginSuccess(user) {
     // Update UI
     document.getElementById('sidebar-username').textContent = user.name;
     document.getElementById('sidebar-role').textContent = user.role === 'admin' ? 'Administrator' : 'Volunteer';
     document.getElementById('sidebar-avatar').textContent = user.name[0].toUpperCase();
-    document.getElementById('login-role').value = user.role;
 
     // Show/hide admin elements
     document.querySelectorAll('.admin-only, .admin-page').forEach(el => {
@@ -2136,7 +2235,7 @@ const App = (() => {
     document.getElementById('screen-login').classList.add('hidden');
     document.getElementById('screen-app').classList.remove('hidden');
     navigate('dashboard');
-    await DB.log('login', `User logged in`, user.username);
+    DB.log('login', `User logged in`, user.username);
   }
 
   function handleLogout() {
