@@ -1,0 +1,20 @@
+{
+  "name": "Prerna Festival Management",
+  "short_name": "Prerna",
+  "description": "Attendance tracking and reporting for Prerna Festival",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0820",
+  "theme_color": "#1a0a2e",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪷</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "screenshots": []
+}
