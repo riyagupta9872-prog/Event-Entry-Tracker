@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a0a2e" />
+  <meta name="description" content="Prerna Festival Attendance & Reporting System" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Prerna Festival</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="src/styles/main.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="splash">
+      <div class="splash-inner">
+        <div class="splash-logo">🪷</div>
+        <h1 class="splash-title">PRERNA</h1>
+        <p class="splash-sub">Festival Management System</p>
+        <div class="splash-loader"><span></span><span></span><span></span></div>
+      </div>
+    </div>
+
+    <!-- Login Screen -->
+    <div id="screen-login" class="screen hidden">
+      <div class="login-bg"></div>
+      <div class="login-card">
+        <div class="login-logo">🪷</div>
+        <h1 class="login-title">PRERNA</h1>
+        <p class="login-subtitle">Festival Management</p>
+        <div class="login-form">
+          <div class="input-group">
+            <label>Username</label>
+            <input type="text" id="login-username" placeholder="Enter username" autocomplete="username" />
+          </div>
+          <div class="input-group">
+            <label>Password</label>
+            <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password" />
+          </div>
+          <div class="input-group">
+            <label>Role</label>
+            <select id="login-role">
+              <option value="admin">Admin</option>
+              <option value="volunteer">Volunteer</option>
+            </select>
+          </div>
+          <button class="btn-primary full-width" id="btn-login">Sign In</button>
+          <div id="login-error" class="error-msg hidden"></div>
+        </div>
+        <p class="login-hint">Default: admin/admin123 · volunteer/vol123</p>
+      </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="screen-app" class="screen hidden">
+      <!-- Sidebar -->
+      <aside id="sidebar">
+        <div class="sidebar-header">
+          <span class="sidebar-logo">🪷</span>
+          <span class="sidebar-title">PRERNA</span>
+          <button id="btn-sidebar-close" class="sidebar-close">✕</button>
+        </div>
+        <nav class="sidebar-nav">
+          <a class="nav-item active" data-page="dashboard">
+            <span class="nav-icon">⬛</span> Dashboard
+          </a>
+          <a class="nav-item admin-only" data-page="import">
+            <span class="nav-icon">📥</span> Import Excel
+          </a>
+          <a class="nav-item" data-page="attendance">
+            <span class="nav-icon">✅</span> Attendance
+          </a>
+          <a class="nav-item" data-page="walkin">
+            <span class="nav-icon">🚶</span> Walk-in Entry
+          </a>
+          <a class="nav-item admin-only" data-page="attendees">
+            <span class="nav-icon">👥</span> Attendees
+          </a>
+          <a class="nav-item admin-only" data-page="reports">
+            <span class="nav-icon">📊</span> Reports
+          </a>
+          <a class="nav-item admin-only" data-page="settings">
+            <span class="nav-icon">⚙️</span> Settings
+          </a>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="user-badge">
+            <span class="user-avatar" id="sidebar-avatar">A</span>
+            <div>
+              <div class="user-name" id="sidebar-username">Admin</div>
+              <div class="user-role" id="sidebar-role">Administrator</div>
+            </div>
+          </div>
+          <button class="btn-logout" id="btn-logout">Sign Out</button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <div id="main-content">
+        <header id="top-bar">
+          <button id="btn-menu" class="menu-btn">☰</button>
+          <h2 id="page-title">Dashboard</h2>
+          <div class="top-bar-right">
+            <span id="sync-status" class="sync-status online">● Online</span>
+            <span id="offline-badge" class="offline-badge hidden">⚡ 0 queued</span>
+          </div>
+        </header>
+
+        <!-- Pages -->
+        <main id="content-area">
+
+          <!-- DASHBOARD PAGE -->
+          <div id="page-dashboard" class="page">
+            <div class="stats-grid">
+              <div class="stat-card primary">
+                <div class="stat-icon">👥</div>
+                <div class="stat-value" id="stat-total">0</div>
+                <div class="stat-label">Total Attendees</div>
+              </div>
+              <div class="stat-card success">
+                <div class="stat-icon">✅</div>
+                <div class="stat-value" id="stat-present">0</div>
+                <div class="stat-label">Checked In</div>
+              </div>
+              <div class="stat-card warning">
+                <div class="stat-icon">⏳</div>
+                <div class="stat-value" id="stat-pending">0</div>
+                <div class="stat-label">Pending</div>
+              </div>
+              <div class="stat-card accent">
+                <div class="stat-icon">💰</div>
+                <div class="stat-value" id="stat-payment">₹0</div>
+                <div class="stat-label">Total Collected</div>
+              </div>
+              <div class="stat-card danger">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-value" id="stat-duplicates">0</div>
+                <div class="stat-label">Duplicates</div>
+              </div>
+              <div class="stat-card info">
+                <div class="stat-icon">🚶</div>
+                <div class="stat-value" id="stat-walkins">0</div>
+                <div class="stat-label">Walk-ins</div>
+              </div>
+            </div>
+
+            <div class="dashboard-grid">
+              <div class="card">
+                <h3 class="card-title">Attendance Progress</h3>
+                <div class="progress-wrap">
+                  <div class="progress-bar-outer">
+                    <div class="progress-bar-inner" id="dash-progress-bar" style="width:0%"></div>
+                  </div>
+                  <span class="progress-pct" id="dash-progress-pct">0%</span>
+                </div>
+                <div class="mini-breakdown" id="dash-category-breakdown"></div>
+              </div>
+              <div class="card">
+                <h3 class="card-title">Recent Activity</h3>
+                <div class="activity-list" id="dash-activity"></div>
+              </div>
+            </div>
+
+            <div class="card admin-only">
+              <h3 class="card-title">Quick Actions</h3>
+              <div class="quick-actions">
+                <button class="qa-btn" onclick="App.navigate('import')">📥 Import Excel</button>
+                <button class="qa-btn" onclick="App.navigate('reports')">📊 View Reports</button>
+                <button class="qa-btn" onclick="App.navigate('settings')">⚙️ Configure Event</button>
+                <button class="qa-btn" onclick="App.navigate('attendance')">✅ Attendance</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- IMPORT PAGE -->
+          <div id="page-import" class="page hidden admin-page">
+            <div class="card">
+              <h3 class="card-title">Upload Attendee List</h3>
+              <div class="upload-zone" id="upload-zone">
+                <div class="upload-icon">📤</div>
+                <p>Drag & drop Excel (.xlsx) or CSV file here</p>
+                <p class="upload-sub">or</p>
+                <label class="btn-secondary upload-label">
+                  Browse File
+                  <input type="file" id="file-input" accept=".xlsx,.xls,.csv" hidden />
+                </label>
+                <p class="upload-hint">Supports up to 10,000 rows</p>
+              </div>
+            </div>
+
+            <div id="column-mapping-section" class="card hidden">
+              <h3 class="card-title">Column Mapping</h3>
+              <p class="card-sub">Map your Excel columns to system fields. Fields with ★ are required.</p>
+              <div id="column-mapping-grid" class="mapping-grid"></div>
+              <div class="mapping-actions">
+                <button class="btn-primary" id="btn-confirm-import">✅ Confirm Import</button>
+                <button class="btn-ghost" id="btn-cancel-import">Cancel</button>
+              </div>
+            </div>
+
+            <div id="import-preview" class="card hidden">
+              <div class="import-result-header">
+                <h3 class="card-title">Import Results</h3>
+                <div id="import-stats-row" class="import-stats-row"></div>
+              </div>
+              <div class="table-controls">
+                <input type="text" id="preview-search" class="search-input" placeholder="Search imported data..." />
+                <select id="preview-filter" class="filter-select">
+                  <option value="all">All Records</option>
+                  <option value="duplicates">Duplicates Only</option>
+                  <option value="clean">Clean Records</option>
+                </select>
+              </div>
+              <div class="table-wrap" id="preview-table-wrap"></div>
+            </div>
+          </div>
+
+          <!-- ATTENDANCE PAGE -->
+          <div id="page-attendance" class="page hidden">
+            <div class="attendance-tabs">
+              <button class="att-tab active" data-tab="search">🔍 Search & Mark</button>
+              <button class="att-tab" data-tab="scan">📷 QR Scan</button>
+              <button class="att-tab admin-only" data-tab="bulk">📋 Bulk Upload</button>
+            </div>
+
+            <!-- Search Tab -->
+            <div id="att-tab-search" class="att-pane">
+              <div class="card">
+                <div class="search-bar-row">
+                  <input type="text" id="att-search" class="search-input large" placeholder="Search by name, mobile, team, reference..." />
+                  <button class="btn-primary" id="btn-att-search">Search</button>
+                </div>
+                <div id="att-search-results" class="att-results"></div>
+              </div>
+            </div>
+
+            <!-- Scan Tab -->
+            <div id="att-tab-scan" class="att-pane hidden">
+              <div class="card scan-card">
+                <h3 class="card-title">QR Code Scanner</h3>
+                <div id="scanner-container" class="scanner-box">
+                  <video id="scanner-video" autoplay playsinline></video>
+                  <div class="scanner-overlay">
+                    <div class="scan-corners"></div>
+                  </div>
+                  <p class="scanner-hint">Position QR code within the frame</p>
+                </div>
+                <div class="scan-manual">
+                  <p>Or enter ID manually:</p>
+                  <div class="input-row">
+                    <input type="text" id="manual-scan-id" class="search-input" placeholder="Attendee ID or numeric code" />
+                    <button class="btn-primary" id="btn-manual-scan">Mark Present</button>
+                  </div>
+                </div>
+                <div id="scan-feedback" class="scan-feedback hidden"></div>
+              </div>
+            </div>
+
+            <!-- Bulk Tab -->
+            <div id="att-tab-bulk" class="att-pane hidden admin-page">
+              <div class="card">
+                <h3 class="card-title">Bulk Attendance Upload</h3>
+                <p>Upload an Excel/CSV with attendee IDs or mobile numbers to mark attendance in bulk.</p>
+                <label class="btn-secondary upload-label">
+                  Upload File
+                  <input type="file" id="bulk-att-file" accept=".xlsx,.xls,.csv" hidden />
+                </label>
+                <div id="bulk-att-result"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- WALK-IN PAGE -->
+          <div id="page-walkin" class="page hidden">
+            <div class="card walkin-form-card">
+              <h3 class="card-title">Add Walk-in Attendee</h3>
+              <div class="form-grid">
+                <div class="input-group required">
+                  <label>Full Name ★</label>
+                  <input type="text" id="wi-name" placeholder="Enter full name" />
+                </div>
+                <div class="input-group required">
+                  <label>Mobile Number ★</label>
+                  <input type="tel" id="wi-mobile" placeholder="10-digit mobile" />
+                </div>
+                <div class="input-group required">
+                  <label>Reference ★</label>
+                  <input type="text" id="wi-reference" placeholder="Reference name/code" />
+                </div>
+                <div class="input-group required">
+                  <label>Payment Amount ★</label>
+                  <input type="number" id="wi-payment" placeholder="0.00" min="0" />
+                </div>
+                <div class="input-group required">
+                  <label>Payment Date ★</label>
+                  <input type="date" id="wi-paydate" />
+                </div>
+                <div class="input-group">
+                  <label>Team</label>
+                  <input type="text" id="wi-team" placeholder="Team name (optional)" list="team-list" />
+                  <datalist id="team-list"></datalist>
+                </div>
+                <div class="input-group">
+                  <label>Category</label>
+                  <select id="wi-category">
+                    <option value="">Select category</option>
+                    <option value="IGF">IGF</option>
+                    <option value="IYF">IYF</option>
+                    <option value="ICF_MTG">ICF_MTG</option>
+                    <option value="ICF_PRJI">ICF_PRJI</option>
+                  </select>
+                </div>
+                <div class="input-group">
+                  <label>Bus Route</label>
+                  <input type="text" id="wi-busroute" placeholder="Bus route (optional)" />
+                </div>
+              </div>
+              <div class="form-actions">
+                <button class="btn-primary" id="btn-add-walkin">✅ Add & Mark Present</button>
+                <button class="btn-ghost" id="btn-clear-walkin">Clear Form</button>
+              </div>
+              <div id="walkin-feedback" class="hidden"></div>
+            </div>
+
+            <div class="card">
+              <h3 class="card-title">Today's Walk-ins</h3>
+              <div id="walkin-list" class="walkin-list"></div>
+            </div>
+          </div>
+
+          <!-- ATTENDEES PAGE -->
+          <div id="page-attendees" class="page hidden admin-page">
+            <div class="card">
+              <div class="table-controls">
+                <input type="text" id="attendees-search" class="search-input" placeholder="Search attendees..." />
+                <select id="attendees-filter-team" class="filter-select">
+                  <option value="">All Teams</option>
+                </select>
+                <select id="attendees-filter-cat" class="filter-select">
+                  <option value="">All Categories</option>
+                  <option value="IGF">IGF</option>
+                  <option value="IYF">IYF</option>
+                  <option value="ICF_MTG">ICF_MTG</option>
+                  <option value="ICF_PRJI">ICF_PRJI</option>
+                </select>
+                <select id="attendees-filter-att" class="filter-select">
+                  <option value="">All Status</option>
+                  <option value="present">Present</option>
+                  <option value="absent">Absent</option>
+                </select>
+              </div>
+              <div id="attendees-count" class="table-count"></div>
+              <div class="table-wrap" id="attendees-table-wrap"></div>
+            </div>
+          </div>
+
+          <!-- REPORTS PAGE -->
+          <div id="page-reports" class="page hidden admin-page">
+            <div class="reports-nav">
+              <button class="rep-tab active" data-report="overview">📊 Overview</button>
+              <button class="rep-tab" data-report="payment">💰 Payment</button>
+              <button class="rep-tab" data-report="reference">🔗 Reference</button>
+              <button class="rep-tab" data-report="transport">🚌 Transport</button>
+              <button class="rep-tab" data-report="summary">📋 Summary</button>
+            </div>
+
+            <div id="report-content" class="report-content"></div>
+          </div>
+
+          <!-- SETTINGS PAGE -->
+          <div id="page-settings" class="page hidden admin-page">
+            <div class="settings-grid">
+              <div class="card">
+                <h3 class="card-title">Event Configuration</h3>
+                <div class="input-group">
+                  <label>Event Name</label>
+                  <input type="text" id="cfg-event-name" placeholder="e.g. Prerna 2025" />
+                </div>
+                <div class="input-group">
+                  <label>Event Date</label>
+                  <input type="date" id="cfg-event-date" />
+                </div>
+                <div class="input-group">
+                  <label>Charge Per Person (₹)</label>
+                  <input type="number" id="cfg-charge-per-person" placeholder="0" min="0" />
+                </div>
+                <button class="btn-primary" id="btn-save-event-cfg">Save Configuration</button>
+              </div>
+
+              <div class="card">
+                <h3 class="card-title">Bus Configuration</h3>
+                <div id="bus-routes-list"></div>
+                <button class="btn-secondary" id="btn-add-bus-route">+ Add Bus Route</button>
+              </div>
+
+              <div class="card">
+                <h3 class="card-title">User Management</h3>
+                <div id="users-list"></div>
+                <button class="btn-secondary" id="btn-add-user">+ Add User</button>
+              </div>
+
+              <div class="card danger-zone">
+                <h3 class="card-title">Danger Zone</h3>
+                <p>These actions are irreversible. Use with caution.</p>
+                <button class="btn-danger" id="btn-clear-attendance">Clear All Attendance</button>
+                <button class="btn-danger" id="btn-clear-all">Reset All Data</button>
+              </div>
+            </div>
+          </div>
+
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modals -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div id="modal-box" class="modal-box">
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="src/utils/db.js"></script>
+  <script src="src/utils/helpers.js"></script>
+  <script src="src/utils/reports.js"></script>
+  <script src="src/utils/export.js"></script>
+  <script src="src/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+  </script>
+</body>
+</html>
