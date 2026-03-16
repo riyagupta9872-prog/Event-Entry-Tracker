@@ -512,14 +512,57 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
 /* ===== IMPORT ===== */
 .mapping-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+.mapping-tip {
+  grid-column: 1 / -1;
+  background: rgba(52,152,219,0.08); border: 1px solid rgba(52,152,219,0.3);
+  border-radius: var(--radius-sm); padding: 0.75rem 1rem;
+  font-size: 0.8rem; color: var(--text-secondary); line-height: 1.7;
+  margin-bottom: 0.75rem;
+}
+.mapping-tip strong { color: var(--info); }
+  grid-column: 1 / -1;
+  background: var(--bg-card2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 1rem;
+  margin-bottom: 0.5rem;
+}
+.mapping-banner-left { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.mapping-banner-left strong { color: var(--text-primary); font-size: 0.9rem; }
+.mapping-detected {
+  background: var(--success-bg); color: var(--success);
+  padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.75rem;
+  border: 1px solid var(--success);
+}
+.mapping-cols-preview { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.col-chip {
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: 4px; padding: 0.15rem 0.5rem;
+  font-size: 0.72rem; color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
 .mapping-row { display: flex; flex-direction: column; gap: 0.3rem; }
-.mapping-row label { font-size: 0.78rem; color: var(--text-muted); }
+.mapping-row label {
+  font-size: 0.78rem; color: var(--text-muted);
+  display: flex; align-items: center; gap: 0.4rem;
+}
+.mapping-row.matched label { color: var(--text-primary); }
+.match-chip {
+  background: var(--success-bg); color: var(--success);
+  border: 1px solid var(--success); border-radius: 20px;
+  padding: 0.1rem 0.4rem; font-size: 0.68rem; font-weight: 600;
+}
+.match-hint {
+  font-size: 0.72rem; color: var(--success);
+  font-family: var(--font-mono); padding-left: 0.25rem;
+  opacity: 0.8;
+}
 .mapping-row select {
   padding: 0.5rem 0.75rem;
   background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius-sm); color: var(--text-primary);
-  font-size: 0.85rem;
+  font-size: 0.85rem; transition: border-color var(--transition);
 }
+.mapping-row.matched select { border-color: var(--success); }
+.mapping-row select:focus { border-color: var(--accent); }
 .mapping-actions { display: flex; gap: 0.75rem; }
 .import-stats-row { display: flex; gap: 1rem; flex-wrap: wrap; }
 .import-stat {
@@ -959,6 +1002,12 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
             <div id="column-mapping-section" class="card hidden">
               <h3 class="card-title">Column Mapping</h3>
               <p class="card-sub">Map your Excel columns to system fields. Fields with ★ are required.</p>
+              <div class="mapping-tip">
+                💡 <strong>Auto-detection works with common names like:</strong>
+                Name / Full Name / Naam &nbsp;·&nbsp; Mobile / Phone / Contact No &nbsp;·&nbsp;
+                Team / Group / Zone &nbsp;·&nbsp; Reference / Ref / Counselor &nbsp;·&nbsp;
+                Payment / Amount / Fees &nbsp;·&nbsp; Bus / Route &nbsp;·&nbsp; Category / Type
+              </div>
               <div id="column-mapping-grid" class="mapping-grid"></div>
               <div class="mapping-actions">
                 <button class="btn-primary" id="btn-confirm-import">✅ Confirm Import</button>
@@ -2368,36 +2417,83 @@ const App = (() => {
   }
 
   const SYSTEM_FIELDS = [
-    { key: 'name', label: 'Name ★', required: true },
-    { key: 'mobile', label: 'Mobile ★', required: true },
-    { key: 'team', label: 'Team' },
-    { key: 'category', label: 'Category' },
-    { key: 'reference', label: 'Reference' },
-    { key: 'paymentAmount', label: 'Payment Amount' },
-    { key: 'paymentDate', label: 'Payment Date' },
-    { key: 'pickupLocation', label: 'Pickup Location' },
-    { key: 'busRoute', label: 'Bus Route' },
-    { key: 'serviceDevotee', label: 'Service Devotee' },
-    { key: 'activeDevotee', label: 'Active Devotee' }
+    { key: 'name', label: 'Name ★', required: true,
+      aliases: ['name','full name','fullname','attendee name','participant name','devotee name','naam','person name','member name','candidate name'] },
+    { key: 'mobile', label: 'Mobile ★', required: true,
+      aliases: ['mobile','mobile no','mobile number','phone','phone no','phone number','contact','contact no','contact number','mob','mob no','cell','whatsapp','number','no'] },
+    { key: 'team', label: 'Team',
+      aliases: ['team','team name','group','group name','unit','department','dept','zone','area','center','centre','sewa group'] },
+    { key: 'category', label: 'Category',
+      aliases: ['category','cat','type','program','programme','event type','category name','event','batch'] },
+    { key: 'reference', label: 'Reference',
+      aliases: ['reference','ref','reference name','referred by','ref by','referral','counselor','counsellor','mentor','coordinator','in-charge','incharge'] },
+    { key: 'paymentAmount', label: 'Payment Amount',
+      aliases: ['payment','payment amount','amount','fees','fee','paid','amount paid','payment received','received','rs','inr','contribution','donation','charges','charge'] },
+    { key: 'paymentDate', label: 'Payment Date',
+      aliases: ['payment date','date of payment','paid date','pay date','payment on','received date','date paid','transaction date'] },
+    { key: 'pickupLocation', label: 'Pickup Location',
+      aliases: ['pickup','pickup location','pickup point','pick up','pick up location','boarding','boarding point','from','location','place','venue','address'] },
+    { key: 'busRoute', label: 'Bus Route',
+      aliases: ['bus','bus route','route','bus no','bus number','transport','vehicle','coach'] },
+    { key: 'serviceDevotee', label: 'Service Devotee',
+      aliases: ['service','service devotee','seva','sewa','sevak','sevadar','volunteer type','is service','service flag'] },
+    { key: 'activeDevotee', label: 'Active Devotee',
+      aliases: ['active','active devotee','status','is active','activity','active flag','devotee status'] }
   ];
 
+  function autoDetectColumn(headerRaw) {
+    // Normalize: lowercase, strip punctuation/spaces
+    const h = headerRaw.toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const field of SYSTEM_FIELDS) {
+      for (const alias of field.aliases) {
+        const a = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (h === a || h.includes(a) || a.includes(h)) return field.key;
+      }
+    }
+    return null;
+  }
+
   function showColumnMapping() {
+    // Build a map: fieldKey → best column index
+    const autoMap = {};
+    importHeaders.forEach((h, i) => {
+      const match = autoDetectColumn(h);
+      if (match && !(match in autoMap)) autoMap[match] = i; // first match wins
+    });
+
+    // Show detected columns banner
+    const detected = Object.keys(autoMap).length;
+    const total = SYSTEM_FIELDS.length;
+
     const grid = document.getElementById('column-mapping-grid');
-    grid.innerHTML = SYSTEM_FIELDS.map(f => {
-      const autoMatch = importHeaders.findIndex(h =>
-        h.toLowerCase().replace(/[^a-z]/g, '') === f.key.toLowerCase().replace(/[^a-z]/g, '') ||
-        h.toLowerCase().includes(f.key.toLowerCase().replace(/([A-Z])/g, ' $1').trim().toLowerCase())
-      );
+
+    // Header banner
+    let banner = `<div class="mapping-banner">
+      <div class="mapping-banner-left">
+        <strong>📋 ${importHeaders.length} columns found in your file</strong>
+        <span class="mapping-detected">${detected} of ${total} fields auto-detected</span>
+      </div>
+      <div class="mapping-cols-preview">${importHeaders.map(h => `<span class="col-chip">${h}</span>`).join('')}</div>
+    </div>`;
+
+    grid.innerHTML = banner + SYSTEM_FIELDS.map(f => {
+      const matchIdx = autoMap[f.key] !== undefined ? autoMap[f.key] : -1;
+      const isMatched = matchIdx >= 0;
       return `
-        <div class="mapping-row">
-          <label>${f.label}</label>
+        <div class="mapping-row ${isMatched ? 'matched' : ''}">
+          <label>
+            ${f.label}
+            ${isMatched ? `<span class="match-chip">✓ auto</span>` : ''}
+          </label>
           <select data-field="${f.key}">
             <option value="">-- Skip --</option>
-            ${importHeaders.map((h, i) => `<option value="${i}" ${i === autoMatch ? 'selected' : ''}>${h}</option>`).join('')}
+            ${importHeaders.map((h, i) => `<option value="${i}" ${i === matchIdx ? 'selected' : ''}>${h}</option>`).join('')}
           </select>
+          ${isMatched ? `<div class="match-hint">Matched: "${importHeaders[matchIdx]}"</div>` : ''}
         </div>
       `;
     }).join('');
+
     document.getElementById('column-mapping-section').classList.remove('hidden');
     document.getElementById('column-mapping-section').scrollIntoView({ behavior: 'smooth' });
   }
