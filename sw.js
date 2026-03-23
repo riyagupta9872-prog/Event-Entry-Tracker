@@ -1,14 +1,15 @@
-const CACHE_NAME = 'prerna-festival-v1';
+const CACHE_NAME = 'prerna-festival-v2';
 const ASSETS = [
   '/',
   '/index.html',
-  '/src/styles/main.css',
-  '/src/utils/db.js',
-  '/src/utils/helpers.js',
-  '/src/utils/reports.js',
-  '/src/utils/export.js',
-  '/src/app.js',
-  'https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap',
+  '/main.css',
+  '/db.js',
+  '/helper.js',
+  '/reports.js',
+  '/export.js',
+  '/app.js',
+  '/manifest.json',
+  'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
 ];
