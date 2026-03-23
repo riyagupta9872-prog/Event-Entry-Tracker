@@ -14,12 +14,23 @@ const App = (() => {
     await initDefaultUsers();
     await initDefaultConfig();
 
-    // Splash → Login
-    setTimeout(() => {
+    // Splash → check saved session or show Login
+    setTimeout(async () => {
       const splash = document.getElementById('splash');
       splash.style.opacity = '0';
-      setTimeout(() => {
+      setTimeout(async () => {
         splash.style.display = 'none';
+        const saved = localStorage.getItem('prerna_session');
+        if (saved) {
+          try {
+            const sess = JSON.parse(saved);
+            const user = await DB.getById(DB.STORES.users, sess.username);
+            if (user) {
+              await loginUser(user);
+              return;
+            }
+          } catch {}
+        }
         document.getElementById('screen-login').classList.remove('hidden');
         document.getElementById('login-username').focus();
       }, 500);
@@ -87,12 +98,17 @@ const App = (() => {
 
     currentUser = user;
     errEl.classList.add('hidden');
+    localStorage.setItem('prerna_session', JSON.stringify({ username: user.username }));
+    await loginUser(user);
+  }
+
+  async function loginUser(user) {
+    currentUser = user;
 
     // Update UI
     document.getElementById('sidebar-username').textContent = user.name;
     document.getElementById('sidebar-role').textContent = user.role === 'admin' ? 'Administrator' : 'Volunteer';
     document.getElementById('sidebar-avatar').textContent = user.name[0].toUpperCase();
-    document.getElementById('login-role').value = user.role;
 
     // Show/hide admin elements
     document.querySelectorAll('.admin-only, .admin-page').forEach(el => {
@@ -101,12 +117,13 @@ const App = (() => {
 
     document.getElementById('screen-login').classList.add('hidden');
     document.getElementById('screen-app').classList.remove('hidden');
-    navigate('dashboard');
+    navigate('attendance');
     await DB.log('login', `User logged in`, user.username);
   }
 
   function handleLogout() {
     currentUser = null;
+    localStorage.removeItem('prerna_session');
     stopScanner();
     document.getElementById('screen-app').classList.add('hidden');
     document.getElementById('screen-login').classList.remove('hidden');
@@ -361,23 +378,26 @@ const App = (() => {
   }
 
   // ===== ATTENDANCE =====
+  let attendanceInited = false;
   function initAttendance() {
-    document.querySelectorAll('.att-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.att-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.att-pane').forEach(p => p.classList.add('hidden'));
-        tab.classList.add('active');
-        document.getElementById(`att-tab-${tab.dataset.tab}`).classList.remove('hidden');
-        if (tab.dataset.tab === 'scan') initScanner();
-        else stopScanner();
-      });
-    });
+    updateAdmitCounters();
+
+    if (attendanceInited) return;
+    attendanceInited = true;
 
     const searchInput = document.getElementById('att-search');
-    const searchBtn = document.getElementById('btn-att-search');
-    searchBtn.addEventListener('click', () => searchAttendees(searchInput.value));
+    searchInput.addEventListener('input', Helpers.debounce(() => searchAttendees(searchInput.value), 200));
     searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchAttendees(searchInput.value); });
-    searchInput.addEventListener('input', Helpers.debounce(() => searchAttendees(searchInput.value), 300));
+
+    // QR toggle
+    const scanBtn = document.getElementById('btn-toggle-scan');
+    scanBtn.addEventListener('click', () => {
+      const section = document.getElementById('att-scan-section');
+      const isHidden = section.classList.contains('hidden');
+      section.classList.toggle('hidden');
+      scanBtn.classList.toggle('active', isHidden);
+      if (isHidden) initScanner(); else stopScanner();
+    });
 
     document.getElementById('btn-manual-scan').addEventListener('click', () => {
       const id = document.getElementById('manual-scan-id').value.trim();
@@ -387,18 +407,49 @@ const App = (() => {
       if (e.key === 'Enter') document.getElementById('btn-manual-scan').click();
     });
 
+    // Walk-in FAB
+    document.getElementById('btn-fab-walkin').addEventListener('click', () => {
+      document.getElementById('walkin-panel').classList.remove('hidden');
+      document.getElementById('wi-name').focus();
+      initWalkinPanel();
+    });
+    document.getElementById('btn-close-walkin').addEventListener('click', () => {
+      document.getElementById('walkin-panel').classList.add('hidden');
+    });
+
+    document.getElementById('btn-add-walkin').addEventListener('click', addWalkIn);
+
     const bulkFile = document.getElementById('bulk-att-file');
     bulkFile.addEventListener('change', e => { if (e.target.files[0]) processBulkAttendance(e.target.files[0]); });
+
+    // Auto-focus search
+    setTimeout(() => searchInput.focus(), 100);
+  }
+
+  async function updateAdmitCounters() {
+    const all = await DB.getAll(DB.STORES.attendees);
+    const present = all.filter(a => a.attendance === 'present');
+    const el1 = document.getElementById('admit-count-present');
+    const el2 = document.getElementById('admit-count-total');
+    if (el1) el1.textContent = present.length;
+    if (el2) el2.textContent = all.length;
   }
 
   async function searchAttendees(query) {
-    if (!query || query.length < 2) {
+    if (!query || query.length < 1) {
       document.getElementById('att-search-results').innerHTML = '';
       return;
     }
     const all = await DB.getAll(DB.STORES.attendees);
-    const results = all.filter(a => Helpers.searchFilter(a, query)).slice(0, 20);
+    const results = all.filter(a => Helpers.searchFilter(a, query)).slice(0, 30);
     renderAttendanceResults(results);
+  }
+
+  function getPaymentStatus(a) {
+    if (a.attendance === 'present') return { color: 'red', label: 'Already Present', cls: 'status-already-present' };
+    const amt = parseFloat(a.paymentAmount || 0);
+    if (amt > 0 || a.category === 'Free' || a.paymentTiming === 'Free') return { color: 'green', label: 'Paid', cls: 'status-paid' };
+    return { color: 'yellow', label: 'Not Paid', cls: 'status-unpaid' };
   }
 
   function renderAttendanceResults(results) {
@@ -408,40 +459,81 @@ const App = (() => {
       return;
     }
     el.innerHTML = results.map(a => {
+      const ps = getPaymentStatus(a);
       const isPres = a.attendance === 'present';
       return `
-        <div class="att-result-card ${isPres ? 'present-card' : ''}" data-id="${a.id}">
+        <div class="att-result-card ${ps.cls}" onclick="App.showAdmitConfirm(${a.id})" data-id="${a.id}">
+          <div class="att-status-indicator ${ps.cls}"></div>
           <div class="att-result-info">
             <div class="att-name">${a.name} ${a.isWalkIn ? '<span class="badge walkin">Walk-in</span>' : ''}</div>
-            <div class="att-meta">📱 ${a.mobile || '-'} · 👥 ${a.team || '-'} · 🔗 ${a.reference || '-'} · 💰 ${Helpers.currency(a.paymentAmount)}</div>
-            ${isPres ? `<div class="att-meta" style="color:var(--success)">✅ Checked in at ${Helpers.formatDateTime(a.entryTime)} by ${a.markedBy}</div>` : ''}
+            <div class="att-meta">${a.mobile || '-'} · ${a.team || '-'} · ${a.attendeeId || ''}</div>
+            <div class="att-payment-badge ${ps.cls}">${ps.label}${isPres ? ` by ${a.markedBy || '?'} at ${Helpers.formatDateTime(a.entryTime)}` : (parseFloat(a.paymentAmount||0) > 0 ? ' - '+Helpers.currency(a.paymentAmount) : '')}</div>
           </div>
-          <div class="att-actions">
-            ${isPres
-              ? `<button class="btn-small danger" onclick="App.unmarkAttendance(${a.id})">Undo</button>`
-              : `<button class="btn-small success" onclick="App.markAttendance(${a.id})">Mark Present</button>`
-            }
-            <button class="btn-small" onclick="App.showAttendeeDetail(${a.id})">Detail</button>
-          </div>
+          <div class="att-arrow">&#8250;</div>
         </div>
       `;
     }).join('');
   }
 
+  async function showAdmitConfirm(id) {
+    const a = await DB.getById(DB.STORES.attendees, id);
+    if (!a) return;
+    const ps = getPaymentStatus(a);
+    const isPres = a.attendance === 'present';
+
+    let actionHtml = '';
+    if (isPres) {
+      actionHtml = `
+        <div class="admit-warning status-already-present">
+          Already marked present by <strong>${a.markedBy || 'Unknown'}</strong> at ${Helpers.formatDateTime(a.entryTime)}
+        </div>
+        <button class="btn-danger admit-btn" onclick="App.unmarkAttendance(${a.id});Helpers.closeModal()">Undo Check-in</button>
+      `;
+    } else {
+      actionHtml = `<button class="btn-primary admit-btn ${ps.cls}" onclick="App.markAttendance(${a.id});Helpers.closeModal()">Confirm & Mark Present</button>`;
+    }
+
+    Helpers.modal(`
+      <div class="admit-confirm-card">
+        <div class="admit-status-banner ${ps.cls}">
+          <span class="admit-status-dot ${ps.cls}"></span>
+          ${ps.label}
+        </div>
+        <h3 class="admit-name">${a.name}</h3>
+        <div class="admit-details">
+          <div class="admit-row"><span>Mobile</span><span>${a.mobile || '-'}</span></div>
+          <div class="admit-row"><span>Team</span><span>${a.team || '-'}</span></div>
+          <div class="admit-row"><span>Category</span><span>${a.category || '-'}</span></div>
+          <div class="admit-row"><span>Reference</span><span>${a.reference || '-'}</span></div>
+          <div class="admit-row"><span>Payment</span><span>${Helpers.currency(a.paymentAmount)} ${a.paymentTiming ? '('+a.paymentTiming+')' : ''}</span></div>
+          <div class="admit-row"><span>ID</span><span style="font-family:var(--font-mono);font-size:.8rem">${a.attendeeId}</span></div>
+        </div>
+        <div class="admit-actions">
+          ${actionHtml}
+          <button class="btn-ghost admit-btn" onclick="Helpers.closeModal()">Cancel</button>
+        </div>
+      </div>
+    `);
+  }
+
   async function markAttendance(id) {
     const attendee = await DB.getById(DB.STORES.attendees, id);
     if (!attendee) return;
+    if (attendee.attendance === 'present') {
+      Helpers.toast(`${attendee.name} is already checked in by ${attendee.markedBy}`, 'warning');
+      return;
+    }
     attendee.attendance = 'present';
     attendee.entryTime = new Date().toISOString();
     attendee.markedBy = currentUser?.name || 'Unknown';
     await DB.put(DB.STORES.attendees, attendee);
     await DB.log('checkin', `${attendee.name} checked in`, currentUser?.username);
-    Helpers.toast(`✅ ${attendee.name} checked in!`, 'success');
+    Helpers.toast(`${attendee.name} checked in!`, 'success');
 
-    // Refresh results
+    // Refresh results & counters
     const q = document.getElementById('att-search')?.value;
     if (q) searchAttendees(q);
-    initDashboard();
+    updateAdmitCounters();
   }
 
   async function unmarkAttendance(id) {
@@ -454,6 +546,7 @@ const App = (() => {
     Helpers.toast(`Attendance removed for ${attendee.name}`, 'warning');
     const q = document.getElementById('att-search')?.value;
     if (q) searchAttendees(q);
+    updateAdmitCounters();
   }
 
   async function markByIdOrQr(input) {
@@ -483,19 +576,8 @@ const App = (() => {
         return;
       }
 
-      if (found.attendance === 'present') {
-        feedback.className = 'scan-feedback error';
-        feedback.textContent = `⚠️ ${found.name} already checked in at ${Helpers.formatDateTime(found.entryTime)}`;
-        feedback.classList.remove('hidden');
-        return;
-      }
-
-      await markAttendance(found.id);
-      feedback.className = 'scan-feedback success';
-      feedback.textContent = `✅ ${found.name} — Checked in!`;
-      feedback.classList.remove('hidden');
       document.getElementById('manual-scan-id').value = '';
-      setTimeout(() => feedback.classList.add('hidden'), 3000);
+      showAdmitConfirm(found.id);
     } catch (err) {
       feedback.className = 'scan-feedback error';
       feedback.textContent = `Error: ${err.message}`;
@@ -613,19 +695,17 @@ const App = (() => {
 
   // ===== WALK-IN =====
   function initWalkin() {
+    renderWalkinList();
+  }
+
+  function initWalkinPanel() {
     // Populate team datalist
     DB.getAll(DB.STORES.attendees).then(all => {
       const teams = [...new Set(all.map(a => a.team).filter(Boolean))];
       document.getElementById('team-list').innerHTML = teams.map(t => `<option value="${t}">`).join('');
     });
-
     // Set today's date
     document.getElementById('wi-paydate').value = new Date().toISOString().slice(0, 10);
-
-    document.getElementById('btn-add-walkin').addEventListener('click', addWalkIn);
-    document.getElementById('btn-clear-walkin').addEventListener('click', clearWalkinForm);
-
-    renderWalkinList();
   }
 
   async function addWalkIn() {
@@ -639,9 +719,9 @@ const App = (() => {
     const busRoute = document.getElementById('wi-busroute').value.trim();
     const fb = document.getElementById('walkin-feedback');
 
-    if (!name || !mobile || !reference || payment === '') {
+    if (!name || !mobile) {
       fb.className = 'scan-feedback error';
-      fb.textContent = 'Please fill all required fields (★)';
+      fb.textContent = 'Name and Mobile are required';
       fb.classList.remove('hidden'); return;
     }
 
@@ -667,16 +747,20 @@ const App = (() => {
     setTimeout(() => fb.classList.add('hidden'), 3000);
 
     clearWalkinForm();
-    renderWalkinList();
+    document.getElementById('walkin-panel').classList.add('hidden');
+    updateAdmitCounters();
     Helpers.toast(`Walk-in ${name} registered!`, 'success');
   }
 
   function clearWalkinForm() {
     ['wi-name','wi-mobile','wi-reference','wi-payment','wi-team','wi-busroute'].forEach(id => {
-      document.getElementById(id).value = '';
+      const el = document.getElementById(id);
+      if (el) el.value = '';
     });
-    document.getElementById('wi-category').value = '';
-    document.getElementById('wi-paydate').value = new Date().toISOString().slice(0, 10);
+    const cat = document.getElementById('wi-category');
+    if (cat) cat.value = '';
+    const pd = document.getElementById('wi-paydate');
+    if (pd) pd.value = new Date().toISOString().slice(0, 10);
   }
 
   async function renderWalkinList() {
@@ -992,7 +1076,7 @@ const App = (() => {
   // ===== PUBLIC API =====
   return {
     init, navigate,
-    markAttendance, unmarkAttendance, showAttendeeDetail,
+    markAttendance, unmarkAttendance, showAttendeeDetail, showAdmitConfirm,
     resolveDuplicate, acceptDuplicate, deleteDuplicate,
     saveBusRoute, deleteBusRoute, deleteUser, saveUser,
     initAttendees

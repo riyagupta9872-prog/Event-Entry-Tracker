@@ -4,8 +4,8 @@
   "description": "Attendance tracking and reporting for Prerna Festival",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d0820",
-  "theme_color": "#1a0a2e",
+  "background_color": "#ffffff",
+  "theme_color": "#16a34a",
   "orientation": "any",
   "icons": [
     {

@@ -1,39 +1,39 @@
 /* ===== CSS VARIABLES ===== */
 :root {
-  --bg-deep: #0d0820;
-  --bg-main: #130f28;
-  --bg-card: #1c1635;
-  --bg-card2: #221e3a;
-  --bg-input: #2a2448;
-  --border: #3d3460;
-  --border-light: #4a4070;
-  --accent: #c9a227;
-  --accent-light: #f0c040;
-  --accent-glow: rgba(201,162,39,0.25);
-  --lotus: #e8637a;
-  --lotus-light: #f08090;
-  --primary: #7b5ea7;
-  --primary-light: #9b7ec7;
-  --success: #2ecc71;
-  --success-bg: rgba(46,204,113,0.12);
-  --warning: #f39c12;
-  --warning-bg: rgba(243,156,18,0.12);
-  --danger: #e74c3c;
-  --danger-bg: rgba(231,76,60,0.12);
-  --info: #3498db;
-  --info-bg: rgba(52,152,219,0.12);
-  --text-primary: #f0ecff;
-  --text-secondary: #a09ac0;
-  --text-muted: #6b6490;
-  --font-display: 'Cinzel', serif;
+  --bg-deep: #f8faf8;
+  --bg-main: #f0f5f0;
+  --bg-card: #ffffff;
+  --bg-card2: #f5f9f5;
+  --bg-input: #f0f5f0;
+  --border: #d4e4d4;
+  --border-light: #c0d8c0;
+  --accent: #16a34a;
+  --accent-light: #22c55e;
+  --accent-glow: rgba(22,163,74,0.15);
+  --lotus: #16a34a;
+  --lotus-light: #22c55e;
+  --primary: #15803d;
+  --primary-light: #16a34a;
+  --success: #16a34a;
+  --success-bg: rgba(22,163,74,0.1);
+  --warning: #d97706;
+  --warning-bg: rgba(217,119,6,0.1);
+  --danger: #dc2626;
+  --danger-bg: rgba(220,38,38,0.08);
+  --info: #0284c7;
+  --info-bg: rgba(2,132,199,0.08);
+  --text-primary: #1a1a1a;
+  --text-secondary: #4a5568;
+  --text-muted: #94a3b8;
+  --font-display: 'DM Sans', sans-serif;
   --font-body: 'DM Sans', sans-serif;
   --font-mono: 'DM Mono', monospace;
   --radius: 12px;
   --radius-sm: 8px;
-  --shadow: 0 4px 24px rgba(0,0,0,0.4);
-  --shadow-glow: 0 0 30px rgba(201,162,39,0.15);
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-glow: 0 4px 12px rgba(22,163,74,0.1);
   --sidebar-w: 260px;
-  --transition: 0.2s ease;
+  --transition: 0.15s ease;
 }
 
 /* ===== RESET ===== */
@@ -512,16 +512,65 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .att-result-card {
   background: var(--bg-card2);
   border: 1px solid var(--border);
+  border-left: 5px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0.9rem 1rem;
-  display: flex; align-items: center; gap: 1rem;
-  flex-wrap: wrap;
+  display: flex; align-items: center; gap: 0.75rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
 }
-.att-result-card.present-card { border-color: var(--success); background: var(--success-bg); }
+.att-result-card:active { transform: scale(0.98); }
+.att-result-card.status-paid { border-left-color: var(--success); }
+.att-result-card.status-unpaid { border-left-color: var(--warning); }
+.att-result-card.status-already-present { border-left-color: var(--danger); background: var(--danger-bg); }
+.att-status-indicator { display: none; }
 .att-result-info { flex: 1; min-width: 0; }
-.att-name { font-weight: 600; margin-bottom: 0.2rem; }
-.att-meta { font-size: 0.78rem; color: var(--text-muted); }
-.att-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.att-name { font-weight: 600; margin-bottom: 0.2rem; font-size: 1rem; }
+.att-meta { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+.att-payment-badge {
+  display: inline-block; font-size: 0.72rem; font-weight: 600;
+  padding: 0.15rem 0.5rem; border-radius: 4px;
+}
+.att-payment-badge.status-paid { background: var(--success-bg); color: var(--success); }
+.att-payment-badge.status-unpaid { background: var(--warning-bg); color: var(--warning); }
+.att-payment-badge.status-already-present { background: var(--danger-bg); color: var(--danger); }
+.att-arrow { font-size: 1.5rem; color: var(--text-muted); flex-shrink: 0; }
+.admit-confirm-card { text-align: center; }
+.admit-status-banner {
+  padding: 0.6rem 1rem; border-radius: var(--radius-sm);
+  font-weight: 700; font-size: 0.95rem; margin-bottom: 1rem;
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+}
+.admit-status-banner.status-paid { background: var(--success-bg); color: var(--success); }
+.admit-status-banner.status-unpaid { background: var(--warning-bg); color: var(--warning); }
+.admit-status-banner.status-already-present { background: var(--danger-bg); color: var(--danger); }
+.admit-status-dot {
+  width: 12px; height: 12px; border-radius: 50%; display: inline-block;
+}
+.admit-status-dot.status-paid { background: var(--success); }
+.admit-status-dot.status-unpaid { background: var(--warning); }
+.admit-status-dot.status-already-present { background: var(--danger); }
+.admit-name { font-size: 1.3rem; font-weight: 700; margin-bottom: 0.75rem; }
+.admit-details { text-align: left; margin-bottom: 1rem; }
+.admit-row {
+  display: flex; justify-content: space-between;
+  padding: 0.4rem 0; border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.admit-row span:first-child { color: var(--text-muted); }
+.admit-actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
+.admit-btn {
+  width: 100%; padding: 0.75rem; border-radius: var(--radius-sm);
+  font-size: 1rem; font-weight: 600; cursor: pointer; border: none;
+}
+.admit-btn.status-paid { background: var(--success); color: #fff; }
+.admit-btn.status-unpaid { background: var(--warning); color: #000; }
+.admit-warning {
+  padding: 0.75rem; border-radius: var(--radius-sm); margin-bottom: 0.5rem;
+  font-size: 0.85rem; text-align: left;
+}
+.admit-warning.status-already-present { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
 
 /* ===== SCANNER ===== */
 .scan-card { text-align: center; }
