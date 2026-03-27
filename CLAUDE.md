@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Prerna Festival Management — a client-side PWA for tracking attendance, payments, and transportation at the "Prerna Festival" event. There is **no build step, no bundler, no server** — it is a static site deployed directly to GitHub Pages.
+Prerna Festival Management — a client-side PWA for tracking attendance, payments, and transportation at the "Prerna Festival" event. Firebase backend for authentication and data persistence. Deployed as a static site to GitHub Pages via `deploy.yml`. **No build step, no bundler, no server.**
 
 ## Deployment
 
@@ -13,29 +13,59 @@ Prerna Festival Management — a client-side PWA for tracking attendance, paymen
 
 ## Architecture
 
-Single-page app with all state in **IndexedDB** (database name: `PrernaFestival`). No backend/API — everything runs in the browser.
+### Backend: Firebase
+- **Firebase Auth** for email/password authentication with persistent sessions
+- **Cloud Firestore** for all data storage (replaces IndexedDB)
+- Firebase SDK loaded via CDN (compat version, no build step needed)
+- Firestore offline persistence enabled for PWA offline support
+
+### Firestore Data Structure
+```
+users/{uid}                          — User profiles (name, email, role)
+events/{eventId}                     — Event documents (name, date, chargePerPerson, totalExpense, financialYear)
+events/{eventId}/participants/{docId} — Attendee/participant records
+events/{eventId}/config/{key}        — Event-level config key-value pairs
+events/{eventId}/busRoutes/{docId}   — Bus route configurations
+events/{eventId}/auditLog/{docId}    — Audit trail entries
+```
+
+Data is **event-scoped** — all participant, config, and bus route data lives under a specific event. The active event is tracked via `localStorage('prerna_active_event')` and `DB.setCurrentEvent()`.
 
 ### Module structure (all vanilla JS, IIFE pattern returning public API):
 
-- **`db.js`** — `DB` module. IndexedDB wrapper with generic CRUD (`getAll`, `put`, `add`, `deleteRecord`, `bulkAdd`), config key-value store (`getConfig`/`setConfig`), and audit logging. Stores: `attendees`, `users`, `config`, `busRoutes`, `auditLog`, `offlineQueue`.
-- **`helper.js`** — `Helpers` module. UI utilities (toast, modal), formatting (currency in INR `₹`, dates in `en-IN`), fuzzy name matching (Levenshtein), duplicate detection by mobile+name similarity, pagination, search filtering.
-- **`reports.js`** — `Reports` module. Computes report data (overview, payment, reference, transport, summary) and renders report HTML with stat cards and tables.
+- **`firebase-config.js`** — Firebase initialization with app config, auth, and Firestore globals (`auth`, `firestore`).
+- **`db.js`** — `DB` module. Firestore wrapper maintaining the same API as the original IndexedDB layer. Event-scoped collections, generic CRUD (`getAll`, `put`, `add`, `deleteRecord`, `bulkAdd`), config key-value store, audit logging, and event management (`getEvents`, `createEvent`, `updateEvent`, `deleteEvent`).
+- **`helper.js`** — `Helpers` module. UI utilities (toast, modal), formatting (currency in INR, dates in `en-IN`), fuzzy name matching (Levenshtein), duplicate detection, financial year utilities (`getFinancialYear`, `getFYRange`).
+- **`reports.js`** — `Reports` module. Computes report data (overview, payment with paid/unpaid/free + cash/online breakdown, reference, transport, summary) and renders report HTML.
 - **`export.js`** — `Export` module. Exports reports to Excel (via SheetJS/`XLSX`), CSV, and PDF (print-based via `window.open`).
-- **`app.js`** — `App` module. Main controller: auth (admin/volunteer roles), page navigation, dashboard, Excel import, QR-code attendance scanning, walk-in entry, attendee CRUD, settings, and data management.
-- **`sw.js`** — Service worker for offline caching. Note: cached asset paths reference a `src/` subdirectory structure that doesn't match the flat repo layout.
+- **`app.js`** — `App` module. Firebase Auth flow (login, register, forgot password, change password), event management (create/switch events), page navigation, admission/attendance, walk-in entry, attendee CRUD, financial year reporting, settings.
+- **`sw.js`** — Service worker for offline caching. Skips Firebase API requests (auth/firestore).
 
 ### Key patterns
 
-- **Auth**: client-side only, stored in IndexedDB `users` store. Default credentials: `admin`/`admin123`, `volunteer`/`vol123`. Admin vs volunteer role controls UI visibility (`.admin-only` class).
-- **All HTML is in `index.html`** — a single large file containing inline CSS (duplicated in `main.css`), all page sections, and script tags loading the modules in dependency order: `db.js` → `helper.js` → `reports.js` → `export.js` → `app.js`.
-- **External CDN deps** (loaded via `<script>` tags): SheetJS (`xlsx.full.min.js`), JSZip, Google Fonts (Cinzel, DM Sans, DM Mono).
+- **Auth**: Firebase email/password authentication. User profiles stored in Firestore `users` collection. Roles: `admin`/`volunteer`. `auth.onAuthStateChanged()` handles persistent sessions automatically.
+- **All HTML is in `index.html`** — a single file with inline CSS and external script tags loading modules in dependency order: `firebase-config.js` -> `db.js` -> `helper.js` -> `reports.js` -> `export.js` -> `app.js`.
+- **Firestore IDs are strings** — all `onclick` handlers quote IDs: `App.markAttendance('${a.id}')` not `App.markAttendance(${a.id})`.
+- **External CDN deps**: Firebase SDK (compat v10.12.0), SheetJS (`xlsx.full.min.js`), JSZip, Google Fonts (DM Sans, DM Mono).
 - **No framework** — DOM manipulation via `document.getElementById`, `innerHTML` assignment, and event listeners.
 
-### Data model (IndexedDB `attendees` store)
+### Participant Data Model (Firestore `events/{id}/participants`)
 
-Key fields: `attendeeId`, `name`, `mobile`, `team`, `category`, `reference`, `paymentAmount`, `paymentDate`, `paymentTiming`, `busRoute`, `attendance` (`'present'`), `entryTime`, `markedBy`, `isWalkIn`, `isDuplicate`, `serviceDevotee`, `activeDevotee`.
+Key fields: `attendeeId`, `name`, `mobile`, `team`, `category`, `reference`, `paymentStatus` (`paid`/`unpaid`/`free`), `paymentMode` (`cash`/`online`), `paymentAmount`, `paymentDate`, `remarks`, `attendance` (`present`/`absent`), `entryTime`, `markedBy`, `isWalkIn`, `isDuplicate`, `busRoute`.
+
+### Financial Year
+
+FY runs April 1 to March 31. FY string format: `"2025-26"`. Events are grouped by FY for profit/loss reporting. `Helpers.getFinancialYear(dateStr)` computes FY from any date.
 
 ## CSS
 
-- Dark theme with CSS custom properties defined in `:root` (both inline in `index.html` and in `main.css` — these are duplicated).
-- Color scheme: deep purple/dark backgrounds, gold accents (`--accent: #c9a227`), lotus pink highlights.
+- White/green theme with CSS custom properties in `:root` (inline in `index.html`).
+- Color scheme: white backgrounds, green accents (`--accent: #16a34a`), green shades for UI elements.
+- Mobile-first responsive design — sidebar collapses on mobile, admission page optimized for counter use.
+
+## Firebase Setup Requirements
+
+Before the app works, the Firebase project needs:
+1. **Authentication** — Enable Email/Password sign-in method in Firebase Console
+2. **Firestore** — Create a Firestore database (start in test mode or configure security rules)
+3. **Security Rules** — should restrict read/write to authenticated users

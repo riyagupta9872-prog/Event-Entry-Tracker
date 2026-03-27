@@ -59,15 +59,11 @@ body {
   color: var(--text-primary);
   overflow: hidden;
 }
-input, select, button, textarea {
-  font-family: var(--font-body);
-  outline: none;
-}
+input, select, button, textarea { font-family: var(--font-body); outline: none; }
 a { text-decoration: none; color: inherit; }
 
 /* ===== UTILITIES ===== */
 .hidden { display: none !important; }
-.admin-only, .admin-page { /* shown via JS */ }
 
 /* ===== SPLASH ===== */
 #splash {
@@ -126,44 +122,41 @@ a { text-decoration: none; color: inherit; }
 }
 .login-subtitle {
   text-align: center; color: var(--text-secondary);
-  font-size: 0.85rem;
-  margin-bottom: 2rem;
+  font-size: 0.85rem; margin-bottom: 1.5rem;
 }
+.login-tabs {
+  display: flex; gap: 0; margin-bottom: 1.25rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.login-tab {
+  flex: 1; padding: 0.6rem; text-align: center;
+  font-size: 0.85rem; font-weight: 500; cursor: pointer;
+  background: var(--bg-input); color: var(--text-secondary);
+  border: none; transition: all var(--transition);
+}
+.login-tab.active { background: var(--accent); color: #fff; font-weight: 600; }
 .login-form { display: flex; flex-direction: column; gap: 1rem; }
-.login-hint {
-  text-align: center; color: var(--text-muted);
-  font-size: 0.75rem; margin-top: 1rem;
+.pw-wrap {
+  position: relative; display: flex; align-items: center;
+}
+.pw-wrap input { flex: 1; padding-right: 2.5rem; }
+.pw-toggle {
+  position: absolute; right: 0.5rem;
+  background: none; border: none;
+  cursor: pointer; font-size: 1.1rem;
+  color: var(--text-muted); padding: 0.25rem;
+}
+.forgot-link {
+  text-align: right; font-size: 0.78rem;
+  color: var(--accent); cursor: pointer;
+  margin-top: -0.5rem;
   transition: color var(--transition);
 }
-.login-hint:hover { color: var(--accent); }
-.first-time-banner {
-  background: var(--success-bg);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  padding: 0.6rem 1rem;
-  text-align: center;
-  color: var(--accent);
-  font-size: 0.85rem;
-  margin-bottom: 1.25rem;
-}
-.login-quick-btns {
-  display: flex; align-items: center; gap: 0.5rem;
-  justify-content: center; margin-top: 1rem;
-  flex-wrap: wrap;
-}
-.login-quick-btn {
-  padding: 0.25rem 0.75rem;
-  background: var(--bg-input); border: 1px solid var(--border);
-  border-radius: 20px; color: var(--text-secondary);
-  font-size: 0.78rem; cursor: pointer;
-  transition: all var(--transition);
-}
-.login-quick-btn:hover { border-color: var(--accent); color: var(--accent); }
+.forgot-link:hover { color: #15803d; text-decoration: underline; }
 
 /* ===== APP LAYOUT ===== */
-#screen-app {
-  display: flex; height: 100vh;
-}
+#screen-app { display: flex; height: 100vh; }
 
 /* ===== SIDEBAR ===== */
 #sidebar {
@@ -184,34 +177,21 @@ a { text-decoration: none; color: inherit; }
 .sidebar-title {
   font-family: var(--font-display);
   color: var(--accent); font-weight: 700;
-  letter-spacing: 0.05em;
-  font-size: 1.1rem;
-  flex: 1;
+  letter-spacing: 0.05em; font-size: 1.1rem; flex: 1;
 }
 .sidebar-close { display: none; background: none; border: none; color: var(--text-muted); font-size: 1rem; cursor: pointer; }
-.sidebar-nav {
-  flex: 1; padding: 1rem 0;
-  overflow-y: auto;
-}
+.sidebar-nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
 .nav-item {
   display: flex; align-items: center; gap: 0.75rem;
   padding: 0.75rem 1.25rem;
   color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 0;
+  cursor: pointer; border-radius: 0;
   transition: all var(--transition);
   border-left: 3px solid transparent;
   font-size: 0.9rem;
 }
-.nav-item:hover {
-  background: var(--bg-card2);
-  color: var(--text-primary);
-}
-.nav-item.active {
-  background: var(--success-bg);
-  color: var(--accent);
-  border-left-color: var(--accent);
-}
+.nav-item:hover { background: var(--bg-card2); color: var(--text-primary); }
+.nav-item.active { background: var(--success-bg); color: var(--accent); border-left-color: var(--accent); }
 .nav-icon { font-size: 1rem; width: 20px; text-align: center; }
 .sidebar-footer {
   padding: 1rem 1.25rem;
@@ -224,8 +204,7 @@ a { text-decoration: none; color: inherit; }
   background: linear-gradient(135deg, #15803d, #22c55e);
   color: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 600; font-size: 0.9rem;
-  flex-shrink: 0;
+  font-weight: 600; font-size: 0.9rem; flex-shrink: 0;
 }
 .user-name { font-size: 0.9rem; font-weight: 500; }
 .user-role { font-size: 0.75rem; color: var(--text-muted); }
@@ -239,11 +218,7 @@ a { text-decoration: none; color: inherit; }
 .btn-logout:hover { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
 
 /* ===== MAIN CONTENT ===== */
-#main-content {
-  flex: 1; display: flex; flex-direction: column;
-  overflow: hidden;
-  min-width: 0;
-}
+#main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 
 /* ===== TOP BAR ===== */
 #top-bar {
@@ -251,8 +226,7 @@ a { text-decoration: none; color: inherit; }
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 1rem;
-  padding: 0 1.5rem;
-  flex-shrink: 0;
+  padding: 0 1.5rem; flex-shrink: 0;
 }
 #page-title {
   font-family: var(--font-display);
@@ -263,7 +237,22 @@ a { text-decoration: none; color: inherit; }
   display: none; background: none; border: none;
   color: var(--text-secondary); font-size: 1.25rem; cursor: pointer;
 }
-.top-bar-right { display: flex; align-items: center; gap: 1rem; }
+.top-bar-right { display: flex; align-items: center; gap: 0.75rem; }
+.event-select {
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-primary);
+  font-size: 0.8rem; max-width: 200px; cursor: pointer;
+}
+.event-select:focus { border-color: var(--accent); }
+.btn-new-event {
+  padding: 0.3rem 0.5rem;
+  background: var(--success-bg); border: 1px solid var(--accent);
+  border-radius: var(--radius-sm); color: var(--accent);
+  font-size: 0.75rem; cursor: pointer;
+  transition: all var(--transition);
+}
+.btn-new-event:hover { background: var(--accent); color: #fff; }
 .sync-status { font-size: 0.8rem; font-family: var(--font-mono); }
 .sync-status.online { color: var(--success); }
 .sync-status.offline { color: var(--danger); }
@@ -274,10 +263,7 @@ a { text-decoration: none; color: inherit; }
 }
 
 /* ===== CONTENT AREA ===== */
-#content-area {
-  flex: 1; overflow-y: auto; padding: 1.5rem;
-  background: var(--bg-main);
-}
+#content-area { flex: 1; overflow-y: auto; padding: 1.5rem; background: var(--bg-main); }
 
 /* ===== PAGES ===== */
 .page { animation: fadeIn 0.25s ease; }
@@ -288,8 +274,7 @@ a { text-decoration: none; color: inherit; }
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.5rem;
-  margin-bottom: 1.25rem;
+  padding: 1.5rem; margin-bottom: 1.25rem;
 }
 .card-title {
   font-family: var(--font-display);
@@ -301,15 +286,14 @@ a { text-decoration: none; color: inherit; }
 /* ===== STATS GRID ===== */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 1rem; margin-bottom: 1.25rem;
 }
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.25rem;
-  text-align: center;
+  padding: 1.25rem; text-align: center;
   transition: transform var(--transition), box-shadow var(--transition);
 }
 .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
@@ -319,25 +303,14 @@ a { text-decoration: none; color: inherit; }
 .stat-card.accent { border-top: 3px solid var(--accent); }
 .stat-card.danger { border-top: 3px solid var(--danger); }
 .stat-card.info { border-top: 3px solid var(--info); }
-.stat-icon { font-size: 1.75rem; margin-bottom: 0.5rem; }
-.stat-value { font-size: 1.75rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-primary); }
-.stat-label { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-value { font-size: 1.5rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-primary); }
+.stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* ===== DASHBOARD GRID ===== */
-.dashboard-grid {
-  display: grid; grid-template-columns: 1fr 1fr;
-  gap: 1.25rem; margin-bottom: 1.25rem;
-}
+.dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem; }
 .progress-wrap { display: flex; align-items: center; gap: 1rem; }
-.progress-bar-outer {
-  flex: 1; height: 12px; background: var(--bg-input);
-  border-radius: 6px; overflow: hidden;
-}
-.progress-bar-inner {
-  height: 100%;
-  background: linear-gradient(90deg, #15803d, #22c55e);
-  border-radius: 6px; transition: width 0.5s ease;
-}
+.progress-bar-outer { flex: 1; height: 12px; background: var(--bg-input); border-radius: 6px; overflow: hidden; }
+.progress-bar-inner { height: 100%; background: linear-gradient(90deg, #15803d, #22c55e); border-radius: 6px; transition: width 0.5s ease; }
 .progress-pct { font-family: var(--font-mono); color: var(--accent); font-size: 0.9rem; }
 .mini-breakdown { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .mini-row { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary); }
@@ -357,8 +330,7 @@ a { text-decoration: none; color: inherit; }
   padding: 0.85rem 1rem;
   background: var(--bg-card2); border: 1px solid var(--border);
   border-radius: var(--radius-sm); color: var(--text-primary);
-  cursor: pointer; font-size: 0.85rem;
-  transition: all var(--transition);
+  cursor: pointer; font-size: 0.85rem; transition: all var(--transition);
 }
 .qa-btn:hover { background: var(--success-bg); border-color: var(--accent); color: var(--accent); }
 
@@ -376,7 +348,6 @@ a { text-decoration: none; color: inherit; }
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 .input-group select option { background: #fff; }
-.input-group.required label::after { content: ' ★'; color: var(--lotus); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
 .form-actions { display: flex; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap; }
 
@@ -389,6 +360,7 @@ a { text-decoration: none; color: inherit; }
   font-size: 0.9rem; transition: all var(--transition);
 }
 .btn-primary:hover { background: #15803d; box-shadow: 0 2px 8px rgba(22,163,74,0.3); }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn-primary.full-width { width: 100%; }
 .btn-secondary {
   padding: 0.7rem 1.5rem;
@@ -429,41 +401,30 @@ a { text-decoration: none; color: inherit; }
   padding: 0.65rem 1rem;
   background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius-sm); color: var(--text-primary);
-  font-size: 0.9rem; transition: border-color var(--transition);
-  flex: 1;
+  font-size: 0.9rem; transition: border-color var(--transition); flex: 1;
 }
 .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-.search-input.large { font-size: 1rem; padding: 0.8rem 1rem; }
 .filter-select {
   padding: 0.65rem 0.9rem;
   background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius-sm); color: var(--text-primary);
   font-size: 0.85rem; cursor: pointer;
 }
-.table-controls {
-  display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap;
-}
+.table-controls { display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; }
 .table-count { color: var(--text-muted); font-size: 0.82rem; margin-bottom: 0.75rem; font-family: var(--font-mono); }
 
 /* ===== TABLES ===== */
 .table-wrap { overflow-x: auto; }
-table {
-  width: 100%; border-collapse: collapse;
-  font-size: 0.85rem;
-}
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 thead th {
   padding: 0.65rem 0.9rem;
   background: var(--bg-card2);
   color: var(--text-secondary); font-weight: 600;
   text-align: left; font-size: 0.75rem;
   text-transform: uppercase; letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
 }
-tbody tr {
-  border-bottom: 1px solid rgba(61,52,96,0.5);
-  transition: background var(--transition);
-}
+tbody tr { border-bottom: 1px solid var(--border); transition: background var(--transition); }
 tbody tr:hover { background: #f0fdf4; }
 tbody td { padding: 0.6rem 0.9rem; color: var(--text-primary); }
 tbody tr.duplicate-row { background: rgba(231,76,60,0.08); border-left: 3px solid var(--danger); }
@@ -487,19 +448,11 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
 /* ===== UPLOAD ZONE ===== */
 .upload-zone {
-  border: 2px dashed var(--border);
-  border-radius: var(--radius);
-  padding: 3rem 2rem;
-  text-align: center;
-  color: var(--text-secondary);
-  transition: all var(--transition);
-  cursor: pointer;
+  border: 2px dashed var(--border); border-radius: var(--radius);
+  padding: 3rem 2rem; text-align: center;
+  color: var(--text-secondary); transition: all var(--transition); cursor: pointer;
 }
-.upload-zone.dragover {
-  border-color: var(--accent);
-  background: rgba(201,162,39,0.05);
-  color: var(--text-primary);
-}
+.upload-zone.dragover { border-color: var(--accent); background: rgba(22,163,74,0.05); color: var(--text-primary); }
 .upload-icon { font-size: 3rem; margin-bottom: 1rem; }
 .upload-sub { color: var(--text-muted); margin: 0.5rem 0; }
 .upload-hint { font-size: 0.78rem; color: var(--text-muted); margin-top: 1rem; }
@@ -507,6 +460,21 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
 /* ===== IMPORT ===== */
 .mapping-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+.mapping-row { display: flex; flex-direction: column; gap: 0.3rem; }
+.mapping-row label { font-size: 0.78rem; color: var(--text-muted); }
+.mapping-row select {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-primary);
+  font-size: 0.85rem;
+}
+.mapping-actions { display: flex; gap: 0.75rem; }
+.import-stats-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.import-stat { padding: 0.4rem 0.9rem; border-radius: 20px; font-size: 0.8rem; font-family: var(--font-mono); }
+.import-stat.total { background: var(--info-bg); color: var(--info); }
+.import-stat.clean { background: var(--success-bg); color: var(--success); }
+.import-stat.dup { background: var(--danger-bg); color: var(--danger); }
+.import-result-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
 .mapping-tip {
   grid-column: 1 / -1;
   background: rgba(52,152,219,0.08); border: 1px solid rgba(52,152,219,0.3);
@@ -515,59 +483,6 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   margin-bottom: 0.75rem;
 }
 .mapping-tip strong { color: var(--info); }
-  grid-column: 1 / -1;
-  background: var(--bg-card2); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 1rem;
-  margin-bottom: 0.5rem;
-}
-.mapping-banner-left { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
-.mapping-banner-left strong { color: var(--text-primary); font-size: 0.9rem; }
-.mapping-detected {
-  background: var(--success-bg); color: var(--success);
-  padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.75rem;
-  border: 1px solid var(--success);
-}
-.mapping-cols-preview { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.col-chip {
-  background: var(--bg-input); border: 1px solid var(--border);
-  border-radius: 4px; padding: 0.15rem 0.5rem;
-  font-size: 0.72rem; color: var(--text-secondary);
-  font-family: var(--font-mono);
-}
-.mapping-row { display: flex; flex-direction: column; gap: 0.3rem; }
-.mapping-row label {
-  font-size: 0.78rem; color: var(--text-muted);
-  display: flex; align-items: center; gap: 0.4rem;
-}
-.mapping-row.matched label { color: var(--text-primary); }
-.match-chip {
-  background: var(--success-bg); color: var(--success);
-  border: 1px solid var(--success); border-radius: 20px;
-  padding: 0.1rem 0.4rem; font-size: 0.68rem; font-weight: 600;
-}
-.match-hint {
-  font-size: 0.72rem; color: var(--success);
-  font-family: var(--font-mono); padding-left: 0.25rem;
-  opacity: 0.8;
-}
-.mapping-row select {
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-input); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); color: var(--text-primary);
-  font-size: 0.85rem; transition: border-color var(--transition);
-}
-.mapping-row.matched select { border-color: var(--success); }
-.mapping-row select:focus { border-color: var(--accent); }
-.mapping-actions { display: flex; gap: 0.75rem; }
-.import-stats-row { display: flex; gap: 1rem; flex-wrap: wrap; }
-.import-stat {
-  padding: 0.4rem 0.9rem; border-radius: 20px;
-  font-size: 0.8rem; font-family: var(--font-mono);
-}
-.import-stat.total { background: var(--info-bg); color: var(--info); }
-.import-stat.clean { background: var(--success-bg); color: var(--success); }
-.import-stat.dup { background: var(--danger-bg); color: var(--danger); }
-.import-result-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
 
 /* ===== ADMISSION (ATTENDANCE) ===== */
 .admit-counter-bar {
@@ -586,8 +501,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   display: flex; align-items: center; gap: 0;
   background: #fff; border: 2px solid var(--border);
   border-radius: 50px; padding: 0.25rem 0.5rem;
-  margin-bottom: 0.75rem;
-  transition: border-color 0.15s ease;
+  margin-bottom: 0.75rem; transition: border-color 0.15s ease;
 }
 .admit-search-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 .admit-search-icon { flex-shrink: 0; margin: 0 0.25rem; }
@@ -606,9 +520,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 }
 .admit-scan-btn.active { background: var(--accent); color: #fff; }
 
-.search-bar-row { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
 .att-results { display: flex; flex-direction: column; gap: 0.4rem; }
-
 .att-result-card {
   background: #fff;
   border: 1px solid var(--border);
@@ -616,8 +528,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   border-radius: var(--radius-sm);
   padding: 0.75rem 0.85rem;
   display: flex; align-items: center; gap: 0.75rem;
-  cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  cursor: pointer; transition: transform 0.1s ease, box-shadow 0.1s ease;
   -webkit-tap-highlight-color: transparent;
 }
 .att-result-card:active { transform: scale(0.98); background: #f8faf8; }
@@ -664,7 +575,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   background: #fff; z-index: 600;
   border-radius: 16px 16px 0 0;
   box-shadow: 0 -4px 24px rgba(0,0,0,0.12);
-  max-height: 80vh; overflow-y: auto;
+  max-height: 85vh; overflow-y: auto;
   animation: slideUp 0.25s ease;
 }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
@@ -680,9 +591,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   display: flex; align-items: center; justify-content: center;
 }
 .walkin-panel-body { padding: 0.75rem 1.25rem 1.25rem; }
-.walkin-compact-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
-}
+.walkin-compact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 .wi-input {
   padding: 0.6rem 0.75rem;
   background: var(--bg-input); border: 1px solid var(--border);
@@ -703,9 +612,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .admit-status-banner.status-paid { background: #dcfce7; color: #15803d; }
 .admit-status-banner.status-unpaid { background: #fef3c7; color: #92400e; }
 .admit-status-banner.status-already-present { background: #fee2e2; color: #dc2626; }
-.admit-status-dot {
-  width: 12px; height: 12px; border-radius: 50%; display: inline-block;
-}
+.admit-status-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
 .admit-status-dot.status-paid { background: #16a34a; }
 .admit-status-dot.status-unpaid { background: #d97706; }
 .admit-status-dot.status-already-present { background: #dc2626; }
@@ -713,8 +620,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .admit-details { text-align: left; margin-bottom: 1rem; }
 .admit-row {
   display: flex; justify-content: space-between;
-  padding: 0.4rem 0; border-bottom: 1px solid #e5e7eb;
-  font-size: 0.85rem;
+  padding: 0.4rem 0; border-bottom: 1px solid #e5e7eb; font-size: 0.85rem;
 }
 .admit-row span:first-child { color: var(--text-muted); }
 .admit-actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
@@ -732,15 +638,12 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .admit-warning.status-already-present { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
 
 /* ===== SCANNER ===== */
-.scan-card { text-align: center; }
 .scanner-box {
   position: relative;
   width: 100%; max-width: 360px;
   margin: 0 auto 1.5rem;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: #000;
-  aspect-ratio: 1;
+  border-radius: var(--radius); overflow: hidden;
+  background: #000; aspect-ratio: 1;
 }
 #scanner-video { width: 100%; height: 100%; object-fit: cover; }
 .scanner-overlay {
@@ -748,9 +651,8 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   display: flex; align-items: center; justify-content: center;
 }
 .scan-corners {
-  width: 200px; height: 200px;
-  border: none;
-  background: 
+  width: 200px; height: 200px; border: none;
+  background:
     linear-gradient(var(--accent) 4px, transparent 4px) 0 0,
     linear-gradient(var(--accent) 4px, transparent 4px) 0 100%,
     linear-gradient(to right, var(--accent) 4px, transparent 4px) 0 0,
@@ -764,10 +666,6 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   animation: scan-pulse 2s ease-in-out infinite;
 }
 @keyframes scan-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
-.scanner-hint { position: absolute; bottom: 0.75rem; left: 0; right: 0; text-align: center; font-size: 0.78rem; color: rgba(255,255,255,0.7); }
-.scan-manual { margin-top: 1rem; }
-.scan-manual p { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.75rem; }
-.input-row { display: flex; gap: 0.75rem; max-width: 400px; margin: 0 auto; }
 .scan-feedback {
   margin-top: 1rem; padding: 1rem;
   border-radius: var(--radius-sm);
@@ -777,15 +675,8 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .scan-feedback.error { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
 @keyframes slideIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 
-/* ===== WALK-IN ===== */
-.walkin-form-card { max-width: 900px; }
-.walkin-list { display: flex; flex-direction: column; gap: 0.5rem; }
-
 /* ===== REPORTS ===== */
-.reports-nav {
-  display: flex; gap: 0.5rem; flex-wrap: wrap;
-  margin-bottom: 1.25rem;
-}
+.reports-nav { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
 .rep-tab {
   padding: 0.6rem 1.1rem;
   background: var(--bg-card); border: 1px solid var(--border);
@@ -795,15 +686,12 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   transition: all var(--transition);
 }
 .rep-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-.report-content {}
-.report-section { margin-bottom: 1.5rem; }
 .report-table { width: 100%; }
 .report-table th { background: var(--success-bg); color: #15803d; }
 .report-dl-bar {
   display: flex; gap: 0.75rem; margin-bottom: 1rem;
   padding: 0.75rem 1rem; background: var(--bg-card2);
-  border-radius: var(--radius-sm); flex-wrap: wrap;
-  align-items: center;
+  border-radius: var(--radius-sm); flex-wrap: wrap; align-items: center;
 }
 .report-dl-bar span { font-size: 0.85rem; color: var(--text-secondary); flex: 1; }
 .total-row td { font-weight: 700; color: #15803d; border-top: 2px solid var(--border); }
@@ -896,6 +784,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   .reports-nav { gap: 0.4rem; }
   .rep-tab { padding: 0.5rem 0.75rem; font-size: 0.8rem; }
   .walkin-compact-grid { grid-template-columns: 1fr; }
+  .event-select { max-width: 120px; }
 }
 
 /* ===== SCROLLBAR ===== */
@@ -903,10 +792,6 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
-
-/* ===== QR CODE ===== */
-.qr-cell { cursor: pointer; }
-.qr-cell:hover { color: var(--accent); }
 
   </style>
 </head>
@@ -929,61 +814,52 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
         <h1 class="login-title">PRERNA</h1>
         <p class="login-subtitle">Festival Management</p>
 
-        <!-- First-time setup panel (shown when no custom admin exists) -->
-        <div id="first-time-setup" class="hidden">
-          <div class="first-time-banner">
-            <span>🎉 First time? Create your admin account</span>
-          </div>
-          <div class="login-form">
-            <div class="input-group">
-              <label>Your Name</label>
-              <input type="text" id="setup-name" placeholder="e.g. Riya Gupta" />
-            </div>
-            <div class="input-group">
-              <label>Choose Username</label>
-              <input type="text" id="setup-username" placeholder="e.g. riya" autocomplete="username" />
-            </div>
-            <div class="input-group">
-              <label>Choose Password</label>
-              <input type="password" id="setup-password" placeholder="Min 4 characters" autocomplete="new-password" />
-            </div>
-            <button class="btn-primary full-width" id="btn-setup">Create Admin & Sign In</button>
-            <div id="setup-error" class="error-msg hidden"></div>
-          </div>
-          <p class="login-hint" style="cursor:pointer" onclick="document.getElementById('first-time-setup').classList.add('hidden');document.getElementById('normal-login').classList.remove('hidden')">
-            Already have an account? Sign in →
-          </p>
+        <!-- Tabs: Login / Register -->
+        <div class="login-tabs">
+          <button class="login-tab active" id="tab-login">Sign In</button>
+          <button class="login-tab" id="tab-register">Register</button>
         </div>
 
-        <!-- Normal login panel -->
-        <div id="normal-login">
+        <!-- Login Form -->
+        <div id="login-form-panel">
           <div class="login-form">
             <div class="input-group">
-              <label>Username</label>
-              <input type="text" id="login-username" placeholder="Enter username" autocomplete="username" />
+              <label>Email</label>
+              <input type="email" id="login-email" placeholder="your@email.com" autocomplete="email" />
             </div>
             <div class="input-group">
               <label>Password</label>
-              <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password" />
+              <div class="pw-wrap">
+                <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password" style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.9rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:0.9rem" />
+                <button type="button" class="pw-toggle">👁</button>
+              </div>
             </div>
-            <div class="input-group">
-              <label>Role</label>
-              <select id="login-role">
-                <option value="admin">Admin</option>
-                <option value="volunteer">Volunteer</option>
-              </select>
-            </div>
+            <p class="forgot-link" id="btn-forgot-pw">Forgot password?</p>
             <button class="btn-primary full-width" id="btn-login">Sign In</button>
             <div id="login-error" class="error-msg hidden"></div>
           </div>
-          <div class="login-quick-btns">
-            <span style="color:var(--text-muted);font-size:.75rem">Quick fill:</span>
-            <button class="login-quick-btn" onclick="document.getElementById('login-username').value='admin';document.getElementById('login-password').value='admin123';document.getElementById('login-role').value='admin'">admin</button>
-            <button class="login-quick-btn" onclick="document.getElementById('login-username').value='volunteer';document.getElementById('login-password').value='vol123';document.getElementById('login-role').value='volunteer'">volunteer</button>
+        </div>
+
+        <!-- Register Form -->
+        <div id="register-form-panel" class="hidden">
+          <div class="login-form">
+            <div class="input-group">
+              <label>Full Name</label>
+              <input type="text" id="reg-name" placeholder="e.g. Riya Gupta" />
+            </div>
+            <div class="input-group">
+              <label>Email</label>
+              <input type="email" id="reg-email" placeholder="your@email.com" autocomplete="email" />
+            </div>
+            <div class="input-group">
+              <label>Password</label>
+              <div class="pw-wrap">
+                <input type="password" id="reg-password" placeholder="Min 6 characters" autocomplete="new-password" style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.9rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:0.9rem" />
+                <button type="button" class="pw-toggle">👁</button>
+              </div>
+            </div>
+            <button class="btn-primary full-width" id="btn-register">Create Account</button>
           </div>
-          <p class="login-hint" style="cursor:pointer" onclick="document.getElementById('first-time-setup').classList.remove('hidden');document.getElementById('normal-login').classList.add('hidden')">
-            New here? Create your account →
-          </p>
         </div>
       </div>
     </div>
@@ -995,29 +871,32 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
         <div class="sidebar-header">
           <span class="sidebar-logo">🪷</span>
           <span class="sidebar-title">PRERNA</span>
-          <button id="btn-sidebar-close" class="sidebar-close">✕</button>
+          <button id="btn-sidebar-close" class="sidebar-close">&#10005;</button>
         </div>
         <nav class="sidebar-nav">
-          <a class="nav-item active" data-page="dashboard">
-            <span class="nav-icon">⬛</span> Dashboard
+          <a class="nav-item" data-page="attendance">
+            <span class="nav-icon">&#10003;</span> Admission
+          </a>
+          <a class="nav-item" data-page="dashboard">
+            <span class="nav-icon">&#9632;</span> Dashboard
           </a>
           <a class="nav-item admin-only" data-page="import">
-            <span class="nav-icon">📥</span> Import Excel
-          </a>
-          <a class="nav-item" data-page="attendance">
-            <span class="nav-icon">✅</span> Attendance
+            <span class="nav-icon">&#128229;</span> Import Excel
           </a>
           <a class="nav-item" data-page="walkin">
-            <span class="nav-icon">🚶</span> Walk-in Entry
+            <span class="nav-icon">&#128694;</span> Walk-ins
           </a>
           <a class="nav-item admin-only" data-page="attendees">
-            <span class="nav-icon">👥</span> Attendees
+            <span class="nav-icon">&#128101;</span> Attendees
           </a>
           <a class="nav-item admin-only" data-page="reports">
-            <span class="nav-icon">📊</span> Reports
+            <span class="nav-icon">&#128202;</span> Reports
+          </a>
+          <a class="nav-item admin-only" data-page="financial">
+            <span class="nav-icon">&#128176;</span> Financial Year
           </a>
           <a class="nav-item admin-only" data-page="settings">
-            <span class="nav-icon">⚙️</span> Settings
+            <span class="nav-icon">&#9881;</span> Settings
           </a>
         </nav>
         <div class="sidebar-footer">
@@ -1035,47 +914,129 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
       <!-- Main Content -->
       <div id="main-content">
         <header id="top-bar">
-          <button id="btn-menu" class="menu-btn">☰</button>
-          <h2 id="page-title">Dashboard</h2>
+          <button id="btn-menu" class="menu-btn">&#9776;</button>
+          <h2 id="page-title">Admission</h2>
           <div class="top-bar-right">
-            <span id="sync-status" class="sync-status online">● Online</span>
-            <span id="offline-badge" class="offline-badge hidden">⚡ 0 queued</span>
+            <select id="event-selector" class="event-select"></select>
+            <button class="btn-new-event admin-only" onclick="App.showCreateEventModal()">+ Event</button>
+            <span id="sync-status" class="sync-status online">Online</span>
+            <span id="offline-badge" class="offline-badge hidden">Queued</span>
           </div>
         </header>
 
-        <!-- Pages -->
         <main id="content-area">
 
+          <!-- ATTENDANCE PAGE (main admission screen) -->
+          <div id="page-attendance" class="page">
+            <div class="admit-counter-bar">
+              <div class="admit-counter-item"><span id="admit-count-present">0</span><small>In</small></div>
+              <div class="admit-counter-divider"></div>
+              <div class="admit-counter-item"><span id="admit-count-total">0</span><small>Total</small></div>
+            </div>
+
+            <div class="admit-search-wrap">
+              <svg class="admit-search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input type="search" id="att-search" class="admit-search-input" placeholder="Search name, mobile or ID..." autocomplete="off" inputmode="search" />
+              <button class="admit-scan-btn" id="btn-toggle-scan" title="QR Scan">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+              </button>
+            </div>
+
+            <div id="att-scan-section" class="hidden">
+              <div class="scan-card-compact">
+                <div id="scanner-container" class="scanner-box">
+                  <video id="scanner-video" autoplay playsinline></video>
+                  <div class="scanner-overlay"><div class="scan-corners"></div></div>
+                </div>
+                <div class="scan-manual-compact">
+                  <input type="text" id="manual-scan-id" class="admit-search-input" placeholder="Enter ID manually" />
+                  <button class="btn-primary" id="btn-manual-scan">Go</button>
+                </div>
+                <div id="scan-feedback" class="scan-feedback hidden"></div>
+              </div>
+            </div>
+
+            <div id="att-search-results" class="att-results"></div>
+
+            <div id="att-tab-bulk" class="hidden admin-page" style="margin-top:1rem">
+              <div class="card">
+                <h3 class="card-title">Bulk Attendance Upload</h3>
+                <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:.75rem">Upload Excel/CSV with IDs or mobile numbers.</p>
+                <label class="btn-secondary upload-label">
+                  Upload File
+                  <input type="file" id="bulk-att-file" accept=".xlsx,.xls,.csv" hidden />
+                </label>
+                <div id="bulk-att-result"></div>
+              </div>
+            </div>
+
+            <button class="fab-walkin" id="btn-fab-walkin" title="Add Walk-in">+</button>
+
+            <!-- Walk-in slide-up panel -->
+            <div id="walkin-panel" class="walkin-panel hidden">
+              <div class="walkin-panel-header">
+                <h3>New Walk-in</h3>
+                <button class="walkin-panel-close" id="btn-close-walkin">&times;</button>
+              </div>
+              <div class="walkin-panel-body">
+                <div class="walkin-compact-grid">
+                  <input type="text" id="wi-name" placeholder="Full Name *" class="wi-input" />
+                  <input type="tel" id="wi-mobile" placeholder="Mobile *" class="wi-input" />
+                  <input type="text" id="wi-reference" placeholder="Reference" class="wi-input" />
+                  <input type="number" id="wi-payment" placeholder="Amount" min="0" class="wi-input" />
+                  <select id="wi-paystatus" class="wi-input">
+                    <option value="unpaid">Unpaid</option>
+                    <option value="paid">Paid</option>
+                    <option value="free">Free</option>
+                  </select>
+                  <select id="wi-paymode" class="wi-input">
+                    <option value="">Payment Mode</option>
+                    <option value="cash">Cash</option>
+                    <option value="online">Online</option>
+                  </select>
+                  <input type="text" id="wi-team" placeholder="Team" class="wi-input" list="team-list" />
+                  <datalist id="team-list"></datalist>
+                  <select id="wi-category" class="wi-input">
+                    <option value="">Category</option>
+                    <option value="IGF">IGF</option>
+                    <option value="IYF">IYF</option>
+                    <option value="ICF_MTG">ICF_MTG</option>
+                    <option value="ICF_PRJI">ICF_PRJI</option>
+                  </select>
+                  <input type="text" id="wi-busroute" placeholder="Bus Route" class="wi-input" />
+                  <input type="date" id="wi-paydate" class="wi-input" />
+                  <input type="text" id="wi-remarks" placeholder="Remarks (who paid, when)" class="wi-input" style="grid-column:1/-1" />
+                </div>
+                <button class="btn-primary full-width" id="btn-add-walkin" style="margin-top:.75rem">Add & Mark Present</button>
+                <div id="walkin-feedback" class="hidden"></div>
+              </div>
+            </div>
+          </div>
+
           <!-- DASHBOARD PAGE -->
-          <div id="page-dashboard" class="page">
+          <div id="page-dashboard" class="page hidden">
             <div class="stats-grid">
               <div class="stat-card primary">
-                <div class="stat-icon">👥</div>
                 <div class="stat-value" id="stat-total">0</div>
-                <div class="stat-label">Total Attendees</div>
+                <div class="stat-label">Total</div>
               </div>
               <div class="stat-card success">
-                <div class="stat-icon">✅</div>
                 <div class="stat-value" id="stat-present">0</div>
                 <div class="stat-label">Checked In</div>
               </div>
               <div class="stat-card warning">
-                <div class="stat-icon">⏳</div>
                 <div class="stat-value" id="stat-pending">0</div>
                 <div class="stat-label">Pending</div>
               </div>
               <div class="stat-card accent">
-                <div class="stat-icon">💰</div>
-                <div class="stat-value" id="stat-payment">₹0</div>
-                <div class="stat-label">Total Collected</div>
+                <div class="stat-value" id="stat-payment">&#8377;0</div>
+                <div class="stat-label">Collected</div>
               </div>
               <div class="stat-card danger">
-                <div class="stat-icon">⚠️</div>
                 <div class="stat-value" id="stat-duplicates">0</div>
                 <div class="stat-label">Duplicates</div>
               </div>
               <div class="stat-card info">
-                <div class="stat-icon">🚶</div>
                 <div class="stat-value" id="stat-walkins">0</div>
                 <div class="stat-label">Walk-ins</div>
               </div>
@@ -1101,10 +1062,11 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
             <div class="card admin-only">
               <h3 class="card-title">Quick Actions</h3>
               <div class="quick-actions">
-                <button class="qa-btn" onclick="App.navigate('import')">📥 Import Excel</button>
-                <button class="qa-btn" onclick="App.navigate('reports')">📊 View Reports</button>
-                <button class="qa-btn" onclick="App.navigate('settings')">⚙️ Configure Event</button>
-                <button class="qa-btn" onclick="App.navigate('attendance')">✅ Attendance</button>
+                <button class="qa-btn" onclick="App.navigate('import')">Import Excel</button>
+                <button class="qa-btn" onclick="App.navigate('reports')">View Reports</button>
+                <button class="qa-btn" onclick="App.navigate('settings')">Configure Event</button>
+                <button class="qa-btn" onclick="App.navigate('attendance')">Admission</button>
+                <button class="qa-btn" onclick="App.navigate('financial')">Financial Year</button>
               </div>
             </div>
           </div>
@@ -1112,9 +1074,10 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           <!-- IMPORT PAGE -->
           <div id="page-import" class="page hidden admin-page">
             <div class="card">
-              <h3 class="card-title">Upload Attendee List</h3>
+              <h3 class="card-title">Upload Participant Sheet</h3>
+              <p class="card-sub">Expected columns: Name, Mobile Number, Category, Reference, Team Name, Payment Status, Mode of Payment, Remarks</p>
               <div class="upload-zone" id="upload-zone">
-                <div class="upload-icon">📤</div>
+                <div class="upload-icon">&#128228;</div>
                 <p>Drag & drop Excel (.xlsx) or CSV file here</p>
                 <p class="upload-sub">or</p>
                 <label class="btn-secondary upload-label">
@@ -1127,16 +1090,17 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
             <div id="column-mapping-section" class="card hidden">
               <h3 class="card-title">Column Mapping</h3>
-              <p class="card-sub">Map your Excel columns to system fields. Fields with ★ are required.</p>
+              <p class="card-sub">Map your Excel columns to system fields. Fields with * are required.</p>
               <div class="mapping-tip">
-                💡 <strong>Auto-detection works with common names like:</strong>
-                Name / Full Name / Naam &nbsp;·&nbsp; Mobile / Phone / Contact No &nbsp;·&nbsp;
-                Team / Group / Zone &nbsp;·&nbsp; Reference / Ref / Counselor &nbsp;·&nbsp;
-                Payment / Amount / Fees &nbsp;·&nbsp; Bus / Route &nbsp;·&nbsp; Category / Type
+                <strong>Auto-detection works with common column names like:</strong>
+                Name / Full Name &middot; Mobile / Phone / Contact &middot;
+                Team / Group &middot; Reference / Ref &middot;
+                Payment Status &middot; Mode of Payment &middot; Remarks &middot;
+                Amount / Fees &middot; Category / Type
               </div>
               <div id="column-mapping-grid" class="mapping-grid"></div>
               <div class="mapping-actions">
-                <button class="btn-primary" id="btn-confirm-import">✅ Confirm Import</button>
+                <button class="btn-primary" id="btn-confirm-import">Confirm Import</button>
                 <button class="btn-ghost" id="btn-cancel-import">Cancel</button>
               </div>
             </div>
@@ -1158,91 +1122,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
             </div>
           </div>
 
-          <!-- ATTENDANCE PAGE (main admission screen) -->
-          <div id="page-attendance" class="page hidden">
-            <!-- Live counter bar -->
-            <div class="admit-counter-bar">
-              <div class="admit-counter-item"><span id="admit-count-present">0</span><small>In</small></div>
-              <div class="admit-counter-divider"></div>
-              <div class="admit-counter-item"><span id="admit-count-total">0</span><small>Total</small></div>
-            </div>
-
-            <!-- Big search bar -->
-            <div class="admit-search-wrap">
-              <svg class="admit-search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input type="search" id="att-search" class="admit-search-input" placeholder="Search name, mobile or ID..." autocomplete="off" inputmode="search" />
-              <button class="admit-scan-btn" id="btn-toggle-scan" title="QR Scan">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
-              </button>
-            </div>
-
-            <!-- QR scan section (hidden by default, toggles) -->
-            <div id="att-scan-section" class="hidden">
-              <div class="scan-card-compact">
-                <div id="scanner-container" class="scanner-box">
-                  <video id="scanner-video" autoplay playsinline></video>
-                  <div class="scanner-overlay">
-                    <div class="scan-corners"></div>
-                  </div>
-                </div>
-                <div class="scan-manual-compact">
-                  <input type="text" id="manual-scan-id" class="admit-search-input" placeholder="Enter ID manually" />
-                  <button class="btn-primary" id="btn-manual-scan">Go</button>
-                </div>
-                <div id="scan-feedback" class="scan-feedback hidden"></div>
-              </div>
-            </div>
-
-            <!-- Search results -->
-            <div id="att-search-results" class="att-results"></div>
-
-            <!-- Bulk upload (admin) -->
-            <div id="att-tab-bulk" class="hidden admin-page" style="margin-top:1rem">
-              <div class="card">
-                <h3 class="card-title">Bulk Attendance Upload</h3>
-                <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:.75rem">Upload Excel/CSV with IDs or mobile numbers.</p>
-                <label class="btn-secondary upload-label">
-                  Upload File
-                  <input type="file" id="bulk-att-file" accept=".xlsx,.xls,.csv" hidden />
-                </label>
-                <div id="bulk-att-result"></div>
-              </div>
-            </div>
-
-            <!-- Walk-in FAB -->
-            <button class="fab-walkin" id="btn-fab-walkin" title="Add Walk-in">+</button>
-
-            <!-- Walk-in slide-up panel -->
-            <div id="walkin-panel" class="walkin-panel hidden">
-              <div class="walkin-panel-header">
-                <h3>New Walk-in</h3>
-                <button class="walkin-panel-close" id="btn-close-walkin">&times;</button>
-              </div>
-              <div class="walkin-panel-body">
-                <div class="walkin-compact-grid">
-                  <input type="text" id="wi-name" placeholder="Full Name *" class="wi-input" />
-                  <input type="tel" id="wi-mobile" placeholder="Mobile *" class="wi-input" />
-                  <input type="text" id="wi-reference" placeholder="Reference *" class="wi-input" />
-                  <input type="number" id="wi-payment" placeholder="Payment" min="0" class="wi-input" />
-                  <input type="text" id="wi-team" placeholder="Team" class="wi-input" list="team-list" />
-                  <datalist id="team-list"></datalist>
-                  <select id="wi-category" class="wi-input">
-                    <option value="">Category</option>
-                    <option value="IGF">IGF</option>
-                    <option value="IYF">IYF</option>
-                    <option value="ICF_MTG">ICF_MTG</option>
-                    <option value="ICF_PRJI">ICF_PRJI</option>
-                  </select>
-                  <input type="text" id="wi-busroute" placeholder="Bus Route" class="wi-input" />
-                  <input type="date" id="wi-paydate" class="wi-input" />
-                </div>
-                <button class="btn-primary full-width" id="btn-add-walkin" style="margin-top:.75rem">Add & Mark Present</button>
-                <div id="walkin-feedback" class="hidden"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- WALK-IN PAGE (kept for nav compatibility, redirects to attendance) -->
+          <!-- WALK-IN PAGE -->
           <div id="page-walkin" class="page hidden">
             <div class="card">
               <h3 class="card-title">Today's Walk-ins</h3>
@@ -1279,48 +1159,88 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           <!-- REPORTS PAGE -->
           <div id="page-reports" class="page hidden admin-page">
             <div class="reports-nav">
-              <button class="rep-tab active" data-report="overview">📊 Overview</button>
-              <button class="rep-tab" data-report="payment">💰 Payment</button>
-              <button class="rep-tab" data-report="reference">🔗 Reference</button>
-              <button class="rep-tab" data-report="transport">🚌 Transport</button>
-              <button class="rep-tab" data-report="summary">📋 Summary</button>
+              <button class="rep-tab active" data-report="overview">Overview</button>
+              <button class="rep-tab" data-report="payment">Payment</button>
+              <button class="rep-tab" data-report="reference">Reference</button>
+              <button class="rep-tab" data-report="transport">Transport</button>
+              <button class="rep-tab" data-report="summary">Summary</button>
             </div>
-
             <div id="report-content" class="report-content"></div>
+          </div>
+
+          <!-- FINANCIAL YEAR PAGE -->
+          <div id="page-financial" class="page hidden admin-page">
+            <p style="color:var(--text-muted);padding:2rem;text-align:center">Select Financial Year to view...</p>
           </div>
 
           <!-- SETTINGS PAGE -->
           <div id="page-settings" class="page hidden admin-page">
             <div class="settings-grid">
+              <!-- Profile -->
+              <div class="card">
+                <h3 class="card-title">My Profile</h3>
+                <div class="input-group" style="margin-bottom:.75rem">
+                  <label>Full Name</label>
+                  <input type="text" id="profile-name" placeholder="Your name" />
+                </div>
+                <div class="input-group" style="margin-bottom:.75rem">
+                  <label>Email</label>
+                  <input type="email" id="profile-email" disabled style="opacity:0.6" />
+                </div>
+                <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem">Role: <strong id="profile-role">Admin</strong></p>
+                <button class="btn-primary" id="btn-save-profile">Save Profile</button>
+              </div>
+
+              <!-- Change Password -->
+              <div class="card">
+                <h3 class="card-title">Change Password</h3>
+                <div class="input-group" style="margin-bottom:.75rem">
+                  <label>New Password</label>
+                  <div class="pw-wrap">
+                    <input type="password" id="new-password" placeholder="Min 6 characters" style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.9rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:0.9rem" />
+                    <button type="button" class="pw-toggle">👁</button>
+                  </div>
+                </div>
+                <button class="btn-primary" id="btn-change-pw">Change Password</button>
+              </div>
+
+              <!-- Event Config -->
               <div class="card">
                 <h3 class="card-title">Event Configuration</h3>
-                <div class="input-group">
+                <div class="input-group" style="margin-bottom:.75rem">
                   <label>Event Name</label>
                   <input type="text" id="cfg-event-name" placeholder="e.g. Prerna 2025" />
                 </div>
-                <div class="input-group">
+                <div class="input-group" style="margin-bottom:.75rem">
                   <label>Event Date</label>
                   <input type="date" id="cfg-event-date" />
                 </div>
-                <div class="input-group">
-                  <label>Charge Per Person (₹)</label>
+                <div class="input-group" style="margin-bottom:.75rem">
+                  <label>Charge Per Person (&#8377;)</label>
                   <input type="number" id="cfg-charge-per-person" placeholder="0" min="0" />
+                </div>
+                <div class="input-group" style="margin-bottom:.75rem">
+                  <label>Total Event Expense (&#8377;)</label>
+                  <input type="number" id="cfg-total-expense" placeholder="0" min="0" />
                 </div>
                 <button class="btn-primary" id="btn-save-event-cfg">Save Configuration</button>
               </div>
 
+              <!-- Bus Routes -->
               <div class="card">
                 <h3 class="card-title">Bus Configuration</h3>
                 <div id="bus-routes-list"></div>
                 <button class="btn-secondary" id="btn-add-bus-route">+ Add Bus Route</button>
               </div>
 
+              <!-- User Management -->
               <div class="card">
                 <h3 class="card-title">User Management</h3>
                 <div id="users-list"></div>
-                <button class="btn-secondary" id="btn-add-user">+ Add User</button>
+                <button class="btn-secondary" id="btn-add-user">+ Invite User</button>
               </div>
 
+              <!-- Danger Zone -->
               <div class="card danger-zone">
                 <h3 class="card-title">Danger Zone</h3>
                 <p>These actions are irreversible. Use with caution.</p>
@@ -1345,1998 +1265,23 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   <!-- Toast -->
   <div id="toast-container"></div>
 
-  <!-- Scripts -->
+  <!-- External Scripts -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script>
-// ===== DATABASE LAYER (IndexedDB) =====
-const DB = (() => {
-  const DB_NAME = 'PrernaFestival';
-  const DB_VERSION = 1;
-  let db = null;
 
-  const STORES = {
-    attendees: 'attendees',
-    users: 'users',
-    config: 'config',
-    busRoutes: 'busRoutes',
-    auditLog: 'auditLog',
-    offlineQueue: 'offlineQueue'
-  };
+  <!-- Firebase SDK (compat for no-build static site) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <!-- App Modules (loaded in dependency order) -->
+  <script src="firebase-config.js"></script>
+  <script src="db.js"></script>
+  <script src="helper.js"></script>
+  <script src="reports.js"></script>
+  <script src="export.js"></script>
+  <script src="app.js"></script>
 
-  async function open() {
-    return new Promise((resolve, reject) => {
-      if (db) return resolve(db);
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = (e) => {
-        const d = e.target.result;
-        if (!d.objectStoreNames.contains(STORES.attendees)) {
-          const s = d.createObjectStore(STORES.attendees, { keyPath: 'id', autoIncrement: true });
-          s.createIndex('mobile', 'mobile');
-          s.createIndex('name', 'name');
-          s.createIndex('team', 'team');
-          s.createIndex('reference', 'reference');
-          s.createIndex('attendance', 'attendance');
-        }
-        if (!d.objectStoreNames.contains(STORES.users)) {
-          const u = d.createObjectStore(STORES.users, { keyPath: 'username' });
-        }
-        if (!d.objectStoreNames.contains(STORES.config)) {
-          d.createObjectStore(STORES.config, { keyPath: 'key' });
-        }
-        if (!d.objectStoreNames.contains(STORES.busRoutes)) {
-          d.createObjectStore(STORES.busRoutes, { keyPath: 'id', autoIncrement: true });
-        }
-        if (!d.objectStoreNames.contains(STORES.auditLog)) {
-          const al = d.createObjectStore(STORES.auditLog, { keyPath: 'id', autoIncrement: true });
-          al.createIndex('timestamp', 'timestamp');
-        }
-        if (!d.objectStoreNames.contains(STORES.offlineQueue)) {
-          d.createObjectStore(STORES.offlineQueue, { keyPath: 'id', autoIncrement: true });
-        }
-      };
-      req.onsuccess = (e) => { db = e.target.result; resolve(db); };
-      req.onerror = (e) => reject(e.target.error);
-    });
-  }
-
-  async function tx(storeName, mode = 'readonly') {
-    const d = await open();
-    return d.transaction(storeName, mode).objectStore(storeName);
-  }
-
-  function promisify(req) {
-    return new Promise((resolve, reject) => {
-      req.onsuccess = (e) => resolve(e.target.result);
-      req.onerror = (e) => reject(e.target.error);
-    });
-  }
-
-  // Generic CRUD
-  async function getAll(storeName, filter) {
-    const store = await tx(storeName);
-    const all = await promisify(store.getAll());
-    if (filter) return all.filter(filter);
-    return all;
-  }
-
-  async function getById(storeName, id) {
-    const store = await tx(storeName);
-    return promisify(store.get(id));
-  }
-
-  async function put(storeName, record) {
-    const store = await tx(storeName, 'readwrite');
-    return promisify(store.put(record));
-  }
-
-  async function add(storeName, record) {
-    const store = await tx(storeName, 'readwrite');
-    return promisify(store.add(record));
-  }
-
-  async function deleteRecord(storeName, id) {
-    const store = await tx(storeName, 'readwrite');
-    return promisify(store.delete(id));
-  }
-
-  async function clearStore(storeName) {
-    const store = await tx(storeName, 'readwrite');
-    return promisify(store.clear());
-  }
-
-  async function bulkAdd(storeName, records) {
-    const d = await open();
-    return new Promise((resolve, reject) => {
-      const transaction = d.transaction(storeName, 'readwrite');
-      const store = transaction.objectStore(storeName);
-      let count = 0;
-      records.forEach(r => {
-        const req = store.add(r);
-        req.onsuccess = () => { count++; if (count === records.length) {} };
-      });
-      transaction.oncomplete = () => resolve(count);
-      transaction.onerror = (e) => reject(e.target.error);
-    });
-  }
-
-  // Config helpers
-  async function getConfig(key) {
-    const store = await tx(STORES.config);
-    const r = await promisify(store.get(key));
-    return r ? r.value : null;
-  }
-
-  async function setConfig(key, value) {
-    const store = await tx(STORES.config, 'readwrite');
-    return promisify(store.put({ key, value }));
-  }
-
-  // Audit log
-  async function log(action, details, user) {
-    return add(STORES.auditLog, {
-      action, details, user,
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  return {
-    STORES, open, getAll, getById, put, add, deleteRecord, clearStore, bulkAdd,
-    getConfig, setConfig, log, promisify
-  };
-})();
-
-  </script>
-  <script>
-// ===== HELPERS =====
-const Helpers = (() => {
-
-  // Toast notifications
-  function toast(message, type = 'info', duration = 3000) {
-    const c = document.getElementById('toast-container');
-    const t = document.createElement('div');
-    t.className = `toast ${type}`;
-    t.textContent = message;
-    c.appendChild(t);
-    setTimeout(() => {
-      t.style.animation = 'toastOut 0.3s ease forwards';
-      setTimeout(() => t.remove(), 300);
-    }, duration);
-  }
-
-  // Modal
-  function modal(contentHTML, onClose) {
-    const overlay = document.getElementById('modal-overlay');
-    const content = document.getElementById('modal-content');
-    content.innerHTML = contentHTML;
-    overlay.classList.remove('hidden');
-    overlay.onclick = (e) => {
-      if (e.target === overlay) { closeModal(); if (onClose) onClose(); }
-    };
-  }
-
-  function closeModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-  }
-
-  // Format currency
-  function currency(amount) {
-    if (!amount && amount !== 0) return '₹0';
-    return '₹' + Number(amount).toLocaleString('en-IN');
-  }
-
-  // Format date
-  function formatDate(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    if (isNaN(d)) return dateStr;
-    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  }
-
-  function formatDateTime(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    if (isNaN(d)) return dateStr;
-    return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-  }
-
-  // Fuzzy name match
-  function similarName(a, b) {
-    if (!a || !b) return false;
-    const normalize = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const na = normalize(a), nb = normalize(b);
-    if (na === nb) return true;
-    // Levenshtein distance
-    const dist = levenshtein(na, nb);
-    const maxLen = Math.max(na.length, nb.length);
-    return maxLen > 0 && (dist / maxLen) < 0.3;
-  }
-
-  function levenshtein(a, b) {
-    const m = a.length, n = b.length;
-    const dp = Array.from({ length: m + 1 }, (_, i) =>
-      Array.from({ length: n + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0)
-    );
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        dp[i][j] = a[i-1] === b[j-1]
-          ? dp[i-1][j-1]
-          : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
-      }
-    }
-    return dp[m][n];
-  }
-
-  // Detect duplicates
-  function detectDuplicates(records) {
-    const duplicateIds = new Set();
-    const mobileGroups = {};
-    records.forEach((r, i) => {
-      const mob = (r.mobile || '').replace(/\D/g, '');
-      if (mob.length >= 10) {
-        if (!mobileGroups[mob]) mobileGroups[mob] = [];
-        mobileGroups[mob].push(i);
-      }
-    });
-    Object.values(mobileGroups).forEach(group => {
-      if (group.length > 1) {
-        // check name similarity
-        for (let i = 0; i < group.length; i++) {
-          for (let j = i + 1; j < group.length; j++) {
-            const a = records[group[i]], b = records[group[j]];
-            if (similarName(a.name, b.name)) {
-              duplicateIds.add(group[i]);
-              duplicateIds.add(group[j]);
-              records[group[i]]._dupOf = records[group[j]].name;
-              records[group[j]]._dupOf = records[group[i]].name;
-            }
-          }
-        }
-      }
-    });
-    return duplicateIds;
-  }
-
-  // Payment timing
-  function paymentTiming(paymentDate, eventDate) {
-    if (!paymentDate || !eventDate) return '';
-    const pd = new Date(paymentDate), ed = new Date(eventDate);
-    if (isNaN(pd) || isNaN(ed)) return '';
-    return pd < ed ? 'Before Event' : 'After Event';
-  }
-
-  // Generate attendee ID
-  function generateId(prefix = 'PRN') {
-    return prefix + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
-  }
-
-  // Generate QR data
-  function qrData(attendee) {
-    return JSON.stringify({ id: attendee.id, aid: attendee.attendeeId, name: attendee.name });
-  }
-
-  // Debounce
-  function debounce(fn, delay) {
-    let t;
-    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
-  }
-
-  // Download blob
-  function downloadBlob(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
-  // Build table HTML
-  function buildTable(headers, rows, opts = {}) {
-    const cls = opts.cls || '';
-    let html = `<table class="${cls}"><thead><tr>`;
-    headers.forEach(h => { html += `<th>${h}</th>`; });
-    html += `</tr></thead><tbody>`;
-    rows.forEach(row => {
-      const trCls = row._class || '';
-      html += `<tr class="${trCls}">`;
-      row.cells.forEach(cell => { html += `<td>${cell}</td>`; });
-      html += `</tr>`;
-    });
-    html += `</tbody></table>`;
-    return html;
-  }
-
-  // Paginate
-  function paginate(items, page, size = 50) {
-    return items.slice((page - 1) * size, page * size);
-  }
-
-  // Search filter
-  function searchFilter(item, query) {
-    const q = query.toLowerCase();
-    return (
-      (item.name || '').toLowerCase().includes(q) ||
-      (item.mobile || '').includes(q) ||
-      (item.team || '').toLowerCase().includes(q) ||
-      (item.reference || '').toLowerCase().includes(q) ||
-      (item.attendeeId || '').toLowerCase().includes(q)
-    );
-  }
-
-  return {
-    toast, modal, closeModal, currency, formatDate, formatDateTime,
-    similarName, detectDuplicates, paymentTiming, generateId, qrData,
-    debounce, downloadBlob, buildTable, paginate, searchFilter
-  };
-})();
-
-  </script>
-  <script>
-// ===== REPORTS MODULE =====
-const Reports = (() => {
-
-  async function getAttendees() {
-    return DB.getAll(DB.STORES.attendees);
-  }
-
-  async function getConfig() {
-    return {
-      eventDate: await DB.getConfig('eventDate'),
-      chargePerPerson: parseFloat(await DB.getConfig('chargePerPerson') || 0),
-      eventName: await DB.getConfig('eventName') || 'Prerna Festival'
-    };
-  }
-
-  async function getBusRoutes() {
-    return DB.getAll(DB.STORES.busRoutes);
-  }
-
-  // REPORT 1: Attendance Overview
-  async function reportOverview() {
-    const attendees = await getAttendees();
-    const present = attendees.filter(a => a.attendance === 'present');
-
-    // Category breakdown
-    const catMap = {};
-    attendees.forEach(a => {
-      const cat = a.category || 'Unknown';
-      if (!catMap[cat]) catMap[cat] = { total: 0, present: 0 };
-      catMap[cat].total++;
-      if (a.attendance === 'present') catMap[cat].present++;
-    });
-
-    // Team breakdown
-    const teamMap = {};
-    attendees.forEach(a => {
-      const team = a.team || 'Unassigned';
-      if (!teamMap[team]) teamMap[team] = { total: 0, present: 0 };
-      teamMap[team].total++;
-      if (a.attendance === 'present') teamMap[team].present++;
-    });
-
-    // Devotee breakdown
-    const serviceDevotees = attendees.filter(a => a.serviceDevotee === true || a.serviceDevotee === 'yes' || a.serviceDevotee === '1');
-    const activeDevotees = attendees.filter(a => a.activeDevotee === true || a.activeDevotee === 'yes' || a.activeDevotee === '1');
-
-    return { attendees, present, catMap, teamMap, serviceDevotees, activeDevotees };
-  }
-
-  // REPORT 2: Payment Analysis
-  async function reportPayment() {
-    const attendees = await getAttendees();
-    const cfg = await getConfig();
-
-    const teamPayMap = {};
-    let totalPayment = 0;
-
-    attendees.forEach(a => {
-      const team = a.team || 'Unassigned';
-      const payment = parseFloat(a.paymentAmount || 0);
-      const timing = a.paymentTiming || Helpers.paymentTiming(a.paymentDate, cfg.eventDate);
-
-      if (!teamPayMap[team]) {
-        teamPayMap[team] = { persons: 0, before: 0, after: 0, total: 0 };
-      }
-      teamPayMap[team].persons++;
-      teamPayMap[team].total += payment;
-      if (timing === 'Before Event') teamPayMap[team].before += payment;
-      else if (timing === 'After Event') teamPayMap[team].after += payment;
-      totalPayment += payment;
-    });
-
-    const expected = attendees.length * cfg.chargePerPerson;
-    const profitLoss = totalPayment - expected;
-
-    return { teamPayMap, totalPayment, expected, profitLoss, attendees, cfg };
-  }
-
-  // REPORT 3: Reference Performance
-  async function reportReference() {
-    const attendees = await getAttendees();
-    const refMap = {};
-
-    attendees.forEach(a => {
-      const ref = a.reference || 'Unknown';
-      const payment = parseFloat(a.paymentAmount || 0);
-      if (!refMap[ref]) refMap[ref] = { persons: 0, total: 0 };
-      refMap[ref].persons++;
-      refMap[ref].total += payment;
-    });
-
-    return { refMap };
-  }
-
-  // REPORT 4: Transportation
-  async function reportTransport() {
-    const attendees = await getAttendees();
-    const busRoutes = await getBusRoutes();
-
-    const routeMap = {};
-    busRoutes.forEach(r => {
-      routeMap[r.name] = { ...r, passengers: 0, collection: 0 };
-    });
-
-    attendees.forEach(a => {
-      const route = a.busRoute;
-      if (!route) return;
-      if (!routeMap[route]) {
-        routeMap[route] = { name: route, capacity: 0, cost: 0, chargePerPassenger: 0, passengers: 0, collection: 0 };
-      }
-      routeMap[route].passengers++;
-      routeMap[route].collection += parseFloat(routeMap[route].chargePerPassenger || 0);
-    });
-
-    let totalCost = 0, totalCollection = 0;
-    Object.values(routeMap).forEach(r => {
-      totalCost += parseFloat(r.cost || 0);
-      totalCollection += r.collection;
-    });
-
-    return { routeMap, totalCost, totalCollection, profitLoss: totalCollection - totalCost };
-  }
-
-  // REPORT 5: Overall Summary
-  async function reportSummary() {
-    const attendees = await getAttendees();
-    const cfg = await getConfig();
-    const busRoutes = await getBusRoutes();
-
-    const present = attendees.filter(a => a.attendance === 'present');
-    const walkIns = attendees.filter(a => a.isWalkIn);
-    const duplicates = attendees.filter(a => a.isDuplicate);
-    const totalPayment = attendees.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
-    const totalBusCost = busRoutes.reduce((s, r) => s + parseFloat(r.cost || 0), 0);
-    const expected = attendees.length * cfg.chargePerPerson;
-
-    return {
-      totalAttendees: attendees.length,
-      totalPresent: present.length,
-      totalWalkIns: walkIns.length,
-      totalDuplicates: duplicates.length,
-      totalPayment,
-      totalBusCost,
-      expected,
-      netPL: totalPayment - expected - totalBusCost,
-      cfg
-    };
-  }
-
-  // Render Report HTML
-  function renderOverview(data) {
-    const { attendees, present, catMap, teamMap, serviceDevotees, activeDevotees } = data;
-    const pct = attendees.length ? Math.round((present.length / attendees.length) * 100) : 0;
-
-    let html = `
-      <div class="report-dl-bar">
-        <span>Attendance Overview Report</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('overview')">⬇ Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('overview')">⬇ CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('overview')">⬇ PDF</button>
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Overall Attendance</h3>
-        <div class="stats-grid">
-          <div class="stat-card primary"><div class="stat-icon">👥</div><div class="stat-value">${attendees.length}</div><div class="stat-label">Total Expected</div></div>
-          <div class="stat-card success"><div class="stat-icon">✅</div><div class="stat-value">${present.length}</div><div class="stat-label">Present</div></div>
-          <div class="stat-card warning"><div class="stat-icon">⏳</div><div class="stat-value">${attendees.length - present.length}</div><div class="stat-label">Absent</div></div>
-          <div class="stat-card accent"><div class="stat-icon">📊</div><div class="stat-value">${pct}%</div><div class="stat-label">Attendance Rate</div></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Category-wise Breakdown</h3>
-        ${Helpers.buildTable(
-          ['Category', 'Total Expected', 'Present', 'Absent', 'Rate'],
-          Object.entries(catMap).map(([cat, d]) => ({
-            cells: [cat, d.total, d.present, d.total - d.present, Math.round(d.present / d.total * 100) + '%']
-          })),
-          { cls: 'report-table' }
-        )}
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Team-wise Breakdown</h3>
-        ${Helpers.buildTable(
-          ['Team', 'Total', 'Present', 'Absent'],
-          Object.entries(teamMap).sort((a,b) => b[1].total - a[1].total).map(([team, d]) => ({
-            cells: [team, d.total, d.present, d.total - d.present]
-          })),
-          { cls: 'report-table' }
-        )}
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Devotee Participation</h3>
-        ${Helpers.buildTable(
-          ['Type', 'Count'],
-          [
-            { cells: ['Service Devotees', serviceDevotees.length] },
-            { cells: ['Non-Service Devotees', attendees.length - serviceDevotees.length] },
-            { cells: ['Active Devotees', activeDevotees.length] },
-            { cells: ['Inactive Devotees', attendees.length - activeDevotees.length] }
-          ],
-          { cls: 'report-table' }
-        )}
-      </div>
-    `;
-    return html;
-  }
-
-  function renderPayment(data) {
-    const { teamPayMap, totalPayment, expected, profitLoss, cfg } = data;
-    const plClass = profitLoss >= 0 ? 'success' : 'danger';
-
-    let rows = Object.entries(teamPayMap).sort((a,b) => b[1].total - a[1].total).map(([team, d]) => ({
-      cells: [team, d.persons, Helpers.currency(d.before), Helpers.currency(d.after), Helpers.currency(d.total)]
-    }));
-    rows.push({ _class: 'total-row', cells: ['TOTAL', Object.values(teamPayMap).reduce((s,d) => s+d.persons, 0),
-      Helpers.currency(Object.values(teamPayMap).reduce((s,d) => s+d.before, 0)),
-      Helpers.currency(Object.values(teamPayMap).reduce((s,d) => s+d.after, 0)),
-      Helpers.currency(totalPayment)] });
-
-    return `
-      <div class="report-dl-bar">
-        <span>Payment Analysis Report</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('payment')">⬇ Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('payment')">⬇ CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('payment')">⬇ PDF</button>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Payment Summary</h3>
-        <div class="stats-grid">
-          <div class="stat-card accent"><div class="stat-icon">💰</div><div class="stat-value">${Helpers.currency(totalPayment)}</div><div class="stat-label">Total Collected</div></div>
-          <div class="stat-card info"><div class="stat-icon">🎯</div><div class="stat-value">${Helpers.currency(expected)}</div><div class="stat-label">Expected Revenue</div></div>
-          <div class="stat-card ${plClass}"><div class="stat-icon">${profitLoss >= 0 ? '📈' : '📉'}</div><div class="stat-value">${Helpers.currency(Math.abs(profitLoss))}</div><div class="stat-label">${profitLoss >= 0 ? 'Surplus' : 'Deficit'}</div></div>
-        </div>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Team-wise Payment</h3>
-        ${Helpers.buildTable(['Team','Persons','Before Event','After Event','Total'], rows, { cls: 'report-table' })}
-      </div>
-    `;
-  }
-
-  function renderReference(data) {
-    const { refMap } = data;
-    const rows = Object.entries(refMap).sort((a,b) => b[1].total - a[1].total).map(([ref, d]) => ({
-      cells: [ref, d.persons, Helpers.currency(d.total)]
-    }));
-
-    return `
-      <div class="report-dl-bar">
-        <span>Reference Performance Report</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('reference')">⬇ Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('reference')">⬇ CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('reference')">⬇ PDF</button>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Reference Performance</h3>
-        ${Helpers.buildTable(['Reference','Persons','Total Payment'], rows, { cls: 'report-table' })}
-      </div>
-    `;
-  }
-
-  function renderTransport(data) {
-    const { routeMap, totalCost, totalCollection, profitLoss } = data;
-    const rows = Object.values(routeMap).map(r => ({
-      cells: [r.name || 'Unknown', r.capacity || '-', r.passengers, Helpers.currency(r.collection), Helpers.currency(r.cost), `<span class="${r.collection - r.cost >= 0 ? 'badge present' : 'badge unpaid'}">${Helpers.currency(r.collection - r.cost)}</span>`]
-    }));
-    rows.push({ _class: 'total-row', cells: ['TOTAL', '', Object.values(routeMap).reduce((s,r) => s+r.passengers, 0), Helpers.currency(totalCollection), Helpers.currency(totalCost), `<span class="${profitLoss >= 0 ? 'badge present' : 'badge unpaid'}">${Helpers.currency(profitLoss)}</span>`] });
-
-    return `
-      <div class="report-dl-bar">
-        <span>Transportation Economics Report</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('transport')">⬇ Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('transport')">⬇ CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('transport')">⬇ PDF</button>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Bus Route Economics</h3>
-        ${Helpers.buildTable(['Bus Route','Capacity','Passengers','Collection','Bus Cost','Profit/Loss'], rows, { cls: 'report-table' })}
-      </div>
-    `;
-  }
-
-  function renderSummary(data) {
-    const { totalAttendees, totalPresent, totalWalkIns, totalPayment, totalBusCost, expected, netPL, cfg } = data;
-
-    return `
-      <div class="report-dl-bar">
-        <span>Event Financial Summary</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('summary')">⬇ Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('summary')">⬇ CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('summary')">⬇ PDF</button>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Overall Event Summary — ${cfg.eventName}</h3>
-        ${Helpers.buildTable(['Metric','Value'], [
-          { cells: ['Event Name', cfg.eventName] },
-          { cells: ['Event Date', Helpers.formatDate(cfg.eventDate)] },
-          { cells: ['Total Registered Attendees', totalAttendees] },
-          { cells: ['Total Present', totalPresent] },
-          { cells: ['Walk-ins', totalWalkIns] },
-          { cells: ['Attendance Rate', totalAttendees ? Math.round(totalPresent/totalAttendees*100)+'%' : '0%'] },
-          { cells: ['Charge Per Person', Helpers.currency(cfg.chargePerPerson)] },
-          { cells: ['Expected Revenue', Helpers.currency(expected)] },
-          { cells: ['Total Payment Collected', Helpers.currency(totalPayment)] },
-          { cells: ['Total Bus Cost', Helpers.currency(totalBusCost)] },
-          { _class: 'total-row', cells: ['Net Profit / Loss', Helpers.currency(netPL)] },
-        ], { cls: 'report-table' })}
-      </div>
-    `;
-  }
-
-  return {
-    reportOverview, reportPayment, reportReference, reportTransport, reportSummary,
-    renderOverview, renderPayment, renderReference, renderTransport, renderSummary
-  };
-})();
-
-  </script>
-  <script>
-// ===== EXPORT MODULE =====
-const Export = (() => {
-
-  async function getReportData(type) {
-    switch (type) {
-      case 'overview': return Reports.reportOverview();
-      case 'payment': return Reports.reportPayment();
-      case 'reference': return Reports.reportReference();
-      case 'transport': return Reports.reportTransport();
-      case 'summary': return Reports.reportSummary();
-      default: return null;
-    }
-  }
-
-  // ===== EXCEL EXPORT =====
-  async function reportToExcel(type) {
-    const data = await getReportData(type);
-    const cfg = await Reports.reportSummary();
-    const wb = XLSX.utils.book_new();
-
-    if (type === 'overview') {
-      const { attendees, present, catMap, teamMap, serviceDevotees, activeDevotees } = data;
-      addSheet(wb, 'Overview', [
-        ['Metric', 'Value'],
-        ['Total Attendees', attendees.length],
-        ['Present', present.length],
-        ['Absent', attendees.length - present.length],
-        ['Attendance Rate', attendees.length ? Math.round(present.length/attendees.length*100)+'%' : '0%'],
-      ]);
-      addSheet(wb, 'By Category', [
-        ['Category', 'Total', 'Present', 'Absent'],
-        ...Object.entries(catMap).map(([c, d]) => [c, d.total, d.present, d.total - d.present])
-      ]);
-      addSheet(wb, 'By Team', [
-        ['Team', 'Total', 'Present', 'Absent'],
-        ...Object.entries(teamMap).map(([t, d]) => [t, d.total, d.present, d.total - d.present])
-      ]);
-      addSheet(wb, 'Devotees', [
-        ['Type', 'Count'],
-        ['Service Devotees', serviceDevotees.length],
-        ['Non-Service Devotees', attendees.length - serviceDevotees.length],
-        ['Active Devotees', activeDevotees.length],
-        ['Inactive Devotees', attendees.length - activeDevotees.length],
-      ]);
-    } else if (type === 'payment') {
-      const { teamPayMap, totalPayment, expected, profitLoss } = data;
-      addSheet(wb, 'Payment By Team', [
-        ['Team', 'Persons', 'Before Event', 'After Event', 'Total'],
-        ...Object.entries(teamPayMap).map(([t, d]) => [t, d.persons, d.before, d.after, d.total]),
-        ['TOTAL', Object.values(teamPayMap).reduce((s,d) => s+d.persons,0), '', '', totalPayment]
-      ]);
-      addSheet(wb, 'Summary', [
-        ['Metric', 'Value'],
-        ['Total Collected', totalPayment],
-        ['Expected Revenue', expected],
-        ['Profit/Loss', profitLoss]
-      ]);
-    } else if (type === 'reference') {
-      const { refMap } = data;
-      addSheet(wb, 'Reference Performance', [
-        ['Reference', 'Persons', 'Total Payment'],
-        ...Object.entries(refMap).map(([r, d]) => [r, d.persons, d.total])
-      ]);
-    } else if (type === 'transport') {
-      const { routeMap, totalCost, totalCollection, profitLoss } = data;
-      addSheet(wb, 'Bus Routes', [
-        ['Route', 'Capacity', 'Passengers', 'Collection', 'Bus Cost', 'Profit/Loss'],
-        ...Object.values(routeMap).map(r => [r.name, r.capacity, r.passengers, r.collection, r.cost, r.collection - r.cost]),
-        ['TOTAL', '', Object.values(routeMap).reduce((s,r)=>s+r.passengers,0), totalCollection, totalCost, profitLoss]
-      ]);
-    } else if (type === 'summary') {
-      const d = data;
-      addSheet(wb, 'Event Summary', [
-        ['Metric', 'Value'],
-        ['Event Name', d.cfg.eventName],
-        ['Event Date', d.cfg.eventDate],
-        ['Total Attendees', d.totalAttendees],
-        ['Total Present', d.totalPresent],
-        ['Walk-ins', d.totalWalkIns],
-        ['Total Payment Collected', d.totalPayment],
-        ['Total Bus Cost', d.totalBusCost],
-        ['Expected Revenue', d.expected],
-        ['Net Profit/Loss', d.netPL]
-      ]);
-    }
-
-    // Full attendee list
-    const attendees = await DB.getAll(DB.STORES.attendees);
-    addSheet(wb, 'Full Attendee List', [
-      ['ID','Name','Mobile','Team','Category','Reference','Payment','Pay Date','Pay Timing','Bus Route','Attendance','Entry Time','Volunteer','Walk-in'],
-      ...attendees.map(a => [
-        a.attendeeId, a.name, a.mobile, a.team, a.category, a.reference,
-        a.paymentAmount, a.paymentDate, a.paymentTiming,
-        a.busRoute, a.attendance, a.entryTime, a.markedBy, a.isWalkIn ? 'Yes' : 'No'
-      ])
-    ]);
-
-    XLSX.writeFile(wb, `Prerna_${type}_report_${new Date().toISOString().slice(0,10)}.xlsx`);
-    Helpers.toast('Excel report downloaded!', 'success');
-  }
-
-  function addSheet(wb, name, data) {
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    XLSX.utils.book_append_sheet(wb, ws, name);
-  }
-
-  // ===== CSV EXPORT =====
-  async function reportToCsv(type) {
-    const data = await getReportData(type);
-    let rows = [];
-
-    if (type === 'overview') {
-      const { attendees, catMap, teamMap } = data;
-      rows = [
-        ['=== CATEGORY BREAKDOWN ==='],
-        ['Category', 'Total', 'Present', 'Absent'],
-        ...Object.entries(catMap).map(([c, d]) => [c, d.total, d.present, d.total - d.present]),
-        [],
-        ['=== TEAM BREAKDOWN ==='],
-        ['Team', 'Total', 'Present', 'Absent'],
-        ...Object.entries(teamMap).map(([t, d]) => [t, d.total, d.present, d.total - d.present])
-      ];
-    } else if (type === 'payment') {
-      const { teamPayMap } = data;
-      rows = [
-        ['Team', 'Persons', 'Before Event', 'After Event', 'Total'],
-        ...Object.entries(teamPayMap).map(([t, d]) => [t, d.persons, d.before, d.after, d.total])
-      ];
-    } else if (type === 'reference') {
-      const { refMap } = data;
-      rows = [
-        ['Reference', 'Persons', 'Total Payment'],
-        ...Object.entries(refMap).map(([r, d]) => [r, d.persons, d.total])
-      ];
-    } else if (type === 'transport') {
-      const { routeMap } = data;
-      rows = [
-        ['Route', 'Passengers', 'Collection', 'Bus Cost', 'Profit/Loss'],
-        ...Object.values(routeMap).map(r => [r.name, r.passengers, r.collection, r.cost, r.collection - r.cost])
-      ];
-    } else if (type === 'summary') {
-      rows = [
-        ['Metric', 'Value'],
-        ['Total Attendees', data.totalAttendees],
-        ['Total Present', data.totalPresent],
-        ['Total Payment', data.totalPayment],
-        ['Total Bus Cost', data.totalBusCost],
-        ['Net P/L', data.netPL]
-      ];
-    }
-
-    const csv = rows.map(r => r.map(c => `"${(c||'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    Helpers.downloadBlob(blob, `Prerna_${type}_${new Date().toISOString().slice(0,10)}.csv`);
-    Helpers.toast('CSV downloaded!', 'success');
-  }
-
-  // ===== PDF EXPORT (print-based) =====
-  async function reportToPdf(type) {
-    const data = await getReportData(type);
-    let html = '';
-
-    const styles = `
-      <style>
-        body { font-family: Arial, sans-serif; color: #222; padding: 20px; }
-        h1 { color: #7b5ea7; border-bottom: 2px solid #c9a227; padding-bottom: 8px; }
-        h2 { color: #c9a227; margin-top: 24px; }
-        table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
-        th { background: #1c1635; color: #f0c040; padding: 8px 10px; text-align: left; }
-        td { padding: 7px 10px; border-bottom: 1px solid #ddd; }
-        tr:nth-child(even) td { background: #f9f7ff; }
-        .total-row td { font-weight: bold; background: #f0ecff; }
-        .meta { color: #888; font-size: 12px; margin-bottom: 20px; }
-      </style>
-    `;
-
-    const cfg = await Reports.reportSummary();
-    html = `${styles}<h1>Prerna Festival — ${type.charAt(0).toUpperCase()+type.slice(1)} Report</h1>
-    <p class="meta">Generated: ${new Date().toLocaleString()} | Event: ${cfg.cfg.eventName}</p>`;
-
-    if (type === 'overview') {
-      const { attendees, present, catMap, teamMap } = data;
-      html += `<h2>Overall</h2><table><tr><th>Metric</th><th>Value</th></tr>
-        <tr><td>Total</td><td>${attendees.length}</td></tr>
-        <tr><td>Present</td><td>${present.length}</td></tr>
-        <tr class="total-row"><td>Rate</td><td>${Math.round(present.length/attendees.length*100)}%</td></tr></table>`;
-      html += `<h2>By Category</h2><table><tr><th>Category</th><th>Total</th><th>Present</th></tr>`;
-      Object.entries(catMap).forEach(([c,d]) => { html += `<tr><td>${c}</td><td>${d.total}</td><td>${d.present}</td></tr>`; });
-      html += `</table><h2>By Team</h2><table><tr><th>Team</th><th>Total</th><th>Present</th></tr>`;
-      Object.entries(teamMap).forEach(([t,d]) => { html += `<tr><td>${t}</td><td>${d.total}</td><td>${d.present}</td></tr>`; });
-      html += `</table>`;
-    } else if (type === 'payment') {
-      const { teamPayMap, totalPayment, expected, profitLoss } = data;
-      html += `<h2>Team Payment Analysis</h2><table><tr><th>Team</th><th>Persons</th><th>Before</th><th>After</th><th>Total</th></tr>`;
-      Object.entries(teamPayMap).forEach(([t,d]) => {
-        html += `<tr><td>${t}</td><td>${d.persons}</td><td>₹${d.before}</td><td>₹${d.after}</td><td>₹${d.total}</td></tr>`;
-      });
-      html += `<tr class="total-row"><td>TOTAL</td><td></td><td></td><td></td><td>₹${totalPayment}</td></tr></table>
-        <p>Expected: ₹${expected} | P/L: ₹${profitLoss}</p>`;
-    } else if (type === 'reference') {
-      const { refMap } = data;
-      html += `<h2>Reference Performance</h2><table><tr><th>Reference</th><th>Persons</th><th>Total</th></tr>`;
-      Object.entries(refMap).forEach(([r,d]) => { html += `<tr><td>${r}</td><td>${d.persons}</td><td>₹${d.total}</td></tr>`; });
-      html += `</table>`;
-    } else if (type === 'transport') {
-      const { routeMap, totalCost, totalCollection, profitLoss } = data;
-      html += `<h2>Bus Routes</h2><table><tr><th>Route</th><th>Passengers</th><th>Collection</th><th>Cost</th><th>P/L</th></tr>`;
-      Object.values(routeMap).forEach(r => { html += `<tr><td>${r.name}</td><td>${r.passengers}</td><td>₹${r.collection}</td><td>₹${r.cost}</td><td>₹${r.collection-r.cost}</td></tr>`; });
-      html += `<tr class="total-row"><td>TOTAL</td><td></td><td>₹${totalCollection}</td><td>₹${totalCost}</td><td>₹${profitLoss}</td></tr></table>`;
-    } else if (type === 'summary') {
-      const d = data;
-      html += `<h2>Event Financial Summary</h2><table>
-        <tr><th>Metric</th><th>Value</th></tr>
-        <tr><td>Total Attendees</td><td>${d.totalAttendees}</td></tr>
-        <tr><td>Present</td><td>${d.totalPresent}</td></tr>
-        <tr><td>Walk-ins</td><td>${d.totalWalkIns}</td></tr>
-        <tr><td>Total Collected</td><td>₹${d.totalPayment}</td></tr>
-        <tr><td>Total Bus Cost</td><td>₹${d.totalBusCost}</td></tr>
-        <tr class="total-row"><td>Net P/L</td><td>₹${d.netPL}</td></tr>
-      </table>`;
-    }
-
-    const win = window.open('', '_blank');
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => { win.print(); }, 500);
-    Helpers.toast('PDF print dialog opened', 'success');
-  }
-
-  // Full attendee list export
-  async function exportAttendees(filtered) {
-    const attendees = filtered || await DB.getAll(DB.STORES.attendees);
-    const wb = XLSX.utils.book_new();
-    addSheet(wb, 'Attendees', [
-      ['ID','Name','Mobile','Team','Category','Reference','Payment','Pay Date','Pay Timing','Bus Route','Attendance','Entry Time','Volunteer','Walk-in','Duplicate'],
-      ...attendees.map(a => [
-        a.attendeeId, a.name, a.mobile, a.team, a.category, a.reference,
-        a.paymentAmount, a.paymentDate, a.paymentTiming,
-        a.busRoute, a.attendance, a.entryTime, a.markedBy,
-        a.isWalkIn ? 'Yes' : 'No', a.isDuplicate ? 'Yes' : 'No'
-      ])
-    ]);
-    XLSX.writeFile(wb, `Prerna_Attendees_${new Date().toISOString().slice(0,10)}.xlsx`);
-    Helpers.toast('Attendee list exported!', 'success');
-  }
-
-  return { reportToExcel, reportToCsv, reportToPdf, exportAttendees };
-})();
-
-  </script>
-  <script>
-// ===== MAIN APP =====
-const App = (() => {
-  let currentUser = null;
-  let currentPage = 'dashboard';
-  let scannerStream = null;
-  let offlineQueue = [];
-  let allAttendees = [];
-  let attendeesPage = 1;
-  const PAGE_SIZE = 100;
-
-  // ===== INIT =====
-  async function init() {
-    await DB.open();
-    await initDefaultUsers();
-    await initDefaultConfig();
-
-    // Splash → Login
-    setTimeout(() => {
-      const splash = document.getElementById('splash');
-      splash.style.opacity = '0';
-      setTimeout(async () => {
-        splash.style.display = 'none';
-        document.getElementById('screen-login').classList.remove('hidden');
-        // Check if only default users exist → show first-time setup
-        const users = await DB.getAll(DB.STORES.users);
-        const onlyDefaults = users.every(u => u.username === 'admin' || u.username === 'volunteer');
-        if (onlyDefaults) {
-          document.getElementById('first-time-setup').classList.remove('hidden');
-          document.getElementById('normal-login').classList.add('hidden');
-          document.getElementById('setup-name').focus();
-        } else {
-          document.getElementById('login-username').focus();
-        }
-      }, 500);
-    }, 1800);
-
-    // Events
-    document.getElementById('btn-login').addEventListener('click', handleLogin);
-    document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
-    document.getElementById('btn-setup').addEventListener('click', handleFirstTimeSetup);
-    document.getElementById('setup-password').addEventListener('keydown', e => { if (e.key === 'Enter') handleFirstTimeSetup(); });
-    document.getElementById('btn-logout').addEventListener('click', handleLogout);
-    document.getElementById('btn-menu').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
-    document.getElementById('btn-sidebar-close').addEventListener('click', () => document.getElementById('sidebar').classList.remove('open'));
-    document.getElementById('modal-overlay').addEventListener('click', e => { if (e.target.id === 'modal-overlay') Helpers.closeModal(); });
-
-    // Nav
-    document.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', () => {
-        navigate(item.dataset.page);
-        document.getElementById('sidebar').classList.remove('open');
-      });
-    });
-
-    // Network status
-    updateNetworkStatus();
-    window.addEventListener('online', updateNetworkStatus);
-    window.addEventListener('offline', updateNetworkStatus);
-  }
-
-  async function initDefaultUsers() {
-    const users = await DB.getAll(DB.STORES.users);
-    if (users.length === 0) {
-      await DB.put(DB.STORES.users, { username: 'admin', password: 'admin123', role: 'admin', name: 'Administrator' });
-      await DB.put(DB.STORES.users, { username: 'volunteer', password: 'vol123', role: 'volunteer', name: 'Volunteer' });
-    }
-  }
-
-  async function initDefaultConfig() {
-    const name = await DB.getConfig('eventName');
-    if (!name) {
-      await DB.setConfig('eventName', 'Prerna Festival 2025');
-      await DB.setConfig('chargePerPerson', '0');
-    }
-  }
-
-  // ===== AUTH =====
-  async function handleFirstTimeSetup() {
-    const name = document.getElementById('setup-name').value.trim();
-    const username = document.getElementById('setup-username').value.trim().toLowerCase().replace(/\s+/g, '');
-    const password = document.getElementById('setup-password').value;
-    const errEl = document.getElementById('setup-error');
-
-    if (!name || !username || !password) {
-      errEl.textContent = 'Please fill in all fields';
-      errEl.classList.remove('hidden'); return;
-    }
-    if (password.length < 4) {
-      errEl.textContent = 'Password must be at least 4 characters';
-      errEl.classList.remove('hidden'); return;
-    }
-
-    // Save new admin user and remove default admin
-    await DB.put(DB.STORES.users, { username, password, role: 'admin', name });
-    // Keep default volunteer for now, remove default admin
-    await DB.deleteRecord(DB.STORES.users, 'admin');
-
-    currentUser = { username, password, role: 'admin', name };
-    loginSuccess(currentUser);
-  }
-
-  async function handleLogin() {
-    const username = document.getElementById('login-username').value.trim();
-    const password = document.getElementById('login-password').value;
-    const role = document.getElementById('login-role').value;
-    const errEl = document.getElementById('login-error');
-
-    if (!username || !password) {
-      errEl.textContent = 'Please enter username and password';
-      errEl.classList.remove('hidden'); return;
-    }
-
-    const user = await DB.getById(DB.STORES.users, username);
-    if (!user || user.password !== password) {
-      errEl.textContent = 'Invalid username or password';
-      errEl.classList.remove('hidden'); return;
-    }
-    if (user.role !== role) {
-      errEl.textContent = `This account has role: ${user.role}. Please select "${user.role}" in the Role dropdown.`;
-      errEl.classList.remove('hidden'); return;
-    }
-
-    currentUser = user;
-    errEl.classList.add('hidden');
-    loginSuccess(user);
-  }
-
-  function loginSuccess(user) {
-    // Update UI
-    document.getElementById('sidebar-username').textContent = user.name;
-    document.getElementById('sidebar-role').textContent = user.role === 'admin' ? 'Administrator' : 'Volunteer';
-    document.getElementById('sidebar-avatar').textContent = user.name[0].toUpperCase();
-
-    // Show/hide admin elements
-    document.querySelectorAll('.admin-only, .admin-page').forEach(el => {
-      el.style.display = user.role === 'admin' ? '' : 'none';
-    });
-
-    document.getElementById('screen-login').classList.add('hidden');
-    document.getElementById('screen-app').classList.remove('hidden');
-    navigate('dashboard');
-    DB.log('login', `User logged in`, user.username);
-  }
-
-  function handleLogout() {
-    currentUser = null;
-    stopScanner();
-    document.getElementById('screen-app').classList.add('hidden');
-    document.getElementById('screen-login').classList.remove('hidden');
-    document.getElementById('login-password').value = '';
-    document.getElementById('login-username').value = '';
-  }
-
-  // ===== NAVIGATION =====
-  function navigate(page) {
-    if (currentPage === 'attendance' && page !== 'attendance') stopScanner();
-
-    document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
-    const pageEl = document.getElementById(`page-${page}`);
-    if (pageEl) pageEl.classList.remove('hidden');
-
-    document.querySelectorAll('.nav-item').forEach(n => {
-      n.classList.toggle('active', n.dataset.page === page);
-    });
-
-    const titles = {
-      dashboard: 'Dashboard', import: 'Import Excel',
-      attendance: 'Attendance', walkin: 'Walk-in Entry',
-      attendees: 'Attendees', reports: 'Reports', settings: 'Settings'
-    };
-    document.getElementById('page-title').textContent = titles[page] || page;
-    currentPage = page;
-
-    // Init page
-    switch (page) {
-      case 'dashboard': initDashboard(); break;
-      case 'import': initImport(); break;
-      case 'attendance': initAttendance(); break;
-      case 'walkin': initWalkin(); break;
-      case 'attendees': initAttendees(); break;
-      case 'reports': initReports(); break;
-      case 'settings': initSettings(); break;
-    }
-  }
-
-  // ===== DASHBOARD =====
-  async function initDashboard() {
-    const attendees = await DB.getAll(DB.STORES.attendees);
-    const present = attendees.filter(a => a.attendance === 'present');
-    const walkins = attendees.filter(a => a.isWalkIn);
-    const dups = attendees.filter(a => a.isDuplicate && !a.dupResolved);
-    const totalPay = attendees.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
-
-    document.getElementById('stat-total').textContent = attendees.length;
-    document.getElementById('stat-present').textContent = present.length;
-    document.getElementById('stat-pending').textContent = attendees.length - present.length;
-    document.getElementById('stat-payment').textContent = Helpers.currency(totalPay);
-    document.getElementById('stat-duplicates').textContent = dups.length;
-    document.getElementById('stat-walkins').textContent = walkins.length;
-
-    const pct = attendees.length ? Math.round((present.length / attendees.length) * 100) : 0;
-    document.getElementById('dash-progress-bar').style.width = pct + '%';
-    document.getElementById('dash-progress-pct').textContent = pct + '%';
-
-    // Category breakdown
-    const catMap = {};
-    attendees.forEach(a => {
-      const cat = a.category || 'Unknown';
-      if (!catMap[cat]) catMap[cat] = { total: 0, present: 0 };
-      catMap[cat].total++;
-      if (a.attendance === 'present') catMap[cat].present++;
-    });
-    const breakdown = document.getElementById('dash-category-breakdown');
-    breakdown.innerHTML = Object.entries(catMap).map(([cat, d]) => `
-      <div class="mini-row"><span>${cat}</span><span>${d.present}/${d.total}</span></div>
-    `).join('');
-
-    // Recent activity
-    const logs = await DB.getAll(DB.STORES.auditLog);
-    const recent = logs.slice(-8).reverse();
-    const actEl = document.getElementById('dash-activity');
-    actEl.innerHTML = recent.length ? recent.map(l => `
-      <div class="activity-item">
-        <div class="activity-dot ${l.action === 'checkin' ? 'green' : l.action === 'import' ? 'blue' : 'orange'}"></div>
-        <span>${l.details}</span>
-        <span class="activity-time">${Helpers.formatDateTime(l.timestamp)}</span>
-      </div>
-    `).join('') : '<p style="color:var(--text-muted);font-size:.85rem">No recent activity</p>';
-  }
-
-  // ===== IMPORT =====
-  let importData = null;
-  let importHeaders = null;
-
-  function initImport() {
-    const zone = document.getElementById('upload-zone');
-    const fileInput = document.getElementById('file-input');
-
-    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
-    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-    zone.addEventListener('drop', e => {
-      e.preventDefault(); zone.classList.remove('dragover');
-      const file = e.dataTransfer.files[0];
-      if (file) processFile(file);
-    });
-    zone.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
-    document.getElementById('btn-confirm-import').addEventListener('click', confirmImport);
-    document.getElementById('btn-cancel-import').addEventListener('click', () => {
-      document.getElementById('column-mapping-section').classList.add('hidden');
-      importData = null; importHeaders = null;
-    });
-  }
-
-  async function processFile(file) {
-    Helpers.toast('Processing file...', 'info');
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-        if (raw.length < 2) { Helpers.toast('File appears empty', 'error'); return; }
-        importHeaders = raw[0].map(h => String(h).trim());
-        importData = raw.slice(1).filter(row => row.some(c => c !== ''));
-        showColumnMapping();
-      } catch (err) {
-        Helpers.toast('Error reading file: ' + err.message, 'error');
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  }
-
-  const SYSTEM_FIELDS = [
-    { key: 'name', label: 'Name ★', required: true,
-      aliases: ['name','full name','fullname','attendee name','participant name','devotee name','naam','person name','member name','candidate name'] },
-    { key: 'mobile', label: 'Mobile ★', required: true,
-      aliases: ['mobile','mobile no','mobile number','phone','phone no','phone number','contact','contact no','contact number','mob','mob no','cell','whatsapp','number','no'] },
-    { key: 'team', label: 'Team',
-      aliases: ['team','team name','group','group name','unit','department','dept','zone','area','center','centre','sewa group'] },
-    { key: 'category', label: 'Category',
-      aliases: ['category','cat','type','program','programme','event type','category name','event','batch'] },
-    { key: 'reference', label: 'Reference',
-      aliases: ['reference','ref','reference name','referred by','ref by','referral','counselor','counsellor','mentor','coordinator','in-charge','incharge'] },
-    { key: 'paymentAmount', label: 'Payment Amount',
-      aliases: ['payment','payment amount','amount','fees','fee','paid','amount paid','payment received','received','rs','inr','contribution','donation','charges','charge'] },
-    { key: 'paymentDate', label: 'Payment Date',
-      aliases: ['payment date','date of payment','paid date','pay date','payment on','received date','date paid','transaction date'] },
-    { key: 'pickupLocation', label: 'Pickup Location',
-      aliases: ['pickup','pickup location','pickup point','pick up','pick up location','boarding','boarding point','from','location','place','venue','address'] },
-    { key: 'busRoute', label: 'Bus Route',
-      aliases: ['bus','bus route','route','bus no','bus number','transport','vehicle','coach'] },
-    { key: 'serviceDevotee', label: 'Service Devotee',
-      aliases: ['service','service devotee','seva','sewa','sevak','sevadar','volunteer type','is service','service flag'] },
-    { key: 'activeDevotee', label: 'Active Devotee',
-      aliases: ['active','active devotee','status','is active','activity','active flag','devotee status'] }
-  ];
-
-  function autoDetectColumn(headerRaw) {
-    // Normalize: lowercase, strip punctuation/spaces
-    const h = headerRaw.toLowerCase().replace(/[^a-z0-9]/g, '');
-    for (const field of SYSTEM_FIELDS) {
-      for (const alias of field.aliases) {
-        const a = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (h === a || h.includes(a) || a.includes(h)) return field.key;
-      }
-    }
-    return null;
-  }
-
-  function showColumnMapping() {
-    // Build a map: fieldKey → best column index
-    const autoMap = {};
-    importHeaders.forEach((h, i) => {
-      const match = autoDetectColumn(h);
-      if (match && !(match in autoMap)) autoMap[match] = i; // first match wins
-    });
-
-    // Show detected columns banner
-    const detected = Object.keys(autoMap).length;
-    const total = SYSTEM_FIELDS.length;
-
-    const grid = document.getElementById('column-mapping-grid');
-
-    // Header banner
-    let banner = `<div class="mapping-banner">
-      <div class="mapping-banner-left">
-        <strong>📋 ${importHeaders.length} columns found in your file</strong>
-        <span class="mapping-detected">${detected} of ${total} fields auto-detected</span>
-      </div>
-      <div class="mapping-cols-preview">${importHeaders.map(h => `<span class="col-chip">${h}</span>`).join('')}</div>
-    </div>`;
-
-    grid.innerHTML = banner + SYSTEM_FIELDS.map(f => {
-      const matchIdx = autoMap[f.key] !== undefined ? autoMap[f.key] : -1;
-      const isMatched = matchIdx >= 0;
-      return `
-        <div class="mapping-row ${isMatched ? 'matched' : ''}">
-          <label>
-            ${f.label}
-            ${isMatched ? `<span class="match-chip">✓ auto</span>` : ''}
-          </label>
-          <select data-field="${f.key}">
-            <option value="">-- Skip --</option>
-            ${importHeaders.map((h, i) => `<option value="${i}" ${i === matchIdx ? 'selected' : ''}>${h}</option>`).join('')}
-          </select>
-          ${isMatched ? `<div class="match-hint">Matched: "${importHeaders[matchIdx]}"</div>` : ''}
-        </div>
-      `;
-    }).join('');
-
-    document.getElementById('column-mapping-section').classList.remove('hidden');
-    document.getElementById('column-mapping-section').scrollIntoView({ behavior: 'smooth' });
-  }
-
-  async function confirmImport() {
-    const mapping = {};
-    document.querySelectorAll('[data-field]').forEach(sel => {
-      if (sel.value !== '') mapping[sel.dataset.field] = parseInt(sel.value);
-    });
-
-    if (!('name' in mapping) || !('mobile' in mapping)) {
-      Helpers.toast('Name and Mobile columns are required', 'error'); return;
-    }
-
-    const eventDate = await DB.getConfig('eventDate');
-    const records = importData.map(row => {
-      const r = { attendance: 'absent', isWalkIn: false };
-      SYSTEM_FIELDS.forEach(f => {
-        if (f.key in mapping) {
-          let val = row[mapping[f.key]];
-          if (val instanceof Date) val = val.toISOString().slice(0, 10);
-          r[f.key] = val !== undefined ? String(val).trim() : '';
-        }
-      });
-      r.attendeeId = Helpers.generateId();
-      r.paymentTiming = Helpers.paymentTiming(r.paymentDate, eventDate);
-      return r;
-    }).filter(r => r.name);
-
-    // Detect duplicates
-    const dupIds = Helpers.detectDuplicates(records);
-    records.forEach((r, i) => {
-      r.isDuplicate = dupIds.has(i);
-    });
-
-    // Clear and bulk add
-    await DB.clearStore(DB.STORES.attendees);
-    await DB.bulkAdd(DB.STORES.attendees, records);
-    await DB.log('import', `Imported ${records.length} records (${dupIds.size} duplicates)`, currentUser?.username);
-
-    // Show preview
-    showImportPreview(records, dupIds.size);
-    document.getElementById('column-mapping-section').classList.add('hidden');
-    Helpers.toast(`Imported ${records.length} records`, 'success');
-  }
-
-  function showImportPreview(records, dupCount) {
-    const statsRow = document.getElementById('import-stats-row');
-    statsRow.innerHTML = `
-      <span class="import-stat total">Total: ${records.length}</span>
-      <span class="import-stat clean">Clean: ${records.length - dupCount}</span>
-      <span class="import-stat dup">Duplicates: ${dupCount}</span>
-    `;
-
-    const preview = document.getElementById('import-preview');
-    preview.classList.remove('hidden');
-
-    const searchInput = document.getElementById('preview-search');
-    const filterSelect = document.getElementById('preview-filter');
-
-    const render = () => {
-      const q = searchInput.value.toLowerCase();
-      const f = filterSelect.value;
-      let filtered = records;
-      if (q) filtered = filtered.filter(r => Helpers.searchFilter(r, q));
-      if (f === 'duplicates') filtered = filtered.filter(r => r.isDuplicate);
-      if (f === 'clean') filtered = filtered.filter(r => !r.isDuplicate);
-
-      const wrap = document.getElementById('preview-table-wrap');
-      wrap.innerHTML = Helpers.buildTable(
-        ['Name', 'Mobile', 'Team', 'Category', 'Payment', 'Bus Route', 'Status'],
-        filtered.slice(0, 200).map(r => ({
-          _class: r.isDuplicate ? 'duplicate-row' : '',
-          cells: [
-            r.name,
-            r.mobile,
-            r.team || '-',
-            r.category || '-',
-            r.paymentAmount ? Helpers.currency(r.paymentAmount) : '-',
-            r.busRoute || '-',
-            r.isDuplicate ? `<span class="badge dup">⚠️ Dup: ${r._dupOf || ''}</span>` : '<span class="badge present">Clean</span>'
-          ]
-        }))
-      );
-      if (filtered.length > 200) {
-        wrap.innerHTML += `<p style="color:var(--text-muted);padding:0.5rem;font-size:.8rem">Showing first 200 of ${filtered.length} results</p>`;
-      }
-    };
-
-    searchInput.addEventListener('input', Helpers.debounce(render, 300));
-    filterSelect.addEventListener('change', render);
-    render();
-    preview.scrollIntoView({ behavior: 'smooth' });
-  }
-
-  // ===== ATTENDANCE =====
-  function initAttendance() {
-    document.querySelectorAll('.att-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.att-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.att-pane').forEach(p => p.classList.add('hidden'));
-        tab.classList.add('active');
-        document.getElementById(`att-tab-${tab.dataset.tab}`).classList.remove('hidden');
-        if (tab.dataset.tab === 'scan') initScanner();
-        else stopScanner();
-      });
-    });
-
-    const searchInput = document.getElementById('att-search');
-    const searchBtn = document.getElementById('btn-att-search');
-    searchBtn.addEventListener('click', () => searchAttendees(searchInput.value));
-    searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchAttendees(searchInput.value); });
-    searchInput.addEventListener('input', Helpers.debounce(() => searchAttendees(searchInput.value), 300));
-
-    document.getElementById('btn-manual-scan').addEventListener('click', () => {
-      const id = document.getElementById('manual-scan-id').value.trim();
-      if (id) markByIdOrQr(id);
-    });
-    document.getElementById('manual-scan-id').addEventListener('keydown', e => {
-      if (e.key === 'Enter') document.getElementById('btn-manual-scan').click();
-    });
-
-    const bulkFile = document.getElementById('bulk-att-file');
-    bulkFile.addEventListener('change', e => { if (e.target.files[0]) processBulkAttendance(e.target.files[0]); });
-  }
-
-  async function searchAttendees(query) {
-    if (!query || query.length < 2) {
-      document.getElementById('att-search-results').innerHTML = '';
-      return;
-    }
-    const all = await DB.getAll(DB.STORES.attendees);
-    const results = all.filter(a => Helpers.searchFilter(a, query)).slice(0, 20);
-    renderAttendanceResults(results);
-  }
-
-  function renderAttendanceResults(results) {
-    const el = document.getElementById('att-search-results');
-    if (!results.length) {
-      el.innerHTML = '<p style="color:var(--text-muted);padding:1rem">No attendees found</p>';
-      return;
-    }
-    el.innerHTML = results.map(a => {
-      const isPres = a.attendance === 'present';
-      return `
-        <div class="att-result-card ${isPres ? 'present-card' : ''}" data-id="${a.id}">
-          <div class="att-result-info">
-            <div class="att-name">${a.name} ${a.isWalkIn ? '<span class="badge walkin">Walk-in</span>' : ''}</div>
-            <div class="att-meta">📱 ${a.mobile || '-'} · 👥 ${a.team || '-'} · 🔗 ${a.reference || '-'} · 💰 ${Helpers.currency(a.paymentAmount)}</div>
-            ${isPres ? `<div class="att-meta" style="color:var(--success)">✅ Checked in at ${Helpers.formatDateTime(a.entryTime)} by ${a.markedBy}</div>` : ''}
-          </div>
-          <div class="att-actions">
-            ${isPres
-              ? `<button class="btn-small danger" onclick="App.unmarkAttendance(${a.id})">Undo</button>`
-              : `<button class="btn-small success" onclick="App.markAttendance(${a.id})">Mark Present</button>`
-            }
-            <button class="btn-small" onclick="App.showAttendeeDetail(${a.id})">Detail</button>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  async function markAttendance(id) {
-    const attendee = await DB.getById(DB.STORES.attendees, id);
-    if (!attendee) return;
-    attendee.attendance = 'present';
-    attendee.entryTime = new Date().toISOString();
-    attendee.markedBy = currentUser?.name || 'Unknown';
-    await DB.put(DB.STORES.attendees, attendee);
-    await DB.log('checkin', `${attendee.name} checked in`, currentUser?.username);
-    Helpers.toast(`✅ ${attendee.name} checked in!`, 'success');
-
-    // Refresh results
-    const q = document.getElementById('att-search')?.value;
-    if (q) searchAttendees(q);
-    initDashboard();
-  }
-
-  async function unmarkAttendance(id) {
-    const attendee = await DB.getById(DB.STORES.attendees, id);
-    if (!attendee) return;
-    attendee.attendance = 'absent';
-    attendee.entryTime = null;
-    attendee.markedBy = null;
-    await DB.put(DB.STORES.attendees, attendee);
-    Helpers.toast(`Attendance removed for ${attendee.name}`, 'warning');
-    const q = document.getElementById('att-search')?.value;
-    if (q) searchAttendees(q);
-  }
-
-  async function markByIdOrQr(input) {
-    const feedback = document.getElementById('scan-feedback');
-    try {
-      // Try JSON QR
-      let attendeeId = null;
-      try {
-        const parsed = JSON.parse(input);
-        attendeeId = parsed.id || parsed.aid;
-      } catch {
-        // Try direct ID or number
-        attendeeId = input;
-      }
-
-      const all = await DB.getAll(DB.STORES.attendees);
-      const found = all.find(a =>
-        String(a.id) === String(attendeeId) ||
-        a.attendeeId === attendeeId ||
-        a.mobile === input.replace(/\D/g, '')
-      );
-
-      if (!found) {
-        feedback.className = 'scan-feedback error';
-        feedback.textContent = `❌ Attendee not found: "${input}"`;
-        feedback.classList.remove('hidden');
-        return;
-      }
-
-      if (found.attendance === 'present') {
-        feedback.className = 'scan-feedback error';
-        feedback.textContent = `⚠️ ${found.name} already checked in at ${Helpers.formatDateTime(found.entryTime)}`;
-        feedback.classList.remove('hidden');
-        return;
-      }
-
-      await markAttendance(found.id);
-      feedback.className = 'scan-feedback success';
-      feedback.textContent = `✅ ${found.name} — Checked in!`;
-      feedback.classList.remove('hidden');
-      document.getElementById('manual-scan-id').value = '';
-      setTimeout(() => feedback.classList.add('hidden'), 3000);
-    } catch (err) {
-      feedback.className = 'scan-feedback error';
-      feedback.textContent = `Error: ${err.message}`;
-      feedback.classList.remove('hidden');
-    }
-  }
-
-  // QR Scanner
-  function initScanner() {
-    if (scannerStream) return;
-    const video = document.getElementById('scanner-video');
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-      .then(stream => {
-        scannerStream = stream;
-        video.srcObject = stream;
-        startQrLoop(video);
-      })
-      .catch(() => {
-        Helpers.toast('Camera access denied. Use manual entry below.', 'warning');
-      });
-  }
-
-  function stopScanner() {
-    if (scannerStream) {
-      scannerStream.getTracks().forEach(t => t.stop());
-      scannerStream = null;
-    }
-  }
-
-  let qrLoopActive = false;
-  function startQrLoop(video) {
-    if (qrLoopActive) return;
-    qrLoopActive = true;
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    async function loop() {
-      if (!scannerStream) { qrLoopActive = false; return; }
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0);
-        try {
-          // Use BarcodeDetector if available
-          if ('BarcodeDetector' in window) {
-            const detector = new BarcodeDetector({ formats: ['qr_code'] });
-            const codes = await detector.detect(canvas);
-            if (codes.length > 0) {
-              await markByIdOrQr(codes[0].rawValue);
-              qrLoopActive = false;
-              setTimeout(() => startQrLoop(video), 2000);
-              return;
-            }
-          }
-        } catch {}
-      }
-      if (scannerStream) requestAnimationFrame(loop);
-      else qrLoopActive = false;
-    }
-    requestAnimationFrame(loop);
-  }
-
-  async function processBulkAttendance(file) {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const wb = XLSX.read(e.target.result, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-      const all = await DB.getAll(DB.STORES.attendees);
-      let matched = 0, notFound = 0;
-      for (const row of rows.slice(1)) {
-        const val = String(row[0] || '').trim();
-        if (!val) continue;
-        const found = all.find(a => a.attendeeId === val || a.mobile === val || String(a.id) === val);
-        if (found && found.attendance !== 'present') {
-          found.attendance = 'present';
-          found.entryTime = new Date().toISOString();
-          found.markedBy = currentUser?.name + ' (bulk)';
-          await DB.put(DB.STORES.attendees, found);
-          matched++;
-        } else if (!found) notFound++;
-      }
-      document.getElementById('bulk-att-result').innerHTML =
-        `<p style="margin-top:1rem;color:var(--success)">✅ Marked ${matched} attendees present. ${notFound} not found.</p>`;
-      Helpers.toast(`Bulk: ${matched} checked in`, 'success');
-    };
-    reader.readAsArrayBuffer(file);
-  }
-
-  async function showAttendeeDetail(id) {
-    const a = await DB.getById(DB.STORES.attendees, id);
-    if (!a) return;
-    Helpers.modal(`
-      <h3 class="modal-title">Attendee Detail</h3>
-      <table style="width:100%;font-size:.9rem">
-        <tr><td style="color:var(--text-muted);padding:.4rem">ID</td><td>${a.attendeeId}</td></tr>
-        <tr><td style="color:var(--text-muted);padding:.4rem">Name</td><td>${a.name}</td></tr>
-        <tr><td style="color:var(--text-muted);padding:.4rem">Mobile</td><td>${a.mobile}</td></tr>
-        <tr><td style="color:var(--text-muted);padding:.4rem">Team</td><td>${a.team || '-'}</td></tr>
-        <tr><td style="color:var(--text-muted);padding:.4rem">Category</td><td>${a.category || '-'}</td></tr>
-        <tr><td style="color:var(--text-muted);padding:.4rem">Reference</td><td>${a.reference || '-'}</td></tr>
-        <tr><td style="color:var(--text-muted);padding:.4rem">Payment</td><td>${Helpers.currency(a.paymentAmount)} (${a.paymentTiming || 'N/A'})</td></tr>
-        <tr><td style="color:var(--text-muted);padding:.4rem">Bus Route</td><td>${a.busRoute || '-'}</td></tr>
-        <tr><td style="color:var(--text-muted);padding:.4rem">Attendance</td><td><span class="badge ${a.attendance}">${a.attendance || 'absent'}</span></td></tr>
-        ${a.attendance === 'present' ? `<tr><td style="color:var(--text-muted);padding:.4rem">Entry Time</td><td>${Helpers.formatDateTime(a.entryTime)}</td></tr>
-        <tr><td style="color:var(--text-muted);padding:.4rem">Volunteer</td><td>${a.markedBy}</td></tr>` : ''}
-        ${a.isDuplicate ? `<tr><td style="color:var(--danger);padding:.4rem">⚠️ Duplicate</td><td>Matches: ${a._dupOf}</td></tr>` : ''}
-      </table>
-      <div class="modal-actions">
-        ${a.attendance !== 'present' ? `<button class="btn-primary" onclick="App.markAttendance(${a.id});Helpers.closeModal()">✅ Mark Present</button>` : ''}
-        <button class="btn-ghost" onclick="Helpers.closeModal()">Close</button>
-      </div>
-    `);
-  }
-
-  // ===== WALK-IN =====
-  function initWalkin() {
-    // Populate team datalist
-    DB.getAll(DB.STORES.attendees).then(all => {
-      const teams = [...new Set(all.map(a => a.team).filter(Boolean))];
-      document.getElementById('team-list').innerHTML = teams.map(t => `<option value="${t}">`).join('');
-    });
-
-    // Set today's date
-    document.getElementById('wi-paydate').value = new Date().toISOString().slice(0, 10);
-
-    document.getElementById('btn-add-walkin').addEventListener('click', addWalkIn);
-    document.getElementById('btn-clear-walkin').addEventListener('click', clearWalkinForm);
-
-    renderWalkinList();
-  }
-
-  async function addWalkIn() {
-    const name = document.getElementById('wi-name').value.trim();
-    const mobile = document.getElementById('wi-mobile').value.trim();
-    const reference = document.getElementById('wi-reference').value.trim();
-    const payment = document.getElementById('wi-payment').value;
-    const paydate = document.getElementById('wi-paydate').value;
-    const team = document.getElementById('wi-team').value.trim();
-    const category = document.getElementById('wi-category').value;
-    const busRoute = document.getElementById('wi-busroute').value.trim();
-    const fb = document.getElementById('walkin-feedback');
-
-    if (!name || !mobile || !reference || payment === '') {
-      fb.className = 'scan-feedback error';
-      fb.textContent = 'Please fill all required fields (★)';
-      fb.classList.remove('hidden'); return;
-    }
-
-    const eventDate = await DB.getConfig('eventDate');
-    const record = {
-      name, mobile, reference, paymentAmount: parseFloat(payment),
-      paymentDate: paydate, paymentTiming: Helpers.paymentTiming(paydate, eventDate),
-      team, category, busRoute,
-      attendeeId: Helpers.generateId('WI'),
-      attendance: 'present',
-      entryTime: new Date().toISOString(),
-      markedBy: currentUser?.name,
-      isWalkIn: true,
-      isDuplicate: false
-    };
-
-    await DB.add(DB.STORES.attendees, record);
-    await DB.log('walkin', `Walk-in: ${name}`, currentUser?.username);
-
-    fb.className = 'scan-feedback success';
-    fb.textContent = `✅ ${name} added and checked in!`;
-    fb.classList.remove('hidden');
-    setTimeout(() => fb.classList.add('hidden'), 3000);
-
-    clearWalkinForm();
-    renderWalkinList();
-    Helpers.toast(`Walk-in ${name} registered!`, 'success');
-  }
-
-  function clearWalkinForm() {
-    ['wi-name','wi-mobile','wi-reference','wi-payment','wi-team','wi-busroute'].forEach(id => {
-      document.getElementById(id).value = '';
-    });
-    document.getElementById('wi-category').value = '';
-    document.getElementById('wi-paydate').value = new Date().toISOString().slice(0, 10);
-  }
-
-  async function renderWalkinList() {
-    const all = await DB.getAll(DB.STORES.attendees);
-    const walkins = all.filter(a => a.isWalkIn).reverse();
-    const el = document.getElementById('walkin-list');
-    el.innerHTML = walkins.length ? Helpers.buildTable(
-      ['Name', 'Mobile', 'Reference', 'Team', 'Payment', 'Entry Time'],
-      walkins.map(a => ({
-        _class: 'walkin-row',
-        cells: [a.name, a.mobile, a.reference, a.team || '-', Helpers.currency(a.paymentAmount), Helpers.formatDateTime(a.entryTime)]
-      }))
-    ) : '<p style="color:var(--text-muted);padding:1rem">No walk-ins yet</p>';
-  }
-
-  // ===== ATTENDEES =====
-  async function initAttendees() {
-    allAttendees = await DB.getAll(DB.STORES.attendees);
-    attendeesPage = 1;
-
-    // Populate team filter
-    const teams = [...new Set(allAttendees.map(a => a.team).filter(Boolean))].sort();
-    const teamFilter = document.getElementById('attendees-filter-team');
-    teamFilter.innerHTML = '<option value="">All Teams</option>' + teams.map(t => `<option value="${t}">${t}</option>`).join('');
-
-    const search = document.getElementById('attendees-search');
-    const teamSel = document.getElementById('attendees-filter-team');
-    const catSel = document.getElementById('attendees-filter-cat');
-    const attSel = document.getElementById('attendees-filter-att');
-
-    const renderFiltered = () => {
-      const q = search.value.toLowerCase();
-      const team = teamSel.value;
-      const cat = catSel.value;
-      const att = attSel.value;
-
-      let filtered = allAttendees;
-      if (q) filtered = filtered.filter(a => Helpers.searchFilter(a, q));
-      if (team) filtered = filtered.filter(a => a.team === team);
-      if (cat) filtered = filtered.filter(a => a.category === cat);
-      if (att) filtered = filtered.filter(a => (att === 'present' ? a.attendance === 'present' : a.attendance !== 'present'));
-
-      document.getElementById('attendees-count').textContent = `Showing ${Math.min(filtered.length, PAGE_SIZE)} of ${filtered.length} attendees`;
-
-      const wrap = document.getElementById('attendees-table-wrap');
-      wrap.innerHTML = Helpers.buildTable(
-        ['ID', 'Name', 'Mobile', 'Team', 'Category', 'Payment', 'Timing', 'Bus', 'Status', 'Actions'],
-        filtered.slice(0, PAGE_SIZE).map(a => ({
-          _class: a.isDuplicate && !a.dupResolved ? 'duplicate-row' : a.isWalkIn ? 'walkin-row' : '',
-          cells: [
-            `<span style="font-family:var(--font-mono);font-size:.75rem">${a.attendeeId}</span>`,
-            a.name + (a.isDuplicate && !a.dupResolved ? ' <span class="badge dup">dup</span>' : '') + (a.isWalkIn ? ' <span class="badge walkin">WI</span>' : ''),
-            a.mobile,
-            a.team || '-',
-            a.category || '-',
-            Helpers.currency(a.paymentAmount),
-            a.paymentTiming ? `<span class="badge ${a.paymentTiming === 'Before Event' ? 'before' : 'after'}">${a.paymentTiming}</span>` : '-',
-            a.busRoute || '-',
-            `<span class="badge ${a.attendance === 'present' ? 'present' : 'absent'}">${a.attendance || 'absent'}</span>`,
-            `<button class="btn-small" onclick="App.showAttendeeDetail(${a.id})">View</button>
-             <button class="btn-small ${a.attendance === 'present' ? 'danger' : 'success'}" onclick="${a.attendance === 'present' ? `App.unmarkAttendance(${a.id})` : `App.markAttendance(${a.id})`}; App.initAttendees()">
-             ${a.attendance === 'present' ? 'Undo' : '✅'}</button>
-             ${a.isDuplicate && !a.dupResolved ? `<button class="btn-small warning" onclick="App.resolveDuplicate(${a.id})">Resolve</button>` : ''}`
-          ]
-        }))
-      );
-
-      // Export button
-      if (!document.getElementById('export-att-btn')) {
-        const btn = document.createElement('button');
-        btn.id = 'export-att-btn';
-        btn.className = 'btn-secondary';
-        btn.textContent = '⬇ Export All';
-        btn.style.marginBottom = '1rem';
-        btn.onclick = () => Export.exportAttendees(filtered);
-        const countEl = document.getElementById('attendees-count');
-        countEl.parentNode.insertBefore(btn, countEl);
-      }
-    };
-
-    [search, teamSel, catSel, attSel].forEach(el => el.addEventListener('input', Helpers.debounce(renderFiltered, 200)));
-    renderFiltered();
-  }
-
-  async function resolveDuplicate(id) {
-    const a = await DB.getById(DB.STORES.attendees, id);
-    if (!a) return;
-    Helpers.modal(`
-      <h3 class="modal-title">Resolve Duplicate</h3>
-      <p style="color:var(--text-secondary);margin-bottom:1rem">${a.name} (${a.mobile}) appears to be a duplicate of: <strong>${a._dupOf}</strong></p>
-      <div class="modal-actions">
-        <button class="btn-primary" onclick="App.acceptDuplicate(${id})">Accept as Unique</button>
-        <button class="btn-danger" onclick="App.deleteDuplicate(${id})">Remove This Entry</button>
-        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-      </div>
-    `);
-  }
-
-  async function acceptDuplicate(id) {
-    const a = await DB.getById(DB.STORES.attendees, id);
-    a.dupResolved = true;
-    await DB.put(DB.STORES.attendees, a);
-    Helpers.closeModal();
-    Helpers.toast('Marked as unique', 'success');
-    initAttendees();
-  }
-
-  async function deleteDuplicate(id) {
-    await DB.deleteRecord(DB.STORES.attendees, id);
-    Helpers.closeModal();
-    Helpers.toast('Duplicate removed', 'success');
-    initAttendees();
-  }
-
-  // ===== REPORTS =====
-  function initReports() {
-    document.querySelectorAll('.rep-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.rep-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        loadReport(tab.dataset.report);
-      });
-    });
-    loadReport('overview');
-  }
-
-  async function loadReport(type) {
-    const el = document.getElementById('report-content');
-    el.innerHTML = '<p style="color:var(--text-muted);padding:2rem;text-align:center">Loading report...</p>';
-    try {
-      let html = '';
-      switch (type) {
-        case 'overview': html = Reports.renderOverview(await Reports.reportOverview()); break;
-        case 'payment': html = Reports.renderPayment(await Reports.reportPayment()); break;
-        case 'reference': html = Reports.renderReference(await Reports.reportReference()); break;
-        case 'transport': html = Reports.renderTransport(await Reports.reportTransport()); break;
-        case 'summary': html = Reports.renderSummary(await Reports.reportSummary()); break;
-      }
-      el.innerHTML = html;
-    } catch (err) {
-      el.innerHTML = `<p style="color:var(--danger);padding:2rem">Error loading report: ${err.message}</p>`;
-    }
-  }
-
-  // ===== SETTINGS =====
-  async function initSettings() {
-    // Load event config
-    document.getElementById('cfg-event-name').value = await DB.getConfig('eventName') || '';
-    document.getElementById('cfg-event-date').value = await DB.getConfig('eventDate') || '';
-    document.getElementById('cfg-charge-per-person').value = await DB.getConfig('chargePerPerson') || '';
-
-    document.getElementById('btn-save-event-cfg').onclick = async () => {
-      await DB.setConfig('eventName', document.getElementById('cfg-event-name').value);
-      await DB.setConfig('eventDate', document.getElementById('cfg-event-date').value);
-      await DB.setConfig('chargePerPerson', document.getElementById('cfg-charge-per-person').value);
-
-      // Recalculate payment timing for all attendees
-      const eventDate = document.getElementById('cfg-event-date').value;
-      if (eventDate) {
-        const all = await DB.getAll(DB.STORES.attendees);
-        for (const a of all) {
-          a.paymentTiming = Helpers.paymentTiming(a.paymentDate, eventDate);
-          await DB.put(DB.STORES.attendees, a);
-        }
-      }
-      Helpers.toast('Configuration saved!', 'success');
-    };
-
-    renderBusRoutes();
-    renderUsers();
-
-    document.getElementById('btn-add-bus-route').onclick = showAddBusRouteModal;
-    document.getElementById('btn-add-user').onclick = showAddUserModal;
-
-    document.getElementById('btn-clear-attendance').onclick = () => {
-      if (confirm('Clear ALL attendance records? This cannot be undone.')) {
-        DB.getAll(DB.STORES.attendees).then(async all => {
-          for (const a of all) {
-            a.attendance = 'absent'; a.entryTime = null; a.markedBy = null;
-            await DB.put(DB.STORES.attendees, a);
-          }
-          Helpers.toast('All attendance cleared', 'warning');
-        });
-      }
-    };
-
-    document.getElementById('btn-clear-all').onclick = () => {
-      if (confirm('RESET ALL DATA? This will delete all attendees and settings.')) {
-        DB.clearStore(DB.STORES.attendees).then(() => {
-          DB.clearStore(DB.STORES.busRoutes);
-          DB.clearStore(DB.STORES.auditLog);
-          Helpers.toast('All data reset', 'warning');
-          navigate('dashboard');
-        });
-      }
-    };
-  }
-
-  async function renderBusRoutes() {
-    const routes = await DB.getAll(DB.STORES.busRoutes);
-    const el = document.getElementById('bus-routes-list');
-    el.innerHTML = routes.map(r => `
-      <div class="bus-route-row">
-        <div class="bus-route-info">
-          <div class="bus-route-name">🚌 ${r.name}</div>
-          <div class="bus-route-meta">Capacity: ${r.capacity} · Cost: ₹${r.cost} · Charge/Person: ₹${r.chargePerPassenger}</div>
-        </div>
-        <button class="btn-small danger" onclick="App.deleteBusRoute(${r.id})">✕</button>
-      </div>
-    `).join('') || '<p style="color:var(--text-muted);font-size:.85rem">No bus routes configured</p>';
-  }
-
-  function showAddBusRouteModal() {
-    Helpers.modal(`
-      <h3 class="modal-title">Add Bus Route</h3>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Route Name</label><input id="m-route-name" type="text" placeholder="e.g. North Route" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Capacity</label><input id="m-route-cap" type="number" placeholder="50" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Bus Cost (₹)</label><input id="m-route-cost" type="number" placeholder="5000" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Charge Per Passenger (₹)</label><input id="m-route-charge" type="number" placeholder="100" /></div>
-      <div class="modal-actions">
-        <button class="btn-primary" onclick="App.saveBusRoute()">Save Route</button>
-        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-      </div>
-    `);
-  }
-
-  async function saveBusRoute() {
-    const name = document.getElementById('m-route-name').value.trim();
-    if (!name) { Helpers.toast('Route name required', 'error'); return; }
-    await DB.add(DB.STORES.busRoutes, {
-      name,
-      capacity: parseInt(document.getElementById('m-route-cap').value) || 0,
-      cost: parseFloat(document.getElementById('m-route-cost').value) || 0,
-      chargePerPassenger: parseFloat(document.getElementById('m-route-charge').value) || 0
-    });
-    Helpers.closeModal();
-    Helpers.toast('Bus route added', 'success');
-    renderBusRoutes();
-  }
-
-  async function deleteBusRoute(id) {
-    await DB.deleteRecord(DB.STORES.busRoutes, id);
-    renderBusRoutes();
-    Helpers.toast('Route removed', 'warning');
-  }
-
-  async function renderUsers() {
-    const users = await DB.getAll(DB.STORES.users);
-    const el = document.getElementById('users-list');
-    el.innerHTML = users.map(u => `
-      <div class="bus-route-row">
-        <div class="bus-route-info">
-          <div class="bus-route-name">👤 ${u.name}</div>
-          <div class="bus-route-meta">${u.username} · ${u.role}</div>
-        </div>
-        ${u.username !== 'admin' ? `<button class="btn-small danger" onclick="App.deleteUser('${u.username}')">✕</button>` : ''}
-      </div>
-    `).join('');
-  }
-
-  function showAddUserModal() {
-    Helpers.modal(`
-      <h3 class="modal-title">Add User</h3>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Full Name</label><input id="m-user-name" type="text" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Username</label><input id="m-user-un" type="text" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Password</label><input id="m-user-pw" type="password" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Role</label>
-        <select id="m-user-role"><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
-      <div class="modal-actions">
-        <button class="btn-primary" onclick="App.saveUser()">Add User</button>
-        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-      </div>
-    `);
-  }
-
-  async function saveUser() {
-    const name = document.getElementById('m-user-name').value.trim();
-    const username = document.getElementById('m-user-un').value.trim();
-    const password = document.getElementById('m-user-pw').value;
-    const role = document.getElementById('m-user-role').value;
-    if (!name || !username || !password) { Helpers.toast('All fields required', 'error'); return; }
-    await DB.put(DB.STORES.users, { username, password, name, role });
-    Helpers.closeModal();
-    Helpers.toast('User added', 'success');
-    renderUsers();
-  }
-
-  async function deleteUser(username) {
-    await DB.deleteRecord(DB.STORES.users, username);
-    renderUsers();
-    Helpers.toast('User removed', 'warning');
-  }
-
-  // ===== NETWORK STATUS =====
-  function updateNetworkStatus() {
-    const el = document.getElementById('sync-status');
-    if (navigator.onLine) {
-      el.textContent = '● Online';
-      el.className = 'sync-status online';
-      processOfflineQueue();
-    } else {
-      el.textContent = '● Offline';
-      el.className = 'sync-status offline';
-    }
-  }
-
-  function processOfflineQueue() {
-    if (offlineQueue.length === 0) return;
-    document.getElementById('offline-badge').classList.add('hidden');
-    offlineQueue = [];
-  }
-
-  // ===== PUBLIC API =====
-  return {
-    init, navigate,
-    markAttendance, unmarkAttendance, showAttendeeDetail,
-    resolveDuplicate, acceptDuplicate, deleteDuplicate,
-    saveBusRoute, deleteBusRoute, deleteUser, saveUser,
-    initAttendees
-  };
-})();
-
-// Init on load
-document.addEventListener('DOMContentLoaded', App.init);
-
-  </script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(() => {});

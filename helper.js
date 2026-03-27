@@ -56,7 +56,6 @@ const Helpers = (() => {
     const normalize = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
     const na = normalize(a), nb = normalize(b);
     if (na === nb) return true;
-    // Levenshtein distance
     const dist = levenshtein(na, nb);
     const maxLen = Math.max(na.length, nb.length);
     return maxLen > 0 && (dist / maxLen) < 0.3;
@@ -90,7 +89,6 @@ const Helpers = (() => {
     });
     Object.values(mobileGroups).forEach(group => {
       if (group.length > 1) {
-        // check name similarity
         for (let i = 0; i < group.length; i++) {
           for (let j = i + 1; j < group.length; j++) {
             const a = records[group[i]], b = records[group[j]];
@@ -174,9 +172,36 @@ const Helpers = (() => {
     );
   }
 
+  // ===== FINANCIAL YEAR UTILITIES =====
+  // FY runs April 1 to March 31
+  // FY 2025-26 = April 1 2025 to March 31 2026
+  function getFinancialYear(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d)) return '';
+    const month = d.getMonth(); // 0-indexed
+    const year = d.getFullYear();
+    if (month >= 3) { // April (3) onwards
+      return `${year}-${String(year + 1).slice(2)}`;
+    } else {
+      return `${year - 1}-${String(year).slice(2)}`;
+    }
+  }
+
+  function getFYRange(fy) {
+    // fy like "2025-26" -> { start: "2025-04-01", end: "2026-03-31" }
+    const parts = fy.split('-');
+    const startYear = parseInt(parts[0]);
+    return {
+      start: `${startYear}-04-01`,
+      end: `${startYear + 1}-03-31`
+    };
+  }
+
   return {
     toast, modal, closeModal, currency, formatDate, formatDateTime,
     similarName, detectDuplicates, paymentTiming, generateId, qrData,
-    debounce, downloadBlob, buildTable, paginate, searchFilter
+    debounce, downloadBlob, buildTable, paginate, searchFilter,
+    getFinancialYear, getFYRange
   };
 })();

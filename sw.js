@@ -1,8 +1,8 @@
-const CACHE_NAME = 'prerna-festival-v2';
+const CACHE_NAME = 'prerna-festival-v3';
 const ASSETS = [
   '/',
   '/index.html',
-  '/main.css',
+  '/firebase-config.js',
   '/db.js',
   '/helper.js',
   '/reports.js',
@@ -11,7 +11,10 @@ const ASSETS = [
   '/manifest.json',
   'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js',
+  'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js'
 ];
 
 self.addEventListener('install', (e) => {
@@ -31,6 +34,13 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
+  // Skip Firebase and authentication requests (must go to network)
+  if (e.request.url.includes('firestore.googleapis.com') ||
+      e.request.url.includes('identitytoolkit.googleapis.com') ||
+      e.request.url.includes('securetoken.googleapis.com')) {
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;

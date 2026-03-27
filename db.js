@@ -1,11 +1,9 @@
-// ===== DATABASE LAYER (IndexedDB) =====
+// ===== DATABASE LAYER (Firestore) =====
 const DB = (() => {
-  const DB_NAME = 'PrernaFestival';
-  const DB_VERSION = 1;
-  let db = null;
+  let currentEventId = null;
 
   const STORES = {
-    attendees: 'attendees',
+    attendees: 'participants',
     users: 'users',
     config: 'config',
     busRoutes: 'busRoutes',
@@ -13,124 +11,156 @@ const DB = (() => {
     offlineQueue: 'offlineQueue'
   };
 
-  async function open() {
-    return new Promise((resolve, reject) => {
-      if (db) return resolve(db);
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = (e) => {
-        const d = e.target.result;
-        if (!d.objectStoreNames.contains(STORES.attendees)) {
-          const s = d.createObjectStore(STORES.attendees, { keyPath: 'id', autoIncrement: true });
-          s.createIndex('mobile', 'mobile');
-          s.createIndex('name', 'name');
-          s.createIndex('team', 'team');
-          s.createIndex('reference', 'reference');
-          s.createIndex('attendance', 'attendance');
-        }
-        if (!d.objectStoreNames.contains(STORES.users)) {
-          const u = d.createObjectStore(STORES.users, { keyPath: 'username' });
-        }
-        if (!d.objectStoreNames.contains(STORES.config)) {
-          d.createObjectStore(STORES.config, { keyPath: 'key' });
-        }
-        if (!d.objectStoreNames.contains(STORES.busRoutes)) {
-          d.createObjectStore(STORES.busRoutes, { keyPath: 'id', autoIncrement: true });
-        }
-        if (!d.objectStoreNames.contains(STORES.auditLog)) {
-          const al = d.createObjectStore(STORES.auditLog, { keyPath: 'id', autoIncrement: true });
-          al.createIndex('timestamp', 'timestamp');
-        }
-        if (!d.objectStoreNames.contains(STORES.offlineQueue)) {
-          d.createObjectStore(STORES.offlineQueue, { keyPath: 'id', autoIncrement: true });
-        }
-      };
-      req.onsuccess = (e) => { db = e.target.result; resolve(db); };
-      req.onerror = (e) => reject(e.target.error);
-    });
+  function setCurrentEvent(id) {
+    currentEventId = id;
+    if (id) localStorage.setItem('prerna_active_event', id);
+    else localStorage.removeItem('prerna_active_event');
   }
 
-  async function tx(storeName, mode = 'readonly') {
-    const d = await open();
-    return d.transaction(storeName, mode).objectStore(storeName);
+  function getCurrentEvent() {
+    if (!currentEventId) currentEventId = localStorage.getItem('prerna_active_event');
+    return currentEventId;
   }
 
-  function promisify(req) {
-    return new Promise((resolve, reject) => {
-      req.onsuccess = (e) => resolve(e.target.result);
-      req.onerror = (e) => reject(e.target.error);
-    });
+  function getCollection(storeName) {
+    if (storeName === 'users') return firestore.collection('users');
+    const eid = getCurrentEvent();
+    if (!eid) throw new Error('No event selected');
+    return firestore.collection('events').doc(eid).collection(storeName);
   }
 
-  // Generic CRUD
+  async function open() { /* Firestore is ready after firebase.initializeApp */ }
+
   async function getAll(storeName, filter) {
-    const store = await tx(storeName);
-    const all = await promisify(store.getAll());
-    if (filter) return all.filter(filter);
-    return all;
+    const snap = await getCollection(storeName).get();
+    let results = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    if (filter) results = results.filter(filter);
+    return results;
   }
 
   async function getById(storeName, id) {
-    const store = await tx(storeName);
-    return promisify(store.get(id));
+    const doc = await getCollection(storeName).doc(String(id)).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } : null;
   }
 
   async function put(storeName, record) {
-    const store = await tx(storeName, 'readwrite');
-    return promisify(store.put(record));
+    const id = String(record.id);
+    const data = { ...record };
+    delete data.id;
+    await getCollection(storeName).doc(id).set(data, { merge: true });
+    return id;
   }
 
   async function add(storeName, record) {
-    const store = await tx(storeName, 'readwrite');
-    return promisify(store.add(record));
+    const data = { ...record };
+    delete data.id;
+    const ref = await getCollection(storeName).add(data);
+    return ref.id;
   }
 
   async function deleteRecord(storeName, id) {
-    const store = await tx(storeName, 'readwrite');
-    return promisify(store.delete(id));
+    await getCollection(storeName).doc(String(id)).delete();
   }
 
   async function clearStore(storeName) {
-    const store = await tx(storeName, 'readwrite');
-    return promisify(store.clear());
+    const snap = await getCollection(storeName).get();
+    const docs = snap.docs;
+    // Firestore batch limit is 500
+    for (let i = 0; i < docs.length; i += 500) {
+      const batch = firestore.batch();
+      docs.slice(i, i + 500).forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+    }
   }
 
   async function bulkAdd(storeName, records) {
-    const d = await open();
-    return new Promise((resolve, reject) => {
-      const transaction = d.transaction(storeName, 'readwrite');
-      const store = transaction.objectStore(storeName);
-      let count = 0;
-      records.forEach(r => {
-        const req = store.add(r);
-        req.onsuccess = () => { count++; if (count === records.length) {} };
+    const col = getCollection(storeName);
+    let count = 0;
+    for (let i = 0; i < records.length; i += 500) {
+      const batch = firestore.batch();
+      const chunk = records.slice(i, i + 500);
+      chunk.forEach(r => {
+        const data = { ...r };
+        delete data.id;
+        batch.set(col.doc(), data);
       });
-      transaction.oncomplete = () => resolve(count);
-      transaction.onerror = (e) => reject(e.target.error);
-    });
+      await batch.commit();
+      count += chunk.length;
+    }
+    return count;
   }
 
   // Config helpers
   async function getConfig(key) {
-    const store = await tx(STORES.config);
-    const r = await promisify(store.get(key));
-    return r ? r.value : null;
+    try {
+      const doc = await getCollection('config').doc(key).get();
+      return doc.exists ? doc.data().value : null;
+    } catch { return null; }
   }
 
   async function setConfig(key, value) {
-    const store = await tx(STORES.config, 'readwrite');
-    return promisify(store.put({ key, value }));
+    await getCollection('config').doc(key).set({ value });
   }
 
   // Audit log
   async function log(action, details, user) {
-    return add(STORES.auditLog, {
+    return add('auditLog', {
       action, details, user,
       timestamp: new Date().toISOString()
     });
   }
 
+  // ===== EVENT MANAGEMENT =====
+  async function getEvents() {
+    const snap = await firestore.collection('events').orderBy('createdAt', 'desc').get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  }
+
+  async function createEvent(eventData) {
+    const ref = await firestore.collection('events').add({
+      ...eventData,
+      createdAt: new Date().toISOString()
+    });
+    return ref.id;
+  }
+
+  async function getEvent(eventId) {
+    const doc = await firestore.collection('events').doc(eventId).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } : null;
+  }
+
+  async function updateEvent(eventId, data) {
+    await firestore.collection('events').doc(eventId).update(data);
+  }
+
+  async function deleteEvent(eventId) {
+    // Delete subcollections first
+    for (const sub of ['participants', 'config', 'busRoutes', 'auditLog']) {
+      const snap = await firestore.collection('events').doc(eventId).collection(sub).get();
+      for (let i = 0; i < snap.docs.length; i += 500) {
+        const batch = firestore.batch();
+        snap.docs.slice(i, i + 500).forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+      }
+    }
+    await firestore.collection('events').doc(eventId).delete();
+  }
+
+  // ===== USER PROFILE (Firestore) =====
+  async function getUserProfile(uid) {
+    const doc = await firestore.collection('users').doc(uid).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } : null;
+  }
+
+  async function setUserProfile(uid, data) {
+    await firestore.collection('users').doc(uid).set(data, { merge: true });
+  }
+
   return {
     STORES, open, getAll, getById, put, add, deleteRecord, clearStore, bulkAdd,
-    getConfig, setConfig, log, promisify
+    getConfig, setConfig, log,
+    setCurrentEvent, getCurrentEvent,
+    getEvents, createEvent, getEvent, updateEvent, deleteEvent,
+    getUserProfile, setUserProfile
   };
 })();
