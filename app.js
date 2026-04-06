@@ -630,6 +630,31 @@ const App = (() => {
     });
     document.getElementById('btn-add-walkin').addEventListener('click', addWalkIn);
 
+    // Payment collect panel (for unpaid admission)
+    document.getElementById('btn-pc-cancel').addEventListener('click', () => {
+      document.getElementById('payment-collect-panel').classList.add('hidden');
+    });
+    document.getElementById('btn-pc-skip').addEventListener('click', () => App.submitPaymentCollect(true));
+    document.getElementById('btn-pc-submit').addEventListener('click', () => App.submitPaymentCollect());
+    document.getElementById('pc-mode-online').addEventListener('change', () => {
+      document.getElementById('pc-screenshot-wrap').style.display = 'block';
+    });
+    document.getElementById('pc-mode-cash').addEventListener('change', () => {
+      document.getElementById('pc-screenshot-wrap').style.display = 'none';
+      document.getElementById('pc-screenshot').value = '';
+      document.getElementById('pc-screenshot-preview').innerHTML = '';
+    });
+    document.getElementById('pc-screenshot').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        document.getElementById('pc-screenshot-preview').innerHTML =
+          `<img src="${ev.target.result}" style="max-width:100%;max-height:160px;border-radius:8px;margin-top:.5rem" />`;
+      };
+      reader.readAsDataURL(file);
+    });
+
     const bulkFile = document.getElementById('bulk-att-file');
     if (bulkFile) bulkFile.addEventListener('change', e => { if (e.target.files[0]) processBulkAttendance(e.target.files[0]); });
 
@@ -664,7 +689,7 @@ const App = (() => {
 
   // PRD Section 8: ONE-TAP ADMISSION
   // - Paid/Free → green card, tap = instant admit
-  // - Unpaid/Partial → yellow card, tap = still admits (yellow is visual only, no extra clicks)
+  // - Unpaid/Partial (no amount) → yellow card, tap = collect payment info then admit
   // - Already present → shows green tick + "Admitted by X", tap shows detail, NO double marking
   function renderAttendanceResults(results) {
     const el = document.getElementById('att-search-results');
@@ -687,7 +712,10 @@ const App = (() => {
           </div>`;
       }
 
-      // Not yet admitted — ONE TAP to admit
+      const isUnpaid = (ps.cls === 'status-unpaid') && !(parseFloat(a.paymentAmount) > 0);
+      const admitLabel = isUnpaid ? 'COLLECT' : 'ADMIT';
+
+      // Not yet admitted — tap to admit (paid/free: instant; unpaid: collect payment)
       return `
         <div class="att-result-card ${ps.cls}" onclick="App.instantAdmit('${a.id}')" data-id="${a.id}">
           <div class="att-result-info">
@@ -695,12 +723,12 @@ const App = (() => {
             <div class="att-meta">${a.mobile || ''} · ${a.team || ''} · ${a.attendeeId || ''}</div>
             <div class="att-payment-badge ${ps.cls}">${ps.label}${a.paymentMode ? ' · ' + a.paymentMode : ''}${a.paymentAmount > 0 ? ' · ' + Helpers.currency(a.paymentAmount) : ''}</div>
           </div>
-          <div class="att-admit-btn ${ps.cls}">ADMIT</div>
+          <div class="att-admit-btn ${ps.cls}">${admitLabel}</div>
         </div>`;
     }).join('');
   }
 
-  // INSTANT ADMIT — one tap, no modal, no confirmation dialog
+  // INSTANT ADMIT — one tap, no modal for paid/free; payment collection for unpaid/partial
   async function instantAdmit(id) {
     const a = await DB.getById(DB.STORES.attendees, id);
     if (!a) return;
@@ -708,18 +736,50 @@ const App = (() => {
       Helpers.toast(`Already admitted by ${a.markedBy}`, 'warning');
       return;
     }
+    const ps = (a.paymentStatus || '').toLowerCase();
+    const amt = parseFloat(a.paymentAmount || 0);
+    const isUnpaid = (ps === 'unpaid' || ps === 'partial') && amt <= 0;
+
+    if (isUnpaid) {
+      // Show payment collection panel before admitting
+      showPaymentCollect(a);
+      return;
+    }
+
+    await doAdmit(a);
+  }
+
+  // Show bottom panel to collect payment info for unpaid attendees
+  function showPaymentCollect(a) {
+    const panel = document.getElementById('payment-collect-panel');
+    document.getElementById('pc-name').textContent = a.name;
+    document.getElementById('pc-attendee-id').value = a.id;
+    document.getElementById('pc-remarks').value = '';
+    document.getElementById('pc-mode-cash').checked = true;
+    document.getElementById('pc-screenshot-wrap').style.display = 'none';
+    document.getElementById('pc-screenshot').value = '';
+    document.getElementById('pc-screenshot-preview').innerHTML = '';
+    panel.classList.remove('hidden');
+    document.getElementById('pc-remarks').focus();
+  }
+
+  // Actually perform the admission (shared by instant and payment-collect flow)
+  async function doAdmit(a, extraPayment) {
     a.attendance = 'present';
     a.entryTime = new Date().toISOString();
     a.markedBy = currentUser?.name || 'Unknown';
+    if (extraPayment) {
+      if (extraPayment.remarks) a.remarks = extraPayment.remarks;
+      if (extraPayment.paymentMode) a.paymentMode = extraPayment.paymentMode;
+      if (extraPayment.screenshotUrl) a.screenshotUrl = extraPayment.screenshotUrl;
+    }
     await DB.put(DB.STORES.attendees, a);
     await DB.log('checkin', `${a.name} checked in`, currentUser?.email);
     Helpers.toast(`${a.name} admitted!`, 'success');
 
-    // Refresh results from cache (onSnapshot will update allAttendees)
     const q = document.getElementById('att-search')?.value;
     if (q) {
-      // Update local cache immediately for instant feedback
-      const idx = allAttendees.findIndex(x => x.id === id);
+      const idx = allAttendees.findIndex(x => x.id === a.id);
       if (idx >= 0) {
         allAttendees[idx].attendance = 'present';
         allAttendees[idx].entryTime = a.entryTime;
@@ -728,6 +788,39 @@ const App = (() => {
       searchAttendeesFromCache(q);
     }
     updateAdmitCountersFromCache();
+  }
+
+  // Called from payment-collect panel submit (skip=true = no payment info needed)
+  async function submitPaymentCollect(skip) {
+    const id = document.getElementById('pc-attendee-id').value;
+    const a = await DB.getById(DB.STORES.attendees, id);
+    if (!a) return;
+
+    document.getElementById('payment-collect-panel').classList.add('hidden');
+
+    if (skip) {
+      await doAdmit(a);
+      return;
+    }
+
+    const remarks = document.getElementById('pc-remarks').value.trim();
+    const mode = document.getElementById('pc-mode-online').checked ? 'online' : 'cash';
+    const screenshotInput = document.getElementById('pc-screenshot');
+
+    let screenshotUrl = '';
+    if (mode === 'online' && screenshotInput.files && screenshotInput.files[0]) {
+      screenshotUrl = await readFileAsDataUrl(screenshotInput.files[0]);
+    }
+
+    await doAdmit(a, { remarks, paymentMode: mode, screenshotUrl });
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.readAsDataURL(file);
+    });
   }
 
   // Show detail modal — only used for already-admitted or viewing full info
@@ -920,11 +1013,7 @@ const App = (() => {
   function initWalkin() { renderWalkinList(); }
 
   function initWalkinPanel() {
-    DB.getAll(DB.STORES.attendees).then(all => {
-      const teams = [...new Set(all.map(a => a.team).filter(Boolean))];
-      document.getElementById('team-list').innerHTML = teams.map(t => `<option value="${t}">`).join('');
-    });
-    document.getElementById('wi-paydate').value = new Date().toISOString().slice(0, 10);
+    // No-op: team and date are auto-set on submit, no pre-population needed
   }
 
   async function addWalkIn() {
@@ -932,8 +1021,6 @@ const App = (() => {
     const mobile = document.getElementById('wi-mobile').value.trim();
     const reference = document.getElementById('wi-reference').value.trim();
     const payment = document.getElementById('wi-payment').value;
-    const paydate = document.getElementById('wi-paydate').value;
-    const team = document.getElementById('wi-team').value.trim();
     const category = document.getElementById('wi-category').value;
     const busRoute = document.getElementById('wi-busroute').value.trim();
     const payStatus = document.getElementById('wi-paystatus').value;
@@ -943,14 +1030,16 @@ const App = (() => {
 
     if (!name || !mobile) { fb.className = 'scan-feedback error'; fb.textContent = 'Name and Mobile required'; fb.classList.remove('hidden'); return; }
 
+    const now = new Date();
+    const paydate = now.toISOString().slice(0, 10);
     const eventDate = await DB.getConfig('eventDate');
     const record = {
       name, mobile, reference, paymentAmount: parseFloat(payment) || 0, paymentDate: paydate,
       paymentTiming: Helpers.paymentTiming(paydate, eventDate),
       paymentStatus: payStatus || 'unpaid', paymentMode: payMode || '', remarks,
-      team, category, busRoute, attendeeId: Helpers.generateId('WI'),
-      attendance: 'present', entryTime: new Date().toISOString(), markedBy: currentUser?.name,
-      isWalkIn: true, isDuplicate: false, createdAt: new Date().toISOString()
+      team: '', category, busRoute, attendeeId: Helpers.generateId('WI'),
+      attendance: 'present', entryTime: now.toISOString(), markedBy: currentUser?.name || 'Unknown',
+      isWalkIn: true, isDuplicate: false, createdAt: now.toISOString()
     };
 
     await DB.add(DB.STORES.attendees, record);
@@ -965,10 +1054,9 @@ const App = (() => {
   }
 
   function clearWalkinForm() {
-    ['wi-name','wi-mobile','wi-reference','wi-payment','wi-team','wi-busroute','wi-remarks'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['wi-name','wi-mobile','wi-reference','wi-payment','wi-busroute','wi-remarks'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     const ps = document.getElementById('wi-paystatus'); if (ps) ps.value = 'unpaid';
     const pm = document.getElementById('wi-paymode'); if (pm) pm.value = '';
-    const pd = document.getElementById('wi-paydate'); if (pd) pd.value = new Date().toISOString().slice(0, 10);
   }
 
   async function renderWalkinList() {
@@ -1256,7 +1344,7 @@ const App = (() => {
   return {
     init, navigate,
     downloadTemplate,
-    instantAdmit, unmarkAttendance, showDetail, showPaymentUpdate, savePaymentUpdate,
+    instantAdmit, submitPaymentCollect, unmarkAttendance, showDetail, showPaymentUpdate, savePaymentUpdate,
     resolveDuplicate, acceptDuplicate, deleteDuplicate,
     saveBusRoute, deleteBusRoute, toggleUserRole,
     showCreateEventModal, createEvent,

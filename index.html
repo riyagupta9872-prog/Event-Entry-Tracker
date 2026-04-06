@@ -1012,8 +1012,6 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                     <option value="cash">Cash</option>
                     <option value="online">Online</option>
                   </select>
-                  <input type="text" id="wi-team" placeholder="Team" class="wi-input" list="team-list" />
-                  <datalist id="team-list"></datalist>
                   <select id="wi-category" class="wi-input">
                     <option value="">Category</option>
                     <option value="IGF">IGF</option>
@@ -1022,11 +1020,45 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                     <option value="ICF_PRJI">ICF_PRJI</option>
                   </select>
                   <input type="text" id="wi-busroute" placeholder="Bus Route" class="wi-input" />
-                  <input type="date" id="wi-paydate" class="wi-input" />
                   <input type="text" id="wi-remarks" placeholder="Remarks (who paid, when)" class="wi-input" style="grid-column:1/-1" />
                 </div>
                 <button class="btn-primary full-width" id="btn-add-walkin" style="margin-top:.75rem">Add & Mark Present</button>
                 <div id="walkin-feedback" class="hidden"></div>
+              </div>
+            </div>
+
+            <!-- Payment collect panel — shown for unpaid admission -->
+            <div id="payment-collect-panel" class="walkin-panel hidden">
+              <div class="walkin-panel-header">
+                <h3>Collect Payment — <span id="pc-name"></span></h3>
+                <button class="walkin-panel-close" id="btn-pc-cancel">&times;</button>
+              </div>
+              <div class="walkin-panel-body">
+                <input type="hidden" id="pc-attendee-id" />
+                <div class="input-group" style="margin-bottom:.75rem">
+                  <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Payment with whom? (remarks)</label>
+                  <input type="text" id="pc-remarks" class="wi-input" placeholder="e.g. Paid to Riya, amount with Priya..." style="width:100%;box-sizing:border-box" />
+                </div>
+                <div style="margin-bottom:.75rem">
+                  <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.5rem;display:block">Payment Mode</label>
+                  <div style="display:flex;gap:1rem;align-items:center">
+                    <label style="display:flex;align-items:center;gap:.4rem;font-size:.95rem;cursor:pointer">
+                      <input type="radio" name="pc-mode" id="pc-mode-cash" value="cash" checked /> Cash
+                    </label>
+                    <label style="display:flex;align-items:center;gap:.4rem;font-size:.95rem;cursor:pointer">
+                      <input type="radio" name="pc-mode" id="pc-mode-online" value="online" /> Online
+                    </label>
+                  </div>
+                </div>
+                <div id="pc-screenshot-wrap" style="display:none;margin-bottom:.75rem">
+                  <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Screenshot of payment (optional)</label>
+                  <input type="file" id="pc-screenshot" accept="image/*" capture="environment" style="font-size:.85rem" />
+                  <div id="pc-screenshot-preview"></div>
+                </div>
+                <div style="display:flex;gap:.75rem;margin-top:.25rem">
+                  <button class="btn-primary" id="btn-pc-submit" style="flex:1">Admit Now</button>
+                  <button class="btn-ghost" id="btn-pc-skip" style="flex:0 0 auto;padding:.7rem 1.25rem">Skip &amp; Admit</button>
+                </div>
               </div>
             </div>
           </div>
