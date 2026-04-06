@@ -218,6 +218,8 @@ const App = (() => {
 
     selector.onchange = () => {
       DB.setCurrentEvent(selector.value);
+      allAttendees = [];
+      attendanceInited = false;
       startLiveSync();
       navigate(currentPage);
     };
@@ -248,10 +250,12 @@ const App = (() => {
     const fy = date ? Helpers.getFinancialYear(date) : Helpers.getFinancialYear(new Date().toISOString());
     const id = await DB.createEvent({ name, date, chargePerPerson: charge, totalExpense: expense, financialYear: fy, createdBy: currentUser?.uid || '' });
     DB.setCurrentEvent(id);
+    allAttendees = [];
+    attendanceInited = false;
     Helpers.closeModal();
     Helpers.toast('Event created!', 'success');
     await loadEventSelector();
-    navigate('attendance');
+    navigate('dashboard');
   }
 
   // ===== NAVIGATION =====
@@ -290,40 +294,98 @@ const App = (() => {
   // ===== DASHBOARD =====
   async function initDashboard() {
     try {
-      const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
-      const present = attendees.filter(a => a.attendance === 'present');
-      const walkins = attendees.filter(a => a.isWalkIn);
-      const dups = attendees.filter(a => a.isDuplicate && !a.dupResolved);
-      const totalPay = attendees.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+      const attendees  = await DB.getAll(DB.STORES.attendees);
+      const busRoutes  = await DB.getAll(DB.STORES.busRoutes);
+      const present   = attendees.filter(a => a.attendance === 'present');
+      const absent    = attendees.filter(a => a.attendance !== 'present');
+      const paid      = attendees.filter(a => (a.paymentStatus || '').toLowerCase() === 'paid');
+      const unpaid    = attendees.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid');
+      const free      = attendees.filter(a => (a.paymentStatus || '').toLowerCase() === 'free');
+      const walkins   = attendees.filter(a => a.isWalkIn);
+      const dups      = attendees.filter(a => a.isDuplicate && !a.dupResolved);
+      const totalPay  = attendees.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+      const totalBusCost = busRoutes.reduce((s, r) => s + parseInt(r.busCount || 1) * parseFloat(r.cost || 0), 0);
+      const profitLoss   = totalPay - totalBusCost;
+      const plClass      = profitLoss >= 0 ? 'success' : 'danger';
 
-      document.getElementById('stat-total').textContent = attendees.length;
-      document.getElementById('stat-present').textContent = present.length;
-      document.getElementById('stat-pending').textContent = attendees.length - present.length;
-      document.getElementById('stat-payment').textContent = Helpers.currency(totalPay);
-      document.getElementById('stat-duplicates').textContent = dups.length;
-      document.getElementById('stat-walkins').textContent = walkins.length;
+      // ── Attendance + Payment counts ──────────────────────────────────────
+      const pct = attendees.length ? Math.round(present.length / attendees.length * 100) : 0;
 
-      const pct = attendees.length ? Math.round((present.length / attendees.length) * 100) : 0;
-      document.getElementById('dash-progress-bar').style.width = pct + '%';
-      document.getElementById('dash-progress-pct').textContent = pct + '%';
+      document.getElementById('dash-counts').innerHTML = `
+        <div class="dash-counts-grid">
+          <div class="dash-count-col">
+            <div class="dash-count-head">Total</div>
+            <div class="dash-count-big">${attendees.length}</div>
+            <div class="dash-count-sub">${walkins.length} walk-in&nbsp;&nbsp;${dups.length > 0 ? `<span style="color:var(--danger)">${dups.length} dup</span>` : ''}</div>
+          </div>
+          <div class="dash-count-col">
+            <div class="dash-count-head">Attendance</div>
+            <div class="dash-count-row"><span class="dc-label success">Present</span><span class="dc-num">${present.length}</span></div>
+            <div class="dash-count-row"><span class="dc-label warning">Absent</span><span class="dc-num">${absent.length}</span></div>
+            <div class="dash-count-pct">${pct}% attended</div>
+            <div class="dash-progress" style="margin-top:.4rem">
+              <div class="dash-progress-fill" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <div class="dash-count-col">
+            <div class="dash-count-head">Payment</div>
+            <div class="dash-count-row"><span class="dc-label accent">Paid</span><span class="dc-num">${paid.length}</span></div>
+            <div class="dash-count-row"><span class="dc-label danger">Unpaid</span><span class="dc-num">${unpaid.length}</span></div>
+            <div class="dash-count-row"><span class="dc-label info">Free</span><span class="dc-num">${free.length}</span></div>
+          </div>
+          <div class="dash-count-col">
+            <div class="dash-count-head">Collected</div>
+            <div class="dash-count-big" style="color:var(--accent)">${Helpers.currency(totalPay)}</div>
+          </div>
+        </div>`;
 
-      const catMap = {};
-      attendees.forEach(a => {
-        const cat = a.category || 'Unknown';
-        if (!catMap[cat]) catMap[cat] = { total: 0, present: 0 };
-        catMap[cat].total++;
-        if (a.attendance === 'present') catMap[cat].present++;
-      });
-      document.getElementById('dash-category-breakdown').innerHTML = Object.entries(catMap).map(([cat, d]) =>
-        `<div class="mini-row"><span>${cat}</span><span>${d.present}/${d.total}</span></div>`
-      ).join('');
+      // ── Buses ────────────────────────────────────────────────────────────
+      const busRows = busRoutes.map(r => {
+        const count    = parseInt(r.busCount || 1);
+        const cost     = parseFloat(r.cost || 0);
+        const subtotal = count * cost;
+        return `<tr>
+          <td>${r.name || '—'}</td>
+          <td style="text-align:center">${count}</td>
+          <td style="text-align:right">${Helpers.currency(cost)}</td>
+          <td style="text-align:right;font-weight:600">${Helpers.currency(subtotal)}</td>
+          <td style="text-align:center">
+            <button class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" onclick="App.deleteBusRouteFromDash('${r.id}')">✕</button>
+          </td>
+        </tr>`;
+      }).join('');
 
-      const logs = await DB.getAll(DB.STORES.auditLog);
+      document.getElementById('dash-buses').innerHTML = `
+        <table class="report-table" style="margin-bottom:.5rem">
+          <thead><tr><th>Bus / Route</th><th>No. of Buses</th><th>Cost/Bus</th><th>Subtotal</th><th></th></tr></thead>
+          <tbody>${busRows || '<tr><td colspan="5" style="color:var(--text-muted);text-align:center">No buses configured</td></tr>'}</tbody>
+          <tfoot><tr style="font-weight:700;background:var(--surface-hover)">
+            <td colspan="3">Total Bus Cost</td>
+            <td style="text-align:right">${Helpers.currency(totalBusCost)}</td><td></td>
+          </tfoot>
+        </table>
+        <button class="btn-ghost" style="font-size:.85rem" onclick="App.showAddBusModal()">+ Add Bus</button>`;
+
+      // ── P&L ──────────────────────────────────────────────────────────────
+      document.getElementById('dash-pl').innerHTML = `
+        <table class="report-table" style="max-width:420px">
+          <tr><td>Total Collection</td><td style="text-align:right;color:var(--accent);font-weight:600">${Helpers.currency(totalPay)}</td></tr>
+          <tr><td>Bus Expense</td><td style="text-align:right">${Helpers.currency(totalBusCost)}</td></tr>
+          <tr style="font-weight:700;font-size:1.05rem">
+            <td>${profitLoss >= 0 ? 'Profit' : 'Loss'}</td>
+            <td style="text-align:right;color:var(--${plClass})">${Helpers.currency(Math.abs(profitLoss))}</td>
+          </tr>
+        </table>`;
+
+      // ── Recent activity ──────────────────────────────────────────────────
+      const logs   = await DB.getAll(DB.STORES.auditLog);
       const recent = logs.slice(-8).reverse();
       document.getElementById('dash-activity').innerHTML = recent.length ? recent.map(l =>
-        `<div class="activity-item"><div class="activity-dot ${l.action === 'checkin' ? 'green' : 'orange'}"></div><span>${l.details}</span><span class="activity-time">${Helpers.formatDateTime(l.timestamp)}</span></div>`
+        `<div class="activity-item"><div class="activity-dot ${l.action === 'checkin' ? 'green' : 'orange'}"></div>
+         <span>${l.details}</span><span class="activity-time">${Helpers.formatDateTime(l.timestamp)}</span></div>`
       ).join('') : '<p style="color:var(--text-muted);font-size:.85rem">No activity yet</p>';
-    } catch {}
+
+    } catch(e) { console.error('Dashboard error', e); }
   }
 
   // ===== IMPORT =====
@@ -332,21 +394,16 @@ const App = (() => {
 
   // Template with headers + 2 sample rows so user knows exact format
   const TEMPLATE_HEADERS = [
-    'Name', 'Mobile Number', 'Category', 'Reference', 'Team',
-    'Payment Status', 'Mode of Payment', 'Payment Amount', 'Payment Date',
-    'Payment Remarks', 'Service/Non-Service Devotee', 'Active/Inactive/New Devotee',
-    'Bus Route', 'Pickup Location'
+    'Name', 'Mobile Number', 'Category', 'Reference', 'Team Name',
+    'Pickup Point', 'Payment Status', 'Payment Remarks', 'Mode of Payment',
+    'Payment Amt.'
   ];
 
   const TEMPLATE_SAMPLE = [
     ['Riya Gupta', '9876543210', 'IGF', 'Radha Mataji', 'Balaram',
-     'Paid', 'Cash', '500', '2025-03-15',
-     'Paid to Riya on 15 March', 'Service', 'Active',
-     'North Route', 'Rohini Sec 3'],
+     'Rohini Sec 3', 'Paid', 'Paid to Riya on 15 March', 'Cash', '500'],
     ['Amit Kumar', '8765432109', 'IYF', 'Krishna Prabhu', 'Champaklata',
-     'Unpaid', '', '', '',
-     '', 'Non-Service', 'New',
-     '', 'Dwarka']
+     'Dwarka', 'Unpaid', '', '', '']
   ];
 
   function downloadTemplate(format) {
@@ -374,17 +431,13 @@ const App = (() => {
         ['Name', 'YES', 'Any text', 'Full name of the participant'],
         ['Mobile Number', 'YES', '10-digit number', 'Used for duplicate detection'],
         ['Category', 'No', 'IGF / IYF / ICF_MTG / ICF_PRJI', 'Leave blank if unknown'],
-        ['Reference', 'No', 'Any text', 'Who referred this person'],
-        ['Team', 'No', 'Any text', 'Team/group name from your structure'],
-        ['Payment Status', 'No', 'Paid / Unpaid / Partial / Free', 'Auto-detects: Yes=Paid, NA=Free, number=amount'],
-        ['Mode of Payment', 'No', 'Cash / Online / UPI', 'How they paid'],
-        ['Payment Amount', 'No', 'Number (rupees)', 'If amount > 0 and status blank, auto-marks as Paid'],
-        ['Payment Date', 'No', 'Date (YYYY-MM-DD)', 'When payment was received'],
+        ['Reference', 'No', 'Any text', 'Who referred this person (counselor name)'],
+        ['Team Name', 'No', 'Any text', 'Team/group name'],
+        ['Pickup Point', 'No', 'Any text', 'Where they will be picked up'],
+        ['Payment Status', 'No', 'Paid / Unpaid / Free', 'Auto-detects: Yes=Paid, NA=Free'],
         ['Payment Remarks', 'No', 'Any text', 'Who paid, when, to whom — e.g. "Paid to Riya 20 March"'],
-        ['Service/Non-Service', 'No', 'Service / Non-Service', 'Devotee type for reporting'],
-        ['Active/Inactive/New', 'No', 'Active / Inactive / New', 'Devotee activity status'],
-        ['Bus Route', 'No', 'Route name', 'Must match bus routes configured in Settings'],
-        ['Pickup Location', 'No', 'Any text', 'Where they will be picked up'],
+        ['Mode of Payment', 'No', 'Cash / Online / UPI', 'How they paid'],
+        ['Payment Amt.', 'No', 'Number (rupees)', 'Amount received'],
         [''],
         ['IMPORTANT NOTES:'],
         ['1. Row 1 must have column headers (already filled in the template)'],
@@ -544,10 +597,15 @@ const App = (() => {
     const dupIds = Helpers.detectDuplicates(records);
     records.forEach((r, i) => { r.isDuplicate = dupIds.has(i); });
 
-    Helpers.toast('Importing ' + records.length + ' records...', 'info');
-    await DB.clearStore(DB.STORES.attendees);
+    const isReplace = document.getElementById('import-mode-replace')?.checked;
+    Helpers.toast((isReplace ? 'Replacing' : 'Importing') + ' ' + records.length + ' records...', 'info');
+    if (isReplace) {
+      await DB.clearStore(DB.STORES.attendees);
+      allAttendees = [];
+      attendanceInited = false;
+    }
     await DB.bulkAdd(DB.STORES.attendees, records);
-    await DB.log('import', `Imported ${records.length} records (${dupIds.size} dups)`, currentUser?.email);
+    await DB.log('import', `${isReplace ? 'Replaced' : 'Imported'} ${records.length} records (${dupIds.size} dups)`, currentUser?.email);
 
     showImportPreview(records, dupIds.size);
     document.getElementById('column-mapping-section').classList.add('hidden');
@@ -1092,21 +1150,68 @@ const App = (() => {
       if (attSel.value) filtered = filtered.filter(a => attSel.value === 'present' ? a.attendance === 'present' : a.attendance !== 'present');
 
       document.getElementById('attendees-count').textContent = `${filtered.length} attendees`;
-      document.getElementById('attendees-table-wrap').innerHTML = Helpers.buildTable(
-        ['Name', 'Mobile', 'Team', 'Category', 'Payment', 'Mode', 'Status', 'Actions'],
-        filtered.slice(0, PAGE_SIZE).map(a => ({
-          _class: a.isDuplicate && !a.dupResolved ? 'duplicate-row' : a.isWalkIn ? 'walkin-row' : '',
-          cells: [
-            a.name + (a.isDuplicate && !a.dupResolved ? ' <span class="badge dup">dup</span>' : '') + (a.isWalkIn ? ' <span class="badge walkin">WI</span>' : ''),
-            a.mobile, a.team || '-', a.category || '-',
-            `<span class="badge ${a.paymentStatus === 'paid' ? 'present' : a.paymentStatus === 'free' ? 'before' : 'unpaid'}">${a.paymentStatus || 'unpaid'}</span>`,
-            a.paymentMode || '-',
-            `<span class="badge ${a.attendance === 'present' ? 'present' : 'absent'}">${a.attendance || 'absent'}</span>`,
-            `<button class="btn-small" onclick="App.showDetail('${a.id}')">View</button>
-             ${a.isDuplicate && !a.dupResolved ? `<button class="btn-small warning" onclick="App.resolveDuplicate('${a.id}')">Resolve</button>` : ''}`
-          ]
-        }))
-      );
+
+      const rows = filtered.slice(0, PAGE_SIZE).map((a, i) => {
+        const payBadge = a.paymentStatus === 'paid'
+          ? `<span class="badge present">Paid</span>`
+          : a.paymentStatus === 'free'
+            ? `<span class="badge before">Free</span>`
+            : `<span class="badge unpaid">Unpaid</span>`;
+        const attVal  = a.attendance === 'present'
+          ? (a.isWalkIn ? 'Present (walk-in)' : 'Presnt')
+          : 'Absent';
+        const attBadge = a.attendance === 'present'
+          ? `<span class="badge present">${attVal}</span>`
+          : `<span class="badge absent">Absent</span>`;
+        const rowCls = a.isDuplicate && !a.dupResolved ? 'duplicate-row' : a.isWalkIn ? 'walkin-row' : '';
+        const nameTags = (a.isDuplicate && !a.dupResolved ? ' <span class="badge dup">dup</span>' : '') + (a.isWalkIn ? ' <span class="badge walkin">WI</span>' : '');
+        return `<tr class="${rowCls}">
+          <td class="att-col-sr">${i + 1}</td>
+          <td class="att-col-name att-sticky-name">${a.name}${nameTags}</td>
+          <td class="att-col-mobile">${a.mobile || '-'}</td>
+          <td class="att-col-cat">${a.category || '-'}</td>
+          <td class="att-col-ref">${a.reference || '-'}</td>
+          <td class="att-col-team">${a.team || '-'}</td>
+          <td class="att-col-pickup">${a.pickupLocation || '-'}</td>
+          <td class="att-col-ps">${payBadge}</td>
+          <td class="att-col-remarks">${a.remarks || '-'}</td>
+          <td class="att-col-mode">${a.paymentMode || '-'}</td>
+          <td class="att-col-amt">${a.paymentAmount > 0 ? a.paymentAmount : '-'}</td>
+          <td class="att-col-att">${attBadge}</td>
+          <td class="att-col-by">${a.markedBy || '-'}</td>
+          <td class="att-col-at">${a.entryTime ? new Date(a.entryTime).toLocaleString('en-IN') : '-'}</td>
+          <td class="att-col-action">
+            <button class="btn-small" onclick="App.showDetail('${a.id}')">View</button>
+            ${a.isDuplicate && !a.dupResolved ? `<button class="btn-small warning" onclick="App.resolveDuplicate('${a.id}')">Resolve</button>` : ''}
+          </td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('attendees-table-wrap').innerHTML = `
+        <div class="att-table-scroll">
+          <table class="att-table">
+            <thead>
+              <tr>
+                <th class="att-col-sr">Sr. No.</th>
+                <th class="att-col-name att-sticky-name">Name</th>
+                <th class="att-col-mobile">Mobile number</th>
+                <th class="att-col-cat">Category</th>
+                <th class="att-col-ref">Reference</th>
+                <th class="att-col-team">Team Name</th>
+                <th class="att-col-pickup">Pickup Point</th>
+                <th class="att-col-ps">Payment Status</th>
+                <th class="att-col-remarks">Payment Remarks</th>
+                <th class="att-col-mode">Mode of Payment</th>
+                <th class="att-col-amt">Payment Amt.</th>
+                <th class="att-col-att">Attendence</th>
+                <th class="att-col-by">Admitted by</th>
+                <th class="att-col-at">Admitted at</th>
+                <th class="att-col-action">Actions</th>
+              </tr>
+            </thead>
+            <tbody>${rows || '<tr><td colspan="15" style="text-align:center;color:var(--text-muted);padding:2rem">No attendees found</td></tr>'}</tbody>
+          </table>
+        </div>`;
     };
 
     [search, teamSel, catSel, attSel].forEach(el => el.addEventListener('input', Helpers.debounce(renderFiltered, 200)));
@@ -1138,30 +1243,19 @@ const App = (() => {
 
   // ===== REPORTS =====
   function initReports() {
-    document.querySelectorAll('.rep-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.rep-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        loadReport(tab.dataset.report);
-      });
-    });
-    loadReport('overview');
+    loadReport();
   }
 
-  async function loadReport(type) {
+  async function loadReport() {
     const el = document.getElementById('report-content');
     el.innerHTML = '<p style="color:var(--text-muted);padding:2rem;text-align:center">Loading...</p>';
     try {
-      let html = '';
-      switch (type) {
-        case 'overview': html = Reports.renderOverview(await Reports.reportOverview()); break;
-        case 'payment': html = Reports.renderPayment(await Reports.reportPayment()); break;
-        case 'reference': html = Reports.renderReference(await Reports.reportReference()); break;
-        case 'transport': html = Reports.renderTransport(await Reports.reportTransport()); break;
-        case 'summary': html = Reports.renderSummary(await Reports.reportSummary()); break;
-      }
-      el.innerHTML = html;
-    } catch (err) { el.innerHTML = `<p style="color:var(--danger);padding:2rem">Error: ${err.message}</p>`; }
+      const data = await Reports.reportData();
+      el.innerHTML = Reports.renderReports(data);
+      Reports.initReportFilters(data);
+    } catch (err) {
+      el.innerHTML = `<p style="color:var(--danger);padding:2rem">Error: ${err.message}</p>`;
+    }
   }
 
   // ===== FINANCIAL YEAR =====
@@ -1272,24 +1366,109 @@ const App = (() => {
     renderBusRoutes();
     renderUsers();
     document.getElementById('btn-add-bus-route').onclick = showAddBusRouteModal;
-    document.getElementById('btn-add-user').onclick = showAddUserModal;
+    document.getElementById('btn-add-user').onclick    = showAddUserModal;
 
+    // Clear attendance only (keep payment data)
     document.getElementById('btn-clear-attendance').onclick = async () => {
-      if (confirm('Clear ALL attendance?')) {
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Clear All Attendance?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">This will unmark everyone as present. Payment data will stay intact.</p>
+        <div class="modal-actions">
+          <button class="btn-danger" id="confirm-clear-att">Yes, Clear Attendance</button>
+          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        </div>`);
+      document.getElementById('confirm-clear-att').onclick = async () => {
+        Helpers.closeModal();
+        Helpers.toast('Clearing...', 'info');
         const all = await DB.getAll(DB.STORES.attendees);
-        for (const a of all) { a.attendance = 'absent'; a.entryTime = null; a.markedBy = null; await DB.put(DB.STORES.attendees, a); }
-        Helpers.toast('Attendance cleared', 'warning');
-      }
+        const batch = [];
+        for (const a of all) {
+          a.attendance = 'absent'; a.entryTime = null; a.markedBy = null;
+          batch.push(DB.put(DB.STORES.attendees, a));
+        }
+        await Promise.all(batch);
+        allAttendees = [];
+        Helpers.toast('Attendance cleared', 'success');
+        navigate('dashboard');
+      };
     };
 
+    // Clear all participants → go to import
+    document.getElementById('btn-clear-reimport').onclick = async () => {
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Clear & Re-import?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">This will <strong>delete all participant data</strong> for this event, then take you to Import to upload a fresh Excel sheet.</p>
+        <div class="modal-actions">
+          <button class="btn-danger" id="confirm-clear-reimport">Yes, Clear Data</button>
+          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        </div>`);
+      document.getElementById('confirm-clear-reimport').onclick = async () => {
+        Helpers.closeModal();
+        Helpers.toast('Clearing data...', 'info');
+        await DB.clearStore(DB.STORES.attendees);
+        await DB.clearStore(DB.STORES.auditLog);
+        allAttendees = [];
+        attendanceInited = false;
+        Helpers.toast('Data cleared. Upload your new sheet.', 'success');
+        navigate('import');
+      };
+    };
+
+    // Delete ALL data for event (participants + buses + logs)
     document.getElementById('btn-clear-all').onclick = async () => {
-      if (confirm('RESET ALL DATA for this event?')) {
+      const evtName = document.getElementById('cfg-event-name').value || 'this event';
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Delete All Data?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:.75rem">This will permanently delete <strong>all participants, buses and logs</strong> for <strong>${evtName}</strong>.</p>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">Type <strong>DELETE</strong> to confirm:</p>
+        <input type="text" id="confirm-delete-input" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" />
+        <div class="modal-actions">
+          <button class="btn-danger" id="confirm-delete-all">Delete All Data</button>
+          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        </div>`);
+      document.getElementById('confirm-delete-all').onclick = async () => {
+        if (document.getElementById('confirm-delete-input').value.trim() !== 'DELETE') {
+          Helpers.toast('Type DELETE to confirm', 'error'); return;
+        }
+        Helpers.closeModal();
+        Helpers.toast('Deleting...', 'info');
         await DB.clearStore(DB.STORES.attendees);
         await DB.clearStore(DB.STORES.busRoutes);
         await DB.clearStore(DB.STORES.auditLog);
-        Helpers.toast('Data reset', 'warning');
+        allAttendees = [];
+        attendanceInited = false;
+        Helpers.toast('All data deleted', 'success');
         navigate('dashboard');
-      }
+      };
+    };
+
+    // Delete entire event
+    document.getElementById('btn-delete-event').onclick = async () => {
+      const evtName = document.getElementById('cfg-event-name').value || 'this event';
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Delete Event?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:.75rem">This will permanently delete <strong>${evtName}</strong> and all its data.</p>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">Type <strong>DELETE</strong> to confirm:</p>
+        <input type="text" id="confirm-event-delete-input" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" />
+        <div class="modal-actions">
+          <button class="btn-danger" id="confirm-delete-event-btn">Delete Event</button>
+          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        </div>`);
+      document.getElementById('confirm-delete-event-btn').onclick = async () => {
+        if (document.getElementById('confirm-event-delete-input').value.trim() !== 'DELETE') {
+          Helpers.toast('Type DELETE to confirm', 'error'); return;
+        }
+        Helpers.closeModal();
+        Helpers.toast('Deleting event...', 'info');
+        const eid = DB.getCurrentEvent();
+        await DB.deleteEvent(eid);
+        DB.setCurrentEvent(null);
+        allAttendees = [];
+        attendanceInited = false;
+        await loadEventSelector();
+        Helpers.toast('Event deleted', 'success');
+        navigate('dashboard');
+      };
     };
   }
 
@@ -1303,20 +1482,33 @@ const App = (() => {
   function showAddBusRouteModal() {
     Helpers.modal(`<h3 class="modal-title">Add Bus Route</h3>
       <div class="input-group" style="margin-bottom:.75rem"><label>Route Name</label><input id="m-route-name" type="text" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Capacity</label><input id="m-route-cap" type="number" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Bus Cost</label><input id="m-route-cost" type="number" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Charge/Passenger</label><input id="m-route-charge" type="number" /></div>
+      <div class="input-group" style="margin-bottom:.75rem"><label>No. of Buses</label><input id="m-route-count" type="number" value="1" min="1" /></div>
+      <div class="input-group" style="margin-bottom:.75rem"><label>Cost per Bus (₹)</label><input id="m-route-cost" type="number" /></div>
+      <div class="input-group" style="margin-bottom:.75rem"><label>Capacity (seats)</label><input id="m-route-cap" type="number" /></div>
       <div class="modal-actions"><button class="btn-primary" onclick="App.saveBusRoute()">Save</button><button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button></div>`);
   }
 
   async function saveBusRoute() {
     const name = document.getElementById('m-route-name').value.trim();
     if (!name) { Helpers.toast('Name required', 'error'); return; }
-    await DB.add(DB.STORES.busRoutes, { name, capacity: parseInt(document.getElementById('m-route-cap').value) || 0, cost: parseFloat(document.getElementById('m-route-cost').value) || 0, chargePerPassenger: parseFloat(document.getElementById('m-route-charge').value) || 0 });
-    Helpers.closeModal(); Helpers.toast('Route added', 'success'); renderBusRoutes();
+    const busCount = parseInt(document.getElementById('m-route-count')?.value) || 1;
+    const cost     = parseFloat(document.getElementById('m-route-cost').value) || 0;
+    const capacity = parseInt(document.getElementById('m-route-cap').value) || 0;
+    await DB.add(DB.STORES.busRoutes, { name, busCount, cost, capacity, chargePerPassenger: 0 });
+    Helpers.closeModal(); Helpers.toast('Bus added', 'success');
+    renderBusRoutes();
+    if (currentPage === 'dashboard') initDashboard();
   }
 
-  async function deleteBusRoute(id) { await DB.deleteRecord(DB.STORES.busRoutes, id); renderBusRoutes(); }
+  async function deleteBusRoute(id) {
+    await DB.deleteRecord(DB.STORES.busRoutes, id);
+    renderBusRoutes();
+    if (currentPage === 'dashboard') initDashboard();
+  }
+
+  // Called from dashboard bus table (not Settings page)
+  function showAddBusModal() { showAddBusRouteModal(); }
+  async function deleteBusRouteFromDash(id) { await deleteBusRoute(id); }
 
   async function renderUsers() {
     const snap = await firestore.collection('users').get();
@@ -1347,6 +1539,7 @@ const App = (() => {
     instantAdmit, submitPaymentCollect, unmarkAttendance, showDetail, showPaymentUpdate, savePaymentUpdate,
     resolveDuplicate, acceptDuplicate, deleteDuplicate,
     saveBusRoute, deleteBusRoute, toggleUserRole,
+    showAddBusModal, deleteBusRouteFromDash,
     showCreateEventModal, createEvent,
     initAttendees
   };

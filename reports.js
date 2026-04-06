@@ -1,320 +1,304 @@
 // ===== REPORTS MODULE =====
 const Reports = (() => {
 
-  async function getAttendees() {
-    return DB.getAll(DB.STORES.attendees);
-  }
+  // ── Module-level filter state ─────────────────────────────────────────────
+  let _attendees  = [];
+  let _groupType  = 'all';   // 'all' | 'team' | 'category' | 'reference'
+  let _groupValue = '';      // e.g. 'Anirudha', 'IGF', 'Priya'
+  let _payFilter  = 'all';   // 'all' | 'paid' | 'unpaid'
+  let _attFilter  = 'all';   // 'all' | 'present' | 'absent'
 
-  async function getConfig() {
+  // ── Load all data needed for reports ─────────────────────────────────────
+  async function reportData() {
+    _attendees = await DB.getAll(DB.STORES.attendees);
+    const busRoutes = await DB.getAll(DB.STORES.busRoutes);
     const evt = await DB.getEvent(DB.getCurrentEvent());
-    return {
-      eventDate: evt?.date || await DB.getConfig('eventDate'),
-      chargePerPerson: parseFloat(evt?.chargePerPerson || await DB.getConfig('chargePerPerson') || 0),
-      eventName: evt?.name || await DB.getConfig('eventName') || 'Prerna Festival',
-      totalExpense: parseFloat(evt?.totalExpense || 0)
+    const cfg = {
+      eventName:      evt?.name || 'Event',
+      chargePerPerson: parseFloat(evt?.chargePerPerson || 0),
+      totalExpense:   0
     };
+
+    const teams      = [...new Set(_attendees.map(a => a.team).filter(Boolean))].sort();
+    const categories = [...new Set(_attendees.map(a => a.category).filter(Boolean))].sort();
+    const references = [...new Set(_attendees.map(a => a.reference).filter(Boolean))].sort();
+
+    const totalPay    = _attendees.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+    const totalBusCost = busRoutes.reduce((s, r) => {
+      const count = parseInt(r.busCount || 1);
+      return s + count * parseFloat(r.cost || 0);
+    }, 0);
+    const profitLoss = totalPay - totalBusCost - cfg.totalExpense;
+
+    return { attendees: _attendees, busRoutes, cfg, teams, categories, references, totalPay, totalBusCost, profitLoss };
   }
 
-  async function getBusRoutes() {
-    return DB.getAll(DB.STORES.busRoutes);
+  // ── Apply current filters to attendees array ──────────────────────────────
+  function applyFilters(attendees) {
+    let f = attendees;
+
+    if (_groupType === 'team' && _groupValue)
+      f = f.filter(a => (a.team || 'Unassigned') === _groupValue);
+    else if (_groupType === 'category' && _groupValue)
+      f = f.filter(a => (a.category || 'Unknown') === _groupValue);
+    else if (_groupType === 'reference' && _groupValue)
+      f = f.filter(a => (a.reference || 'Unknown') === _groupValue);
+
+    if (_payFilter === 'paid')
+      f = f.filter(a => (a.paymentStatus || '').toLowerCase() === 'paid');
+    else if (_payFilter === 'unpaid')
+      f = f.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid');
+
+    if (_attFilter === 'present')
+      f = f.filter(a => a.attendance === 'present');
+    else if (_attFilter === 'absent')
+      f = f.filter(a => a.attendance !== 'present');
+
+    return f;
   }
 
-  // REPORT 1: Attendance Overview
-  async function reportOverview() {
-    const attendees = await getAttendees();
-    const present = attendees.filter(a => a.attendance === 'present');
+  // ── Compute counts from an array of attendees ─────────────────────────────
+  function stats(list) {
+    const paid    = list.filter(a => (a.paymentStatus || '').toLowerCase() === 'paid').length;
+    const free    = list.filter(a => (a.paymentStatus || '').toLowerCase() === 'free').length;
+    const unpaid  = list.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid').length;
+    const present = list.filter(a => a.attendance === 'present').length;
+    const absent  = list.length - present;
+    const amount  = list.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+    return { total: list.length, present, absent, paid, unpaid, free, amount };
+  }
 
-    const catMap = {};
+  // ── Counts bar HTML ───────────────────────────────────────────────────────
+  function countsBar(s) {
+    return `
+      <div class="report-counts-bar">
+        <div class="rc-item primary">
+          <div class="rc-val">${s.total}</div><div class="rc-lbl">Registered</div>
+        </div>
+        <div class="rc-item success">
+          <div class="rc-val">${s.present}</div><div class="rc-lbl">Present</div>
+        </div>
+        <div class="rc-item warning">
+          <div class="rc-val">${s.absent}</div><div class="rc-lbl">Absent</div>
+        </div>
+        <div class="rc-item accent">
+          <div class="rc-val">${s.paid}</div><div class="rc-lbl">Paid</div>
+        </div>
+        <div class="rc-item danger">
+          <div class="rc-val">${s.unpaid}</div><div class="rc-lbl">Unpaid</div>
+        </div>
+        <div class="rc-item info">
+          <div class="rc-val">${Helpers.currency(s.amount)}</div><div class="rc-lbl">Collected</div>
+        </div>
+      </div>`;
+  }
+
+  // ── Group summary table (team/category/reference breakdown) ───────────────
+  function groupTable(attendees, groupType) {
+    if (groupType === 'all') return '';
+
+    const field    = groupType === 'team' ? 'team' : groupType === 'category' ? 'category' : 'reference';
+    const defVal   = groupType === 'team' ? 'Unassigned' : 'Unknown';
+    const label    = groupType === 'team' ? 'Team' : groupType === 'category' ? 'Category' : 'Reference';
+
+    const map = {};
     attendees.forEach(a => {
-      const cat = a.category || 'Unknown';
-      if (!catMap[cat]) catMap[cat] = { total: 0, present: 0 };
-      catMap[cat].total++;
-      if (a.attendance === 'present') catMap[cat].present++;
+      const key = a[field] || defVal;
+      if (!map[key]) map[key] = [];
+      map[key].push(a);
     });
 
-    const teamMap = {};
-    attendees.forEach(a => {
-      const team = a.team || 'Unassigned';
-      if (!teamMap[team]) teamMap[team] = { total: 0, present: 0 };
-      teamMap[team].total++;
-      if (a.attendance === 'present') teamMap[team].present++;
-    });
+    const rows = Object.entries(map)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([key, members]) => {
+        const s = stats(members);
+        return `<tr>
+          <td>${key}</td>
+          <td>${s.total}</td>
+          <td>${s.present}</td>
+          <td>${s.absent}</td>
+          <td>${s.paid}</td>
+          <td>${s.unpaid}</td>
+          <td>${s.free}</td>
+          <td>${Helpers.currency(s.amount)}</td>
+        </tr>`;
+      });
 
-    return { attendees, present, catMap, teamMap };
+    if (!rows.length) return '';
+
+    return `
+      <div class="card" style="margin-top:1rem">
+        <h3 class="card-title">${label}-wise Breakdown</h3>
+        <div class="table-wrap">
+          <table class="report-table">
+            <thead><tr>
+              <th>${label}</th><th>Registered</th><th>Present</th><th>Absent</th>
+              <th>Paid</th><th>Unpaid</th><th>Free</th><th>Collected</th>
+            </tr></thead>
+            <tbody>${rows.join('')}</tbody>
+          </table>
+        </div>
+      </div>`;
   }
 
-  // REPORT 2: Payment Analysis
-  async function reportPayment() {
-    const attendees = await getAttendees();
-    const cfg = await getConfig();
-
-    const teamPayMap = {};
-    let totalPayment = 0;
-    let paidCount = 0, unpaidCount = 0, freeCount = 0;
-
-    attendees.forEach(a => {
-      const team = a.team || 'Unassigned';
-      const payment = parseFloat(a.paymentAmount || 0);
-      const status = (a.paymentStatus || 'unpaid').toLowerCase();
-      const mode = a.paymentMode || '-';
-
-      if (!teamPayMap[team]) {
-        teamPayMap[team] = { persons: 0, paid: 0, unpaid: 0, free: 0, cash: 0, online: 0, total: 0 };
-      }
-      teamPayMap[team].persons++;
-      teamPayMap[team].total += payment;
-      if (status === 'paid') { teamPayMap[team].paid++; paidCount++; }
-      else if (status === 'free') { teamPayMap[team].free++; freeCount++; }
-      else { teamPayMap[team].unpaid++; unpaidCount++; }
-
-      if (mode === 'cash') teamPayMap[team].cash += payment;
-      else if (mode === 'online') teamPayMap[team].online += payment;
-
-      totalPayment += payment;
-    });
-
-    const expected = attendees.length * cfg.chargePerPerson;
-    const profitLoss = totalPayment - cfg.totalExpense;
-
-    return { teamPayMap, totalPayment, expected, profitLoss, attendees, cfg, paidCount, unpaidCount, freeCount };
+  // ── Build a label for the download filename ───────────────────────────────
+  function buildLabel() {
+    const parts = [];
+    if (_groupType !== 'all') {
+      parts.push(_groupValue ? `${_groupType}-${_groupValue}` : _groupType);
+    }
+    if (_payFilter !== 'all') parts.push(_payFilter);
+    if (_attFilter !== 'all') parts.push(_attFilter);
+    return parts.length ? parts.join('_') : 'All';
   }
 
-  // REPORT 3: Reference Performance
-  async function reportReference() {
-    const attendees = await getAttendees();
-    const refMap = {};
+  // ── Render the full reports page (initial HTML only) ─────────────────────
+  function renderReports(_data) {
+    // Reset state on each render
+    _groupType = 'all'; _groupValue = ''; _payFilter = 'all'; _attFilter = 'all';
 
-    attendees.forEach(a => {
-      const ref = a.reference || 'Unknown';
-      const payment = parseFloat(a.paymentAmount || 0);
-      const status = (a.paymentStatus || 'unpaid').toLowerCase();
-      if (!refMap[ref]) refMap[ref] = { persons: 0, total: 0, paid: 0, unpaid: 0, free: 0 };
-      refMap[ref].persons++;
-      refMap[ref].total += payment;
-      if (status === 'paid') refMap[ref].paid++;
-      else if (status === 'free') refMap[ref].free++;
-      else refMap[ref].unpaid++;
-    });
+    const optionsHtml = (arr) =>
+      '<option value="">— select —</option>' + arr.map(v => `<option>${v}</option>`).join('');
 
-    return { refMap };
+    return `
+      <div class="card report-filters-card">
+
+        <div class="filter-section">
+          <div class="filter-label">Filter by</div>
+          <div class="filter-row">
+            <button class="rep-filter active" data-ft="group" data-val="all">All</button>
+            <button class="rep-filter" data-ft="group" data-val="team">Team wise</button>
+            <button class="rep-filter" data-ft="group" data-val="category">Category wise</button>
+            <button class="rep-filter" data-ft="group" data-val="reference">Reference wise</button>
+          </div>
+          <div id="group-val-wrap" style="display:none;margin-top:.6rem">
+            <select id="group-val-select" class="wi-input" style="width:100%;max-width:300px">
+              ${optionsHtml([])}
+            </select>
+          </div>
+        </div>
+
+        <div class="filter-section" style="margin-top:.9rem">
+          <div class="filter-label">Payment</div>
+          <div class="filter-row">
+            <button class="rep-filter active" data-ft="pay" data-val="all">All</button>
+            <button class="rep-filter" data-ft="pay" data-val="paid">Paid</button>
+            <button class="rep-filter" data-ft="pay" data-val="unpaid">Unpaid</button>
+          </div>
+        </div>
+
+        <div class="filter-section" style="margin-top:.9rem">
+          <div class="filter-label">Attendance</div>
+          <div class="filter-row">
+            <button class="rep-filter active" data-ft="att" data-val="all">All</button>
+            <button class="rep-filter" data-ft="att" data-val="present">Present</button>
+            <button class="rep-filter" data-ft="att" data-val="absent">Absent</button>
+          </div>
+        </div>
+
+      </div>
+
+      <div id="report-counts-bar"></div>
+      <div id="report-group-table"></div>
+
+      <div style="margin:.75rem 0 1.5rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+        <button class="btn-primary" id="btn-rpt-excel" style="min-width:180px">↓ Download Excel</button>
+        <span id="rpt-dl-label" style="color:var(--text-muted);font-size:.85rem"></span>
+      </div>
+    `;
   }
 
-  // REPORT 4: Transportation
-  async function reportTransport() {
-    const attendees = await getAttendees();
-    const busRoutes = await getBusRoutes();
+  // ── Wire up filter buttons + dropdown after HTML is in DOM ────────────────
+  function initReportFilters(data) {
+    const { teams, categories, references } = data;
+    const groupOptions = { team: teams, category: categories, reference: references };
 
-    const routeMap = {};
-    busRoutes.forEach(r => {
-      routeMap[r.name] = { ...r, passengers: 0, collection: 0 };
+    // Initial render
+    _updateView();
+
+    // Filter button clicks
+    document.querySelectorAll('.rep-filter').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ft  = btn.dataset.ft;
+        const val = btn.dataset.val;
+
+        document.querySelectorAll(`.rep-filter[data-ft="${ft}"]`).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        if (ft === 'group') {
+          _groupType  = val;
+          _groupValue = '';
+          const wrap = document.getElementById('group-val-wrap');
+          const sel  = document.getElementById('group-val-select');
+          if (val === 'all') {
+            wrap.style.display = 'none';
+          } else {
+            wrap.style.display = 'block';
+            const opts = groupOptions[val] || [];
+            sel.innerHTML = '<option value="">— select —</option>' + opts.map(o => `<option>${o}</option>`).join('');
+          }
+        } else if (ft === 'pay') {
+          _payFilter = val;
+        } else if (ft === 'att') {
+          _attFilter = val;
+        }
+
+        _updateView();
+      });
     });
 
-    attendees.forEach(a => {
-      const route = a.busRoute;
-      if (!route) return;
-      if (!routeMap[route]) {
-        routeMap[route] = { name: route, capacity: 0, cost: 0, chargePerPassenger: 0, passengers: 0, collection: 0 };
-      }
-      routeMap[route].passengers++;
-      routeMap[route].collection += parseFloat(routeMap[route].chargePerPassenger || 0);
+    // Group value dropdown
+    document.getElementById('group-val-select').addEventListener('change', e => {
+      _groupValue = e.target.value;
+      _updateView();
     });
 
-    let totalCost = 0, totalCollection = 0;
-    Object.values(routeMap).forEach(r => {
-      totalCost += parseFloat(r.cost || 0);
-      totalCollection += r.collection;
+    // Download button
+    document.getElementById('btn-rpt-excel').addEventListener('click', () => {
+      const filtered = applyFilters(_attendees);
+      Export.downloadFiltered(filtered, buildLabel());
     });
-
-    return { routeMap, totalCost, totalCollection, profitLoss: totalCollection - totalCost };
   }
 
-  // REPORT 5: Overall Summary
+  // ── Re-render counts + group table based on current filter state ──────────
+  function _updateView() {
+    const filtered = applyFilters(_attendees);
+    const s        = stats(filtered);
+
+    document.getElementById('report-counts-bar').innerHTML  = countsBar(s);
+    document.getElementById('report-group-table').innerHTML = groupTable(_attendees, _groupType);
+
+    // Update label
+    const lbl = document.getElementById('rpt-dl-label');
+    if (lbl) lbl.textContent = `${filtered.length} record${filtered.length !== 1 ? 's' : ''} match current filters`;
+  }
+
+  // ── Legacy helpers kept for Financial Year page ────────────────────────────
   async function reportSummary() {
-    const attendees = await getAttendees();
-    const cfg = await getConfig();
-    const busRoutes = await getBusRoutes();
-
-    const present = attendees.filter(a => a.attendance === 'present');
-    const walkIns = attendees.filter(a => a.isWalkIn);
-    const duplicates = attendees.filter(a => a.isDuplicate);
+    const attendees  = await DB.getAll(DB.STORES.attendees);
+    const busRoutes  = await DB.getAll(DB.STORES.busRoutes);
+    const evt        = await DB.getEvent(DB.getCurrentEvent());
+    const cfg = {
+      eventName:       evt?.name || await DB.getConfig('eventName') || 'Prerna Festival',
+      chargePerPerson: parseFloat(evt?.chargePerPerson || await DB.getConfig('chargePerPerson') || 0),
+      totalExpense:    parseFloat(evt?.totalExpense || 0)
+    };
+    const present     = attendees.filter(a => a.attendance === 'present');
+    const walkIns     = attendees.filter(a => a.isWalkIn);
     const totalPayment = attendees.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
-    const totalBusCost = busRoutes.reduce((s, r) => s + parseFloat(r.cost || 0), 0);
-    const expected = attendees.length * cfg.chargePerPerson;
-    const paidCount = attendees.filter(a => a.paymentStatus === 'paid').length;
-    const unpaidCount = attendees.filter(a => !a.paymentStatus || a.paymentStatus === 'unpaid').length;
-    const freeCount = attendees.filter(a => a.paymentStatus === 'free').length;
+    const totalBusCost = busRoutes.reduce((s, r) => s + parseInt(r.busCount || 1) * parseFloat(r.cost || 0), 0);
+    const paidCount   = attendees.filter(a => (a.paymentStatus || '').toLowerCase() === 'paid').length;
+    const unpaidCount = attendees.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid').length;
+    const freeCount   = attendees.filter(a => (a.paymentStatus || '').toLowerCase() === 'free').length;
 
     return {
-      totalAttendees: attendees.length,
-      totalPresent: present.length,
-      totalWalkIns: walkIns.length,
-      totalDuplicates: duplicates.length,
-      totalPayment, totalBusCost, expected,
+      totalAttendees: attendees.length, totalPresent: present.length,
+      totalWalkIns: walkIns.length, totalPayment, totalBusCost,
+      expected: attendees.length * cfg.chargePerPerson,
       netPL: totalPayment - cfg.totalExpense - totalBusCost,
-      paidCount, unpaidCount, freeCount,
-      cfg
+      paidCount, unpaidCount, freeCount, cfg
     };
   }
 
-  // Render functions
-  function renderOverview(data) {
-    const { attendees, present, catMap, teamMap } = data;
-    const pct = attendees.length ? Math.round((present.length / attendees.length) * 100) : 0;
-
-    let html = `
-      <div class="report-dl-bar">
-        <span>Attendance Overview Report</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('overview')">Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('overview')">CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('overview')">PDF</button>
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Overall Attendance</h3>
-        <div class="stats-grid">
-          <div class="stat-card primary"><div class="stat-value">${attendees.length}</div><div class="stat-label">Total Expected</div></div>
-          <div class="stat-card success"><div class="stat-value">${present.length}</div><div class="stat-label">Present</div></div>
-          <div class="stat-card warning"><div class="stat-value">${attendees.length - present.length}</div><div class="stat-label">Absent</div></div>
-          <div class="stat-card accent"><div class="stat-value">${pct}%</div><div class="stat-label">Attendance Rate</div></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Category-wise Breakdown</h3>
-        ${Helpers.buildTable(
-          ['Category', 'Total Expected', 'Present', 'Absent', 'Rate'],
-          Object.entries(catMap).map(([cat, d]) => ({
-            cells: [cat, d.total, d.present, d.total - d.present, Math.round(d.present / d.total * 100) + '%']
-          })),
-          { cls: 'report-table' }
-        )}
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Team-wise Breakdown</h3>
-        ${Helpers.buildTable(
-          ['Team', 'Total', 'Present', 'Absent'],
-          Object.entries(teamMap).sort((a,b) => b[1].total - a[1].total).map(([team, d]) => ({
-            cells: [team, d.total, d.present, d.total - d.present]
-          })),
-          { cls: 'report-table' }
-        )}
-      </div>
-    `;
-    return html;
-  }
-
-  function renderPayment(data) {
-    const { teamPayMap, totalPayment, expected, profitLoss, cfg, paidCount, unpaidCount, freeCount } = data;
-    const plClass = profitLoss >= 0 ? 'success' : 'danger';
-
-    let rows = Object.entries(teamPayMap).sort((a,b) => b[1].total - a[1].total).map(([team, d]) => ({
-      cells: [team, d.persons, d.paid, d.unpaid, d.free, Helpers.currency(d.cash), Helpers.currency(d.online), Helpers.currency(d.total)]
-    }));
-
-    return `
-      <div class="report-dl-bar">
-        <span>Payment Analysis Report</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('payment')">Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('payment')">CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('payment')">PDF</button>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Payment Summary</h3>
-        <div class="stats-grid">
-          <div class="stat-card accent"><div class="stat-value">${Helpers.currency(totalPayment)}</div><div class="stat-label">Total Collected</div></div>
-          <div class="stat-card success"><div class="stat-value">${paidCount}</div><div class="stat-label">Paid</div></div>
-          <div class="stat-card warning"><div class="stat-value">${unpaidCount}</div><div class="stat-label">Unpaid</div></div>
-          <div class="stat-card info"><div class="stat-value">${freeCount}</div><div class="stat-label">Free</div></div>
-          <div class="stat-card ${plClass}"><div class="stat-value">${Helpers.currency(Math.abs(profitLoss))}</div><div class="stat-label">${profitLoss >= 0 ? 'Profit' : 'Loss'}</div></div>
-        </div>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Team-wise Payment</h3>
-        ${Helpers.buildTable(['Team','Persons','Paid','Unpaid','Free','Cash','Online','Total'], rows, { cls: 'report-table' })}
-      </div>
-    `;
-  }
-
-  function renderReference(data) {
-    const { refMap } = data;
-    const rows = Object.entries(refMap).sort((a,b) => b[1].persons - a[1].persons).map(([ref, d]) => ({
-      cells: [ref, d.persons, d.paid, d.unpaid, d.free, Helpers.currency(d.total)]
-    }));
-
-    return `
-      <div class="report-dl-bar">
-        <span>Reference Performance Report</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('reference')">Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('reference')">CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('reference')">PDF</button>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Reference Performance</h3>
-        ${Helpers.buildTable(['Reference','Persons','Paid','Unpaid','Free','Total Payment'], rows, { cls: 'report-table' })}
-      </div>
-    `;
-  }
-
-  function renderTransport(data) {
-    const { routeMap, totalCost, totalCollection, profitLoss } = data;
-    const rows = Object.values(routeMap).map(r => ({
-      cells: [r.name || 'Unknown', r.capacity || '-', r.passengers, Helpers.currency(r.collection), Helpers.currency(r.cost),
-        `<span style="color:${r.collection - r.cost >= 0 ? 'var(--success)' : 'var(--danger)'};font-weight:600">${Helpers.currency(r.collection - r.cost)}</span>`]
-    }));
-    rows.push({ _class: 'total-row', cells: ['TOTAL', '', Object.values(routeMap).reduce((s,r) => s+r.passengers, 0),
-      Helpers.currency(totalCollection), Helpers.currency(totalCost),
-      `<span style="color:${profitLoss >= 0 ? 'var(--success)' : 'var(--danger)'};font-weight:600">${Helpers.currency(profitLoss)}</span>`] });
-
-    return `
-      <div class="report-dl-bar">
-        <span>Transportation Report</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('transport')">Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('transport')">CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('transport')">PDF</button>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Bus Route Economics</h3>
-        ${Helpers.buildTable(['Route','Capacity','Passengers','Collection','Cost','P/L'], rows, { cls: 'report-table' })}
-      </div>
-    `;
-  }
-
-  function renderSummary(data) {
-    const { totalAttendees, totalPresent, totalWalkIns, totalPayment, totalBusCost, expected, netPL, paidCount, unpaidCount, freeCount, cfg } = data;
-
-    return `
-      <div class="report-dl-bar">
-        <span>Event Financial Summary</span>
-        <button class="btn-small success" onclick="Export.reportToExcel('summary')">Excel</button>
-        <button class="btn-small" onclick="Export.reportToCsv('summary')">CSV</button>
-        <button class="btn-small warning" onclick="Export.reportToPdf('summary')">PDF</button>
-      </div>
-      <div class="card">
-        <h3 class="card-title">Overall Event Summary - ${cfg.eventName}</h3>
-        ${Helpers.buildTable(['Metric','Value'], [
-          { cells: ['Event Name', cfg.eventName] },
-          { cells: ['Event Date', Helpers.formatDate(cfg.eventDate)] },
-          { cells: ['Total Registered', totalAttendees] },
-          { cells: ['Total Present', totalPresent] },
-          { cells: ['Walk-ins', totalWalkIns] },
-          { cells: ['Attendance Rate', totalAttendees ? Math.round(totalPresent/totalAttendees*100)+'%' : '0%'] },
-          { cells: ['Paid', paidCount] },
-          { cells: ['Unpaid', unpaidCount] },
-          { cells: ['Free', freeCount] },
-          { cells: ['Charge Per Person', Helpers.currency(cfg.chargePerPerson)] },
-          { cells: ['Expected Revenue', Helpers.currency(expected)] },
-          { cells: ['Total Collected', Helpers.currency(totalPayment)] },
-          { cells: ['Total Event Expense', Helpers.currency(cfg.totalExpense)] },
-          { cells: ['Total Bus Cost', Helpers.currency(totalBusCost)] },
-          { _class: 'total-row', cells: ['Net Profit / Loss', Helpers.currency(netPL)] },
-        ], { cls: 'report-table' })}
-      </div>
-    `;
-  }
-
-  return {
-    reportOverview, reportPayment, reportReference, reportTransport, reportSummary,
-    renderOverview, renderPayment, renderReference, renderTransport, renderSummary
-  };
+  return { reportData, renderReports, initReportFilters, reportSummary };
 })();

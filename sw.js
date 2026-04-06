@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prerna-festival-v3';
+const CACHE_NAME = 'prerna-festival-v8';
 const ASSETS = [
   '/',
   '/index.html',

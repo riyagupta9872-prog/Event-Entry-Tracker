@@ -415,6 +415,103 @@ a { text-decoration: none; color: inherit; }
 
 /* ===== TABLES ===== */
 .table-wrap { overflow-x: auto; }
+
+/* ── Attendees download bar ──────────────────────────────────── */
+.att-dl-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: .5rem;
+  padding: .5rem 0 .75rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: .5rem;
+}
+.att-dl-group { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.att-dl-label { font-size: .78rem; color: var(--text-muted); font-weight: 500; }
+
+/* ── Attendees frozen-name table ─────────────────────────────── */
+.att-table-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 220px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.att-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: .82rem;
+}
+.att-table thead th {
+  position: sticky;
+  top: 0;
+  background: #dcfce7;
+  color: #15803d;
+  font-weight: 700;
+  font-size: .75rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  padding: .6rem .75rem;
+  border-bottom: 2px solid #16a34a;
+  z-index: 3;
+}
+.att-table td {
+  padding: .5rem .75rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  vertical-align: middle;
+  background: #ffffff;
+}
+.att-table tr:last-child td { border-bottom: none; }
+.att-table tr:hover td { background: #f9fafb !important; }
+.duplicate-row td { background: #fff1f2 !important; }
+.walkin-row td { background: #eff6ff !important; }
+
+/* Frozen Sr.No column */
+.att-col-sr { min-width: 48px; text-align: center; }
+.att-table thead .att-col-sr {
+  position: sticky; left: 0; z-index: 5;
+  background: #dcfce7;
+  box-shadow: 2px 0 0 #16a34a;
+}
+.att-table td.att-col-sr {
+  position: sticky; left: 0; z-index: 2;
+  background: #f0fdf4;
+  box-shadow: 2px 0 4px rgba(0,0,0,0.06);
+}
+.att-table tr:hover td.att-col-sr { background: #dcfce7 !important; }
+
+/* Frozen Name column */
+.att-col-name { min-width: 160px; font-weight: 500; }
+.att-sticky-name {
+  position: sticky; left: 48px; z-index: 2;
+  background: #ffffff;
+  box-shadow: 2px 0 4px rgba(0,0,0,0.06);
+}
+.att-table thead .att-sticky-name {
+  z-index: 5;
+  background: #dcfce7;
+  box-shadow: 2px 0 0 #16a34a;
+}
+.att-table tr:hover td.att-sticky-name { background: #f9fafb !important; }
+.duplicate-row td.att-sticky-name { background: #fff1f2 !important; }
+.walkin-row td.att-sticky-name { background: #eff6ff !important; }
+
+/* Other column widths */
+.att-col-mobile  { min-width: 120px; }
+.att-col-cat     { min-width: 100px; }
+.att-col-ref     { min-width: 160px; }
+.att-col-team    { min-width: 120px; }
+.att-col-pickup  { min-width: 130px; }
+.att-col-ps      { min-width: 110px; }
+.att-col-remarks { min-width: 180px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.att-col-mode    { min-width: 110px; }
+.att-col-amt     { min-width: 100px; text-align: right; }
+.att-col-att     { min-width: 130px; }
+.att-col-by      { min-width: 130px; }
+.att-col-at      { min-width: 160px; }
+.att-col-action  { min-width: 100px; }
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 thead th {
   padding: 0.65rem 0.9rem;
@@ -706,16 +803,80 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .rep-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .report-table { width: 100%; }
 .report-table th { background: var(--success-bg); color: #15803d; }
-.report-dl-bar {
-  display: flex; gap: 0.75rem; margin-bottom: 1rem;
-  padding: 0.75rem 1rem; background: var(--bg-card2);
-  border-radius: var(--radius-sm); flex-wrap: wrap; align-items: center;
-}
+.report-dl-bar { display: flex; gap: 0.75rem; margin-bottom: 1rem; padding: 0.75rem 1rem; background: var(--bg-card2); border-radius: var(--radius-sm); flex-wrap: wrap; align-items: center; }
 .report-dl-bar span { font-size: 0.85rem; color: var(--text-secondary); flex: 1; }
 .total-row td { font-weight: 700; color: #15803d; border-top: 2px solid var(--border); }
 
+/* ── Dashboard counts ──────────────────────────────────────── */
+.dash-counts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+.dash-count-col { padding: .75rem 1rem; background: var(--bg-card2); border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.dash-count-head { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: .4rem; }
+.dash-count-big { font-size: 2rem; font-weight: 700; color: var(--text-primary); line-height: 1.1; }
+.dash-count-sub { font-size: .75rem; color: var(--text-muted); margin-top: .25rem; }
+.dash-count-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: .2rem; }
+.dash-count-pct { font-size: .75rem; color: var(--text-muted); margin-top: .35rem; }
+.dc-label { font-size: .75rem; font-weight: 600; padding: .1rem .4rem; border-radius: 4px; }
+.dc-label.success { background: var(--success-bg); color: #15803d; }
+.dc-label.warning { background: #fef3c7; color: #92400e; }
+.dc-label.accent { background: #dcfce7; color: #15803d; }
+.dc-label.danger { background: #fee2e2; color: #b91c1c; }
+.dc-label.info { background: #dbeafe; color: #1d4ed8; }
+.dc-num { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
+.dash-progress { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.dash-progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .4s ease; }
+
+/* ── Reports filter UI ──────────────────────────────────────── */
+.report-filters-card { margin-bottom: 1rem; }
+.filter-section { }
+.filter-label { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: .4rem; }
+.filter-row { display: flex; flex-wrap: wrap; gap: .4rem; }
+.rep-filter {
+  padding: .35rem .85rem; border: 1px solid var(--border);
+  border-radius: 20px; background: var(--bg-card2);
+  font-size: .82rem; color: var(--text-secondary);
+  cursor: pointer; font-family: var(--font-body);
+  transition: all var(--transition);
+}
+.rep-filter:hover { border-color: var(--accent); color: var(--accent); }
+.rep-filter.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* ── Report counts bar ──────────────────────────────────────── */
+.report-counts-bar {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: .6rem; margin-bottom: 1rem;
+}
+.rc-item {
+  padding: .6rem .75rem; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--bg-card2); text-align: center;
+}
+.rc-val { font-size: 1.4rem; font-weight: 700; line-height: 1.1; }
+.rc-lbl { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; margin-top: .15rem; color: var(--text-muted); }
+.rc-item.primary .rc-val { color: var(--text-primary); }
+.rc-item.success .rc-val { color: #15803d; }
+.rc-item.warning .rc-val { color: #b45309; }
+.rc-item.accent .rc-val { color: var(--accent); }
+.rc-item.danger .rc-val { color: var(--danger); }
+.rc-item.info .rc-val { color: #1d4ed8; }
+
 /* ===== SETTINGS ===== */
-.settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.25rem; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem; }
+.settings-event-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+.settings-label { font-size: .8rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: .35rem; }
+.settings-action-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem 0; border-bottom: 1px solid var(--border); }
+.settings-action-row:last-child { border-bottom: none; }
+.settings-action-title { font-size: .9rem; font-weight: 500; margin-bottom: .2rem; }
+.settings-action-desc { font-size: .78rem; color: var(--text-muted); }
+
+/* ── Import mode toggle ─────────────────────────────────────── */
+.import-mode-bar { display: flex; gap: .75rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.import-mode-opt {
+  flex: 1; min-width: 200px; display: flex; align-items: flex-start; gap: .6rem;
+  padding: .75rem 1rem; border: 2px solid var(--border); border-radius: var(--radius-sm);
+  cursor: pointer; transition: border-color var(--transition), background var(--transition);
+}
+.import-mode-opt:has(input:checked) { border-color: var(--accent); background: #f0fdf4; }
+.import-mode-opt input { margin-top: .15rem; accent-color: var(--accent); }
+.import-mode-opt strong { display: block; font-size: .88rem; margin-bottom: .15rem; }
+.import-mode-opt small { font-size: .76rem; color: var(--text-muted); }
 .bus-route-row {
   display: flex; align-items: center; gap: 0.75rem;
   padding: 0.75rem; background: var(--bg-card2);
@@ -793,14 +954,15 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   .sidebar-close { display: block; }
   .menu-btn { display: block; }
   .dashboard-grid { grid-template-columns: 1fr; }
+  .dash-counts-grid { grid-template-columns: repeat(2, 1fr); }
+  .settings-event-grid { grid-template-columns: 1fr 1fr; }
+  .report-counts-bar { grid-template-columns: repeat(3, 1fr); }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .settings-grid { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .mapping-grid { grid-template-columns: 1fr; }
   #content-area { padding: 0.75rem; }
   .modal-box { margin: 0.75rem; padding: 1.25rem; }
-  .reports-nav { gap: 0.4rem; }
-  .rep-tab { padding: 0.5rem 0.75rem; font-size: 0.8rem; }
   .walkin-compact-grid { grid-template-columns: 1fr; }
   .event-select { max-width: 120px; }
 }
@@ -1065,60 +1227,50 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
           <!-- DASHBOARD PAGE -->
           <div id="page-dashboard" class="page hidden">
-            <div class="stats-grid">
-              <div class="stat-card primary">
-                <div class="stat-value" id="stat-total">0</div>
-                <div class="stat-label">Total</div>
-              </div>
-              <div class="stat-card success">
-                <div class="stat-value" id="stat-present">0</div>
-                <div class="stat-label">Checked In</div>
-              </div>
-              <div class="stat-card warning">
-                <div class="stat-value" id="stat-pending">0</div>
-                <div class="stat-label">Pending</div>
-              </div>
-              <div class="stat-card accent">
-                <div class="stat-value" id="stat-payment">&#8377;0</div>
-                <div class="stat-label">Collected</div>
-              </div>
-              <div class="stat-card danger">
-                <div class="stat-value" id="stat-duplicates">0</div>
-                <div class="stat-label">Duplicates</div>
-              </div>
-              <div class="stat-card info">
-                <div class="stat-value" id="stat-walkins">0</div>
-                <div class="stat-label">Walk-ins</div>
+
+            <!-- Counts: Total / Attendance / Payment / Collected -->
+            <div class="card" style="margin-bottom:1rem">
+              <h3 class="card-title">Counts</h3>
+              <div id="dash-counts">
+                <div class="dash-counts-grid">
+                  <div class="dash-count-col"><div class="dash-count-head">Total</div><div class="dash-count-big">—</div></div>
+                  <div class="dash-count-col"><div class="dash-count-head">Attendance</div><div class="dash-count-big">—</div></div>
+                  <div class="dash-count-col"><div class="dash-count-head">Payment</div><div class="dash-count-big">—</div></div>
+                  <div class="dash-count-col"><div class="dash-count-head">Collected</div><div class="dash-count-big">—</div></div>
+                </div>
               </div>
             </div>
 
+            <!-- Buses -->
+            <div class="card admin-only" style="margin-bottom:1rem">
+              <h3 class="card-title">Buses</h3>
+              <div id="dash-buses"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
+            </div>
+
+            <!-- Profit / Loss -->
+            <div class="card admin-only" style="margin-bottom:1rem">
+              <h3 class="card-title">Profit / Loss</h3>
+              <div id="dash-pl"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
+            </div>
+
+            <!-- Recent Activity + Quick Actions -->
             <div class="dashboard-grid">
-              <div class="card">
-                <h3 class="card-title">Attendance Progress</h3>
-                <div class="progress-wrap">
-                  <div class="progress-bar-outer">
-                    <div class="progress-bar-inner" id="dash-progress-bar" style="width:0%"></div>
-                  </div>
-                  <span class="progress-pct" id="dash-progress-pct">0%</span>
-                </div>
-                <div class="mini-breakdown" id="dash-category-breakdown"></div>
-              </div>
               <div class="card">
                 <h3 class="card-title">Recent Activity</h3>
                 <div class="activity-list" id="dash-activity"></div>
               </div>
-            </div>
-
-            <div class="card admin-only">
-              <h3 class="card-title">Quick Actions</h3>
-              <div class="quick-actions">
-                <button class="qa-btn" onclick="App.navigate('import')">Import Excel</button>
-                <button class="qa-btn" onclick="App.navigate('reports')">View Reports</button>
-                <button class="qa-btn" onclick="App.navigate('settings')">Configure Event</button>
-                <button class="qa-btn" onclick="App.navigate('attendance')">Admission</button>
-                <button class="qa-btn" onclick="App.navigate('financial')">Financial Year</button>
+              <div class="card admin-only">
+                <h3 class="card-title">Quick Actions</h3>
+                <div class="quick-actions">
+                  <button class="qa-btn" onclick="App.navigate('import')">Import Excel</button>
+                  <button class="qa-btn" onclick="App.navigate('reports')">View Reports</button>
+                  <button class="qa-btn" onclick="App.navigate('settings')">Configure Event</button>
+                  <button class="qa-btn" onclick="App.navigate('attendance')">Admission</button>
+                  <button class="qa-btn" onclick="App.navigate('financial')">Financial Year</button>
+                </div>
               </div>
             </div>
+
           </div>
 
           <!-- IMPORT PAGE -->
@@ -1130,6 +1282,25 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                 <button class="btn-secondary" onclick="App.downloadTemplate('xlsx')">Download Excel Template (.xlsx)</button>
                 <button class="btn-ghost" onclick="App.downloadTemplate('csv')">Download CSV Template</button>
               </div>
+
+              <!-- Replace vs Add toggle -->
+              <div class="import-mode-bar">
+                <label class="import-mode-opt">
+                  <input type="radio" name="import-mode" value="add" checked id="import-mode-add" />
+                  <span>
+                    <strong>Add to existing</strong>
+                    <small>New records are added alongside current data</small>
+                  </span>
+                </label>
+                <label class="import-mode-opt">
+                  <input type="radio" name="import-mode" value="replace" id="import-mode-replace" />
+                  <span>
+                    <strong>Replace all data</strong>
+                    <small>Current participants are deleted first, then new sheet is imported</small>
+                  </span>
+                </label>
+              </div>
+
               <div class="upload-zone" id="upload-zone">
                 <div class="upload-icon">&#128228;</div>
                 <p>Drag & drop Excel (.xlsx) or CSV file here</p>
@@ -1205,20 +1376,25 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                   <option value="absent">Absent</option>
                 </select>
               </div>
-              <div id="attendees-count" class="table-count"></div>
+
+              <!-- Download bar -->
+              <div class="att-dl-bar">
+                <span id="attendees-count" class="table-count"></span>
+                <div class="att-dl-group">
+                  <span class="att-dl-label">Download:</span>
+                  <button class="btn-small success" onclick="Export.exportAttendeesByGroup('all')">All</button>
+                  <button class="btn-small success" onclick="Export.exportAttendeesByGroup('team')">Team-wise</button>
+                  <button class="btn-small success" onclick="Export.exportAttendeesByGroup('category')">Category-wise</button>
+                  <button class="btn-small success" onclick="Export.exportAttendeesFiltered()">Current View</button>
+                </div>
+              </div>
+
               <div class="table-wrap" id="attendees-table-wrap"></div>
             </div>
           </div>
 
           <!-- REPORTS PAGE -->
           <div id="page-reports" class="page hidden admin-page">
-            <div class="reports-nav">
-              <button class="rep-tab active" data-report="overview">Overview</button>
-              <button class="rep-tab" data-report="payment">Payment</button>
-              <button class="rep-tab" data-report="reference">Reference</button>
-              <button class="rep-tab" data-report="transport">Transport</button>
-              <button class="rep-tab" data-report="summary">Summary</button>
-            </div>
             <div id="report-content" class="report-content"></div>
           </div>
 
@@ -1229,8 +1405,74 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
           <!-- SETTINGS PAGE -->
           <div id="page-settings" class="page hidden admin-page">
+
+            <!-- EVENT CONFIG (full width) -->
+            <div class="card" style="margin-bottom:1.25rem">
+              <h3 class="card-title">Event Configuration</h3>
+              <div class="settings-event-grid">
+                <div>
+                  <label class="settings-label">Event Name</label>
+                  <input type="text" id="cfg-event-name" placeholder="e.g. Prerna 2025" class="wi-input" style="width:100%" />
+                </div>
+                <div>
+                  <label class="settings-label">Event Date</label>
+                  <input type="date" id="cfg-event-date" class="wi-input" style="width:100%" />
+                </div>
+                <div>
+                  <label class="settings-label">Charge Per Person (&#8377;)</label>
+                  <input type="number" id="cfg-charge-per-person" placeholder="0" min="0" class="wi-input" style="width:100%" />
+                </div>
+              </div>
+              <div style="display:flex;gap:.75rem;margin-top:1rem;flex-wrap:wrap;align-items:center">
+                <button class="btn-primary" id="btn-save-event-cfg">Save</button>
+                <button class="btn-secondary" onclick="App.showCreateEventModal()">+ New Event</button>
+                <button class="btn-danger" id="btn-delete-event" style="margin-left:auto">Delete This Event</button>
+              </div>
+            </div>
+
             <div class="settings-grid">
-              <!-- Profile -->
+
+              <!-- DATA ACTIONS -->
+              <div class="card">
+                <h3 class="card-title">Data Actions</h3>
+                <div class="settings-action-row">
+                  <div>
+                    <div class="settings-action-title">Clear Attendance</div>
+                    <div class="settings-action-desc">Unmark everyone as present. Payment data stays.</div>
+                  </div>
+                  <button class="btn-danger" id="btn-clear-attendance">Clear</button>
+                </div>
+                <div class="settings-action-row">
+                  <div>
+                    <div class="settings-action-title">Re-import (Replace Data)</div>
+                    <div class="settings-action-desc">Delete all participants and go to Import to upload fresh sheet.</div>
+                  </div>
+                  <button class="btn-danger" id="btn-clear-reimport">Clear &amp; Re-import</button>
+                </div>
+                <div class="settings-action-row">
+                  <div>
+                    <div class="settings-action-title">Delete All Data</div>
+                    <div class="settings-action-desc">Wipes all participants, buses, logs. Cannot be undone.</div>
+                  </div>
+                  <button class="btn-danger" id="btn-clear-all">Delete All</button>
+                </div>
+              </div>
+
+              <!-- BUSES -->
+              <div class="card">
+                <h3 class="card-title">Bus Configuration</h3>
+                <div id="bus-routes-list"></div>
+                <button class="btn-secondary" id="btn-add-bus-route" style="margin-top:.5rem">+ Add Bus</button>
+              </div>
+
+              <!-- USERS -->
+              <div class="card">
+                <h3 class="card-title">User Management</h3>
+                <div id="users-list"></div>
+                <button class="btn-secondary" id="btn-add-user" style="margin-top:.5rem">+ Invite User</button>
+              </div>
+
+              <!-- PROFILE -->
               <div class="card">
                 <h3 class="card-title">My Profile</h3>
                 <div class="input-group" style="margin-bottom:.75rem">
@@ -1243,64 +1485,15 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                 </div>
                 <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem">Role: <strong id="profile-role">Admin</strong></p>
                 <button class="btn-primary" id="btn-save-profile">Save Profile</button>
+                <hr style="margin:1rem 0;border-color:var(--border)" />
+                <label style="font-size:.85rem;font-weight:500;display:block;margin-bottom:.5rem">New Password</label>
+                <div class="pw-wrap" style="margin-bottom:.75rem">
+                  <input type="password" id="new-password" placeholder="Min 6 characters" style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.9rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:0.9rem" />
+                  <button type="button" class="pw-toggle">&#128065;</button>
+                </div>
+                <button class="btn-secondary" id="btn-change-pw">Change Password</button>
               </div>
 
-              <!-- Change Password -->
-              <div class="card">
-                <h3 class="card-title">Change Password</h3>
-                <div class="input-group" style="margin-bottom:.75rem">
-                  <label>New Password</label>
-                  <div class="pw-wrap">
-                    <input type="password" id="new-password" placeholder="Min 6 characters" style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.9rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:0.9rem" />
-                    <button type="button" class="pw-toggle">👁</button>
-                  </div>
-                </div>
-                <button class="btn-primary" id="btn-change-pw">Change Password</button>
-              </div>
-
-              <!-- Event Config -->
-              <div class="card">
-                <h3 class="card-title">Event Configuration</h3>
-                <div class="input-group" style="margin-bottom:.75rem">
-                  <label>Event Name</label>
-                  <input type="text" id="cfg-event-name" placeholder="e.g. Prerna 2025" />
-                </div>
-                <div class="input-group" style="margin-bottom:.75rem">
-                  <label>Event Date</label>
-                  <input type="date" id="cfg-event-date" />
-                </div>
-                <div class="input-group" style="margin-bottom:.75rem">
-                  <label>Charge Per Person (&#8377;)</label>
-                  <input type="number" id="cfg-charge-per-person" placeholder="0" min="0" />
-                </div>
-                <div class="input-group" style="margin-bottom:.75rem">
-                  <label>Total Event Expense (&#8377;)</label>
-                  <input type="number" id="cfg-total-expense" placeholder="0" min="0" />
-                </div>
-                <button class="btn-primary" id="btn-save-event-cfg">Save Configuration</button>
-              </div>
-
-              <!-- Bus Routes -->
-              <div class="card">
-                <h3 class="card-title">Bus Configuration</h3>
-                <div id="bus-routes-list"></div>
-                <button class="btn-secondary" id="btn-add-bus-route">+ Add Bus Route</button>
-              </div>
-
-              <!-- User Management -->
-              <div class="card">
-                <h3 class="card-title">User Management</h3>
-                <div id="users-list"></div>
-                <button class="btn-secondary" id="btn-add-user">+ Invite User</button>
-              </div>
-
-              <!-- Danger Zone -->
-              <div class="card danger-zone">
-                <h3 class="card-title">Danger Zone</h3>
-                <p>These actions are irreversible. Use with caution.</p>
-                <button class="btn-danger" id="btn-clear-attendance">Clear All Attendance</button>
-                <button class="btn-danger" id="btn-clear-all">Reset All Data</button>
-              </div>
             </div>
           </div>
 
