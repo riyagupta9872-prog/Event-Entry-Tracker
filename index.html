@@ -159,17 +159,26 @@ a { text-decoration: none; color: inherit; }
 #screen-app { display: flex; height: 100vh; }
 
 /* ===== SIDEBAR ===== */
+#sidebar-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 99;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+#sidebar-overlay.show { display: block; }
 #sidebar {
   width: var(--sidebar-w);
   background: var(--bg-card);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
   flex-shrink: 0;
-  transition: transform var(--transition);
+  transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
   z-index: 100;
 }
 .sidebar-header {
-  padding: 1.5rem 1.25rem;
+  padding: 1.25rem 1rem 1.25rem 1.25rem;
   display: flex; align-items: center; gap: 0.75rem;
   border-bottom: 1px solid var(--border);
 }
@@ -179,20 +188,31 @@ a { text-decoration: none; color: inherit; }
   color: var(--accent); font-weight: 700;
   letter-spacing: 0.05em; font-size: 1.1rem; flex: 1;
 }
-.sidebar-close { display: none; background: none; border: none; color: var(--text-muted); font-size: 1rem; cursor: pointer; }
-.sidebar-nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
+.sidebar-close {
+  display: none;
+  background: none; border: none;
+  color: var(--text-muted); font-size: 1.2rem;
+  cursor: pointer; padding: 0.4rem;
+  border-radius: 6px;
+  line-height: 1;
+  transition: background var(--transition);
+}
+.sidebar-close:hover { background: var(--bg-input); color: var(--text-primary); }
+.sidebar-nav { flex: 1; padding: 0.75rem 0; overflow-y: auto; }
 .nav-item {
   display: flex; align-items: center; gap: 0.75rem;
-  padding: 0.75rem 1.25rem;
+  padding: 0.85rem 1.25rem;
   color: var(--text-secondary);
   cursor: pointer; border-radius: 0;
   transition: all var(--transition);
   border-left: 3px solid transparent;
   font-size: 0.9rem;
+  -webkit-tap-highlight-color: transparent;
 }
 .nav-item:hover { background: var(--bg-card2); color: var(--text-primary); }
+.nav-item:active { background: var(--success-bg); }
 .nav-item.active { background: var(--success-bg); color: var(--accent); border-left-color: var(--accent); }
-.nav-icon { font-size: 1rem; width: 20px; text-align: center; }
+.nav-icon { font-size: 1rem; width: 22px; text-align: center; flex-shrink: 0; }
 .sidebar-footer {
   padding: 1rem 1.25rem;
   border-top: 1px solid var(--border);
@@ -810,10 +830,14 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 /* ── Dashboard counts ──────────────────────────────────────── */
 .dash-counts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
 .dash-count-col { padding: .75rem 1rem; background: var(--bg-card2); border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.dash-count-clickable { cursor: pointer; transition: background var(--transition), box-shadow var(--transition); -webkit-tap-highlight-color: transparent; }
+.dash-count-clickable:hover { background: #e8f5e9; box-shadow: 0 2px 8px rgba(22,163,74,.12); }
+.dash-count-clickable:active { background: #d1fae5; }
+.dash-tap-hint { font-size: .6rem; text-transform: none; font-weight: 400; opacity: .6; margin-left: .3rem; }
 .dash-count-head { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: .4rem; }
 .dash-count-big { font-size: 2rem; font-weight: 700; color: var(--text-primary); line-height: 1.1; }
 .dash-count-sub { font-size: .75rem; color: var(--text-muted); margin-top: .25rem; }
-.dash-count-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: .2rem; }
+.dash-count-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: .2rem; padding: .15rem .3rem; border-radius: 5px; }
 .dash-count-pct { font-size: .75rem; color: var(--text-muted); margin-top: .35rem; }
 .dc-label { font-size: .75rem; font-weight: 600; padding: .1rem .4rem; border-radius: 4px; }
 .dc-label.success { background: var(--success-bg); color: #15803d; }
@@ -824,6 +848,19 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .dc-num { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
 .dash-progress { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
 .dash-progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .4s ease; }
+
+/* ── Pop-card list modal ──────────────────────────────────── */
+.pop-list-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: .75rem; border-bottom: 1px solid var(--border); padding-bottom: .6rem; }
+.pop-list-title { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
+.pop-list-count { font-size: .8rem; color: var(--text-muted); }
+.pop-list-body { max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: .4rem; }
+.pop-list-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .55rem .6rem; border-radius: 8px; background: var(--bg-card2); border: 1px solid var(--border); }
+.pop-list-row:hover { background: #f0fdf4; }
+.pop-list-main { flex: 1; min-width: 0; }
+.pop-list-name { font-size: .92rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pop-list-meta { font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pop-list-badges { display: flex; flex-direction: column; gap: .2rem; align-items: flex-end; flex-shrink: 0; }
+.badge.absent-badge { background: #fef3c7; color: #92400e; }
 
 /* ── Reports filter UI ──────────────────────────────────────── */
 .report-filters-card { margin-bottom: 1rem; }
@@ -948,10 +985,12 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 @media (max-width: 768px) {
   #sidebar {
     position: fixed; top: 0; bottom: 0; left: 0;
-    transform: translateX(-100%);
+    transform: translateX(-110%);
+    box-shadow: 4px 0 24px rgba(0,0,0,.18);
   }
   #sidebar.open { transform: translateX(0); }
-  .sidebar-close { display: block; }
+  #sidebar-overlay.show { display: block; }
+  .sidebar-close { display: flex; align-items: center; justify-content: center; }
   .menu-btn { display: block; }
   .dashboard-grid { grid-template-columns: 1fr; }
   .dash-counts-grid { grid-template-columns: repeat(2, 1fr); }
@@ -1046,6 +1085,8 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
     <!-- Main App -->
     <div id="screen-app" class="screen hidden">
+      <!-- Sidebar overlay (mobile) -->
+      <div id="sidebar-overlay"></div>
       <!-- Sidebar -->
       <aside id="sidebar">
         <div class="sidebar-header">
@@ -1515,6 +1556,8 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   <!-- External Scripts -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- ExcelJS: used for styled Excel export (SheetJS CE does not support cell styling) -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 
   <!-- Firebase SDK (compat for no-build static site) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>

@@ -4,7 +4,7 @@ const App = (() => {
   let currentPage = 'attendance';
   let scannerStream = null;
   let allAttendees = [];
-  let attendeesPage = 1;
+  let _dashAttendees = []; // snapshot for pop-cards
   let liveUnsubscribe = null; // Firestore real-time listener
   const PAGE_SIZE = 100;
 
@@ -55,15 +55,20 @@ const App = (() => {
     document.getElementById('tab-register').addEventListener('click', () => switchLoginTab('register'));
 
     // Sidebar
-    document.getElementById('btn-menu').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
-    document.getElementById('btn-sidebar-close').addEventListener('click', () => document.getElementById('sidebar').classList.remove('open'));
+    function openSidebar()  { document.getElementById('sidebar').classList.add('open');    document.getElementById('sidebar-overlay').classList.add('show'); }
+    function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('show'); }
+    document.getElementById('btn-menu').addEventListener('click', () => {
+      document.getElementById('sidebar').classList.contains('open') ? closeSidebar() : openSidebar();
+    });
+    document.getElementById('btn-sidebar-close').addEventListener('click', closeSidebar);
+    document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
     document.getElementById('modal-overlay').addEventListener('click', e => { if (e.target.id === 'modal-overlay') Helpers.closeModal(); });
 
     // Nav
     document.querySelectorAll('.nav-item').forEach(item => {
       item.addEventListener('click', () => {
         navigate(item.dataset.page);
-        document.getElementById('sidebar').classList.remove('open');
+        closeSidebar();
       });
     });
 
@@ -311,17 +316,20 @@ const App = (() => {
       // ── Attendance + Payment counts ──────────────────────────────────────
       const pct = attendees.length ? Math.round(present.length / attendees.length * 100) : 0;
 
+      // Store attendees snapshot for pop cards
+      _dashAttendees = attendees;
+
       document.getElementById('dash-counts').innerHTML = `
         <div class="dash-counts-grid">
-          <div class="dash-count-col">
-            <div class="dash-count-head">Total</div>
+          <div class="dash-count-col dash-count-clickable" onclick="App.showCountList('all','All Registered')">
+            <div class="dash-count-head">Total <span class="dash-tap-hint">tap to view</span></div>
             <div class="dash-count-big">${attendees.length}</div>
             <div class="dash-count-sub">${walkins.length} walk-in&nbsp;&nbsp;${dups.length > 0 ? `<span style="color:var(--danger)">${dups.length} dup</span>` : ''}</div>
           </div>
           <div class="dash-count-col">
             <div class="dash-count-head">Attendance</div>
-            <div class="dash-count-row"><span class="dc-label success">Present</span><span class="dc-num">${present.length}</span></div>
-            <div class="dash-count-row"><span class="dc-label warning">Absent</span><span class="dc-num">${absent.length}</span></div>
+            <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('present','Present')"><span class="dc-label success">Present</span><span class="dc-num">${present.length}</span></div>
+            <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('absent','Absent')"><span class="dc-label warning">Absent</span><span class="dc-num">${absent.length}</span></div>
             <div class="dash-count-pct">${pct}% attended</div>
             <div class="dash-progress" style="margin-top:.4rem">
               <div class="dash-progress-fill" style="width:${pct}%"></div>
@@ -329,13 +337,14 @@ const App = (() => {
           </div>
           <div class="dash-count-col">
             <div class="dash-count-head">Payment</div>
-            <div class="dash-count-row"><span class="dc-label accent">Paid</span><span class="dc-num">${paid.length}</span></div>
-            <div class="dash-count-row"><span class="dc-label danger">Unpaid</span><span class="dc-num">${unpaid.length}</span></div>
-            <div class="dash-count-row"><span class="dc-label info">Free</span><span class="dc-num">${free.length}</span></div>
+            <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('paid','Paid')"><span class="dc-label accent">Paid</span><span class="dc-num">${paid.length}</span></div>
+            <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('unpaid','Unpaid')"><span class="dc-label danger">Unpaid</span><span class="dc-num">${unpaid.length}</span></div>
+            <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('free','Free')"><span class="dc-label info">Free</span><span class="dc-num">${free.length}</span></div>
           </div>
-          <div class="dash-count-col">
-            <div class="dash-count-head">Collected</div>
+          <div class="dash-count-col dash-count-clickable" onclick="App.showCountList('walkin','Walk-ins')">
+            <div class="dash-count-head">Collected <span class="dash-tap-hint">walk-ins</span></div>
             <div class="dash-count-big" style="color:var(--accent)">${Helpers.currency(totalPay)}</div>
+            <div class="dash-count-sub">${walkins.length} walk-in</div>
           </div>
         </div>`;
 
@@ -386,6 +395,53 @@ const App = (() => {
       ).join('') : '<p style="color:var(--text-muted);font-size:.85rem">No activity yet</p>';
 
     } catch(e) { console.error('Dashboard error', e); }
+  }
+
+  // ── Pop-card: show filtered attendee list from dashboard count tiles ────────
+  function showCountList(filter, title) {
+    const list = _dashAttendees.filter(a => {
+      if (filter === 'all')     return true;
+      if (filter === 'present') return a.attendance === 'present';
+      if (filter === 'absent')  return a.attendance !== 'present';
+      if (filter === 'paid')    return (a.paymentStatus || '').toLowerCase() === 'paid';
+      if (filter === 'unpaid')  return !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid';
+      if (filter === 'free')    return (a.paymentStatus || '').toLowerCase() === 'free';
+      if (filter === 'walkin')  return !!a.isWalkIn;
+      return true;
+    });
+
+    if (!list.length) {
+      Helpers.toast(`No records for "${title}"`, 'info');
+      return;
+    }
+
+    const rows = list.map(a => {
+      const ps = (a.paymentStatus || 'unpaid').toLowerCase();
+      const psBadge = ps === 'paid' ? 'present' : ps === 'free' ? 'before' : 'unpaid';
+      const attBadge = a.attendance === 'present' ? 'present' : 'absent-badge';
+      const attLabel = a.attendance === 'present' ? 'Present' : 'Absent';
+      return `<div class="pop-list-row">
+        <div class="pop-list-main">
+          <div class="pop-list-name">${a.name}${a.isWalkIn ? ' <span class="badge walkin">WI</span>' : ''}</div>
+          <div class="pop-list-meta">${a.mobile || ''}${a.team ? ' · ' + a.team : ''}${a.category ? ' · ' + a.category : ''}</div>
+        </div>
+        <div class="pop-list-badges">
+          <span class="badge ${attBadge}">${attLabel}</span>
+          <span class="badge ${psBadge}">${ps}</span>
+        </div>
+      </div>`;
+    }).join('');
+
+    Helpers.modal(`
+      <div class="pop-list-header">
+        <div class="pop-list-title">${title}</div>
+        <div class="pop-list-count">${list.length} person${list.length !== 1 ? 's' : ''}</div>
+      </div>
+      <div class="pop-list-body">${rows}</div>
+      <div style="margin-top:1rem;text-align:right">
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Close</button>
+      </div>
+    `);
   }
 
   // ===== IMPORT =====
@@ -795,8 +851,7 @@ const App = (() => {
       return;
     }
     const ps = (a.paymentStatus || '').toLowerCase();
-    const amt = parseFloat(a.paymentAmount || 0);
-    const isUnpaid = (ps === 'unpaid' || ps === 'partial') && amt <= 0;
+    const isUnpaid = ps === 'unpaid' || ps === 'partial' || ps === '';
 
     if (isUnpaid) {
       // Show payment collection panel before admitting
@@ -1541,6 +1596,7 @@ const App = (() => {
     saveBusRoute, deleteBusRoute, toggleUserRole,
     showAddBusModal, deleteBusRouteFromDash,
     showCreateEventModal, createEvent,
+    showCountList,
     initAttendees
   };
 })();
