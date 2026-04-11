@@ -602,6 +602,46 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .mapping-tip strong { color: var(--info); }
 
 /* ===== ADMISSION (ATTENDANCE) ===== */
+/* Admit unpaid button — orange, equally prominent */
+.btn-pc-skip-big {
+  padding: .85rem .5rem;
+  background: #fff7ed;
+  border: 2px solid #f97316;
+  border-radius: var(--radius-sm);
+  color: #c2410c;
+  font-family: var(--font-body);
+  font-size: .92rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  line-height: 1.3;
+  transition: background var(--transition), transform .1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-pc-skip-big span { font-size: .72rem; font-weight: 400; opacity: .8; display: block; }
+.btn-pc-skip-big:hover { background: #ffedd5; }
+.btn-pc-skip-big:active { transform: scale(.97); }
+
+.att-filter-tabs {
+  display: flex; gap: .4rem; padding: .4rem .25rem .6rem;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.att-filter-tabs::-webkit-scrollbar { display: none; }
+.att-tab {
+  flex-shrink: 0;
+  padding: .38rem .85rem; border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-card2); color: var(--text-secondary);
+  font-size: .82rem; font-weight: 500; cursor: pointer;
+  transition: all var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.att-tab:hover { background: #e8f5e9; border-color: var(--accent); color: var(--accent); }
+.att-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.att-tab[data-filter="unpaid"].active { background: var(--danger); border-color: var(--danger); }
+.att-tab[data-filter="absent"].active { background: #d97706; border-color: #d97706; }
+.att-tab[data-filter="present"].active { background: #15803d; border-color: #15803d; }
 .admit-counter-bar {
   display: flex; align-items: center; justify-content: center; gap: 1.25rem;
   padding: 0.5rem 1rem; margin-bottom: 0.75rem;
@@ -977,6 +1017,40 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   border: 1px solid var(--danger); font-size: 0.85rem;
 }
 
+/* ── Event Day Collections ───────────────────────────────────── */
+.edc-grand-total {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: .6rem .9rem; background: #dcfce7; border-radius: 8px;
+  margin-bottom: .75rem; font-size: .95rem; font-weight: 600;
+  border: 1px solid #86efac;
+}
+.edc-collector-block {
+  border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: .75rem; overflow: hidden;
+}
+.edc-collector-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: .55rem .9rem; background: #f0fdf4;
+  border-bottom: 1px solid var(--border);
+}
+.edc-collector-name { font-size: .85rem; color: var(--text-secondary); }
+.edc-collector-total { font-size: 1rem; font-weight: 700; color: var(--accent); }
+.edc-person-list { padding: .4rem .5rem; display: flex; flex-direction: column; gap: .3rem; }
+.edc-person {
+  display: grid; grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: .1rem .5rem;
+  padding: .4rem .5rem; border-radius: 6px;
+  background: var(--bg-card2); font-size: .82rem;
+}
+.edc-person-name  { font-weight: 600; color: var(--text-primary); grid-column:1; }
+.edc-person-amt   { grid-column:2; grid-row:1/3; text-align:right; font-weight:700; color:#15803d; align-self:center; }
+.edc-person-meta  { color: var(--text-muted); grid-column:1; }
+.edc-person-note  { font-style:italic; color: var(--text-muted); grid-column:1/3; font-size:.75rem; margin-top:.1rem; }
+.edc-mode         { display:inline-block; padding:.05rem .35rem; border-radius:3px; font-size:.7rem; font-weight:600; text-transform:uppercase; }
+.edc-mode.cash    { background:#fef3c7; color:#92400e; }
+.edc-mode.online  { background:#dbeafe; color:#1d4ed8; }
+
 /* ===== ANIMATIONS ===== */
 @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
@@ -1177,6 +1251,15 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               </div>
             </div>
 
+            <!-- Quick filter tabs -->
+            <div class="att-filter-tabs">
+              <button class="att-tab active" data-filter="all">All</button>
+              <button class="att-tab" data-filter="unpaid">Unpaid</button>
+              <button class="att-tab" data-filter="absent">Absent</button>
+              <button class="att-tab" data-filter="present">Present</button>
+            </div>
+
+            <div id="att-list-info" style="font-size:.78rem;color:var(--text-muted);padding:.2rem .25rem .4rem;"></div>
             <div id="att-search-results" class="att-results"></div>
 
             <div id="att-tab-bulk" class="hidden admin-page" style="margin-top:1rem">
@@ -1238,29 +1321,44 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               </div>
               <div class="walkin-panel-body">
                 <input type="hidden" id="pc-attendee-id" />
-                <div class="input-group" style="margin-bottom:.75rem">
-                  <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Payment with whom? (remarks)</label>
-                  <input type="text" id="pc-remarks" class="wi-input" placeholder="e.g. Paid to Riya, amount with Priya..." style="width:100%;box-sizing:border-box" />
-                </div>
-                <div style="margin-bottom:.75rem">
-                  <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.5rem;display:block">Payment Mode</label>
-                  <div style="display:flex;gap:1rem;align-items:center">
-                    <label style="display:flex;align-items:center;gap:.4rem;font-size:.95rem;cursor:pointer">
-                      <input type="radio" name="pc-mode" id="pc-mode-cash" value="cash" checked /> Cash
-                    </label>
-                    <label style="display:flex;align-items:center;gap:.4rem;font-size:.95rem;cursor:pointer">
-                      <input type="radio" name="pc-mode" id="pc-mode-online" value="online" /> Online
-                    </label>
+
+                <!-- Amount row -->
+                <div style="display:flex;gap:.75rem;margin-bottom:.75rem;align-items:flex-end">
+                  <div style="flex:1">
+                    <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Amount Collected (₹)</label>
+                    <input type="number" id="pc-amount" class="wi-input" placeholder="0" min="0" style="width:100%;font-size:1.2rem;font-weight:700" />
+                  </div>
+                  <div style="flex:1">
+                    <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Mode</label>
+                    <div style="display:flex;gap:.75rem;align-items:center;padding:.6rem 0">
+                      <label style="display:flex;align-items:center;gap:.4rem;font-size:.95rem;cursor:pointer">
+                        <input type="radio" name="pc-mode" id="pc-mode-cash" value="cash" checked /> Cash
+                      </label>
+                      <label style="display:flex;align-items:center;gap:.4rem;font-size:.95rem;cursor:pointer">
+                        <input type="radio" name="pc-mode" id="pc-mode-online" value="online" /> Online
+                      </label>
+                    </div>
                   </div>
                 </div>
+
+                <div class="input-group" style="margin-bottom:.75rem">
+                  <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Cash with whom? <span style="color:var(--text-muted)">(name of person holding the money)</span></label>
+                  <input type="text" id="pc-remarks" class="wi-input" placeholder="e.g. Cash with Riya, will submit to Priya cashier..." style="width:100%;box-sizing:border-box" />
+                </div>
+
                 <div id="pc-screenshot-wrap" style="display:none;margin-bottom:.75rem">
-                  <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Screenshot of payment (optional)</label>
+                  <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Screenshot of online payment (optional)</label>
                   <input type="file" id="pc-screenshot" accept="image/*" capture="environment" style="font-size:.85rem" />
                   <div id="pc-screenshot-preview"></div>
                 </div>
-                <div style="display:flex;gap:.75rem;margin-top:.25rem">
-                  <button class="btn-primary" id="btn-pc-submit" style="flex:1">Admit Now</button>
-                  <button class="btn-ghost" id="btn-pc-skip" style="flex:0 0 auto;padding:.7rem 1.25rem">Skip &amp; Admit</button>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:.5rem">
+                  <button class="btn-primary" id="btn-pc-submit" style="padding:.85rem .5rem;font-size:.95rem">
+                    ✓ Paid &amp; Admit
+                  </button>
+                  <button class="btn-pc-skip-big" id="btn-pc-skip">
+                    ➜ Admit Now<br><span>will pay later</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1292,6 +1390,13 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
             <div class="card admin-only" style="margin-bottom:1rem">
               <h3 class="card-title">Profit / Loss</h3>
               <div id="dash-pl"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
+            </div>
+
+            <!-- Event Day Collections (cashier reconciliation) -->
+            <div class="card admin-only" style="margin-bottom:1rem">
+              <h3 class="card-title">Event Day Collections <span id="dash-edc-badge" style="font-size:.75rem;font-weight:400;color:var(--text-muted);margin-left:.5rem"></span></h3>
+              <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem">Payments collected at the gate today — for cashier reconciliation</p>
+              <div id="dash-edc"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
             </div>
 
             <!-- Recent Activity + Quick Actions -->
@@ -1462,6 +1567,10 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                 <div>
                   <label class="settings-label">Charge Per Person (&#8377;)</label>
                   <input type="number" id="cfg-charge-per-person" placeholder="0" min="0" class="wi-input" style="width:100%" />
+                </div>
+                <div>
+                  <label class="settings-label">Other Expense Budget (&#8377;)</label>
+                  <input type="number" id="cfg-total-expense" placeholder="0" min="0" class="wi-input" style="width:100%" />
                 </div>
               </div>
               <div style="display:flex;gap:.75rem;margin-top:1rem;flex-wrap:wrap;align-items:center">

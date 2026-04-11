@@ -176,9 +176,11 @@ const App = (() => {
       liveUnsubscribe = col.onSnapshot(snap => {
         allAttendees = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         updateAdmitCountersFromCache();
-        // Re-render search if active
-        const q = document.getElementById('att-search')?.value;
-        if (q && currentPage === 'attendance') searchAttendeesFromCache(q);
+        // Re-render the attendance list whenever data changes
+        if (currentPage === 'attendance') {
+          const q = document.getElementById('att-search')?.value;
+          renderAllAttendance(q);
+        }
       });
     } catch {}
   }
@@ -385,6 +387,54 @@ const App = (() => {
             <td style="text-align:right;color:var(--${plClass})">${Helpers.currency(Math.abs(profitLoss))}</td>
           </tr>
         </table>`;
+
+      // ── Event Day Collections (cashier reconciliation) ──────────────────
+      const edcEl = document.getElementById('dash-edc');
+      if (edcEl) {
+        const gatePaid = attendees.filter(a => a.paidAtEvent);
+        const edcBadge = document.getElementById('dash-edc-badge');
+        if (edcBadge) edcBadge.textContent = gatePaid.length ? `${gatePaid.length} person${gatePaid.length !== 1 ? 's' : ''} · ${Helpers.currency(gatePaid.reduce((s,a) => s + parseFloat(a.paymentAmount || 0), 0))}` : '';
+
+        if (!gatePaid.length) {
+          edcEl.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">No event-day collections yet</p>';
+        } else {
+          // Group by collector (volunteer who collected)
+          const byCollector = {};
+          gatePaid.forEach(a => {
+            const who = a.collectedBy || 'Unknown';
+            if (!byCollector[who]) byCollector[who] = [];
+            byCollector[who].push(a);
+          });
+
+          const collectorRows = Object.entries(byCollector).map(([collector, list]) => {
+            const total = list.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+            const personList = list.map(a =>
+              `<div class="edc-person">
+                <span class="edc-person-name">${a.name}</span>
+                <span class="edc-person-meta">${a.mobile || ''} · ${a.team || ''}</span>
+                <span class="edc-person-amt">${Helpers.currency(a.paymentAmount || 0)} <span class="edc-mode ${a.paymentMode}">${a.paymentMode || ''}</span></span>
+                ${a.remarks ? `<span class="edc-person-note">${a.remarks}</span>` : ''}
+              </div>`
+            ).join('');
+            return `
+              <div class="edc-collector-block">
+                <div class="edc-collector-header">
+                  <span class="edc-collector-name">Collected by: <strong>${collector}</strong></span>
+                  <span class="edc-collector-total">${Helpers.currency(total)}</span>
+                </div>
+                <div class="edc-person-list">${personList}</div>
+              </div>`;
+          }).join('');
+
+          const grandTotal = gatePaid.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+          edcEl.innerHTML = `
+            <div class="edc-grand-total">
+              <span>Total Collected at Gate</span>
+              <span style="color:var(--accent);font-weight:700">${Helpers.currency(grandTotal)}</span>
+            </div>
+            ${collectorRows}`;
+        }
+      }
 
       // ── Recent activity ──────────────────────────────────────────────────
       const logs   = await DB.getAll(DB.STORES.auditLog);
@@ -704,17 +754,29 @@ const App = (() => {
   // ===== ATTENDANCE (ADMISSION) — PRD: <2 seconds, ONE TAP =====
   let attendanceInited = false;
 
+  let _attFilter = 'all'; // module-level so renderAllAttendance can always read it
+
   function initAttendance() {
     updateAdmitCountersFromCache();
+    renderAllAttendance(); // always show full list on enter
+
     if (attendanceInited) return;
     attendanceInited = true;
 
     const searchInput = document.getElementById('att-search');
     searchInput.addEventListener('input', Helpers.debounce(() => {
-      const q = searchInput.value;
-      if (allAttendees.length) searchAttendeesFromCache(q);
-      else searchAttendees(q);
+      renderAllAttendance(searchInput.value);
     }, 150));
+
+    // Quick filter tabs
+    document.querySelectorAll('.att-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.att-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        _attFilter = tab.dataset.filter;
+        renderAllAttendance(document.getElementById('att-search').value);
+      });
+    });
 
     const scanBtn = document.getElementById('btn-toggle-scan');
     scanBtn.addEventListener('click', () => {
@@ -775,20 +837,33 @@ const App = (() => {
     setTimeout(() => searchInput.focus(), 100);
   }
 
-  // Search from live cache (instant, no Firestore round-trip)
-  function searchAttendeesFromCache(query) {
-    if (!query || query.length < 1) {
-      document.getElementById('att-search-results').innerHTML = '';
-      return;
-    }
-    const results = allAttendees.filter(a => Helpers.searchFilter(a, query)).slice(0, 30);
-    renderAttendanceResults(results);
-  }
+  // Render full attendance list with optional search + active tab filter
+  function renderAllAttendance(query) {
+    let list = allAttendees.slice();
 
-  async function searchAttendees(query) {
-    if (!query || query.length < 1) { document.getElementById('att-search-results').innerHTML = ''; return; }
-    const all = await DB.getAll(DB.STORES.attendees);
-    renderAttendanceResults(all.filter(a => Helpers.searchFilter(a, query)).slice(0, 30));
+    // Apply tab filter
+    if (_attFilter === 'unpaid')  list = list.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid');
+    else if (_attFilter === 'absent')  list = list.filter(a => a.attendance !== 'present');
+    else if (_attFilter === 'present') list = list.filter(a => a.attendance === 'present');
+
+    // Apply search
+    if (query && query.trim()) list = list.filter(a => Helpers.searchFilter(a, query.trim()));
+
+    // Sort: unpaid+absent first, then absent paid, then present
+    list.sort((a, b) => {
+      const score = x => {
+        if (x.attendance === 'present') return 2;
+        const ps = (x.paymentStatus || '').toLowerCase();
+        if (ps === 'unpaid' || ps === '') return 0;
+        return 1;
+      };
+      return score(a) - score(b);
+    });
+
+    const info = document.getElementById('att-list-info');
+    if (info) info.textContent = `${list.length} of ${allAttendees.length} shown`;
+
+    renderAttendanceResults(list.slice(0, 100));
   }
 
   function getPaymentStatus(a) {
@@ -867,57 +942,65 @@ const App = (() => {
     const panel = document.getElementById('payment-collect-panel');
     document.getElementById('pc-name').textContent = a.name;
     document.getElementById('pc-attendee-id').value = a.id;
+    document.getElementById('pc-amount').value = a.paymentAmount > 0 ? a.paymentAmount : '';
     document.getElementById('pc-remarks').value = '';
     document.getElementById('pc-mode-cash').checked = true;
     document.getElementById('pc-screenshot-wrap').style.display = 'none';
     document.getElementById('pc-screenshot').value = '';
     document.getElementById('pc-screenshot-preview').innerHTML = '';
     panel.classList.remove('hidden');
-    document.getElementById('pc-remarks').focus();
+    document.getElementById('pc-amount').focus();
   }
 
   // Actually perform the admission (shared by instant and payment-collect flow)
   async function doAdmit(a, extraPayment) {
     a.attendance = 'present';
-    a.entryTime = new Date().toISOString();
-    a.markedBy = currentUser?.name || 'Unknown';
-    if (extraPayment) {
-      if (extraPayment.remarks) a.remarks = extraPayment.remarks;
-      if (extraPayment.paymentMode) a.paymentMode = extraPayment.paymentMode;
-      if (extraPayment.screenshotUrl) a.screenshotUrl = extraPayment.screenshotUrl;
+    a.entryTime  = new Date().toISOString();
+    a.markedBy   = currentUser?.name || 'Unknown';
+
+    if (extraPayment && extraPayment.collected) {
+      // Payment was collected at the gate — mark as PAID
+      a.paymentStatus  = 'paid';
+      a.paidAtEvent    = true;                            // event-day collection flag
+      a.collectedBy    = currentUser?.name || 'Unknown'; // volunteer who collected
+      if (extraPayment.amount > 0)     a.paymentAmount = extraPayment.amount;
+      if (extraPayment.paymentMode)    a.paymentMode   = extraPayment.paymentMode;
+      if (extraPayment.remarks)        a.remarks       = extraPayment.remarks;
+      if (extraPayment.screenshotUrl)  a.screenshotUrl = extraPayment.screenshotUrl;
     }
+
     await DB.put(DB.STORES.attendees, a);
-    await DB.log('checkin', `${a.name} checked in`, currentUser?.email);
+    await DB.log('checkin', `${a.name} checked in${extraPayment?.collected ? ' (paid at gate)' : ''}`, currentUser?.email);
     Helpers.toast(`${a.name} admitted!`, 'success');
 
-    const q = document.getElementById('att-search')?.value;
-    if (q) {
-      const idx = allAttendees.findIndex(x => x.id === a.id);
-      if (idx >= 0) {
-        allAttendees[idx].attendance = 'present';
-        allAttendees[idx].entryTime = a.entryTime;
-        allAttendees[idx].markedBy = a.markedBy;
-      }
-      searchAttendeesFromCache(q);
+    // Update local cache unconditionally so counters + search are immediately accurate
+    const idx = allAttendees.findIndex(x => x.id === a.id);
+    if (idx >= 0) {
+      allAttendees[idx] = { ...allAttendees[idx], ...a };
     }
+    const q = document.getElementById('att-search')?.value;
+    if (q) searchAttendeesFromCache(q);
     updateAdmitCountersFromCache();
   }
 
-  // Called from payment-collect panel submit (skip=true = no payment info needed)
+  // Called from payment-collect panel submit
+  // skip=true → admit without recording payment (still shows unpaid in reports)
   async function submitPaymentCollect(skip) {
     const id = document.getElementById('pc-attendee-id').value;
-    const a = await DB.getById(DB.STORES.attendees, id);
+    const a  = await DB.getById(DB.STORES.attendees, id);
     if (!a) return;
 
     document.getElementById('payment-collect-panel').classList.add('hidden');
 
     if (skip) {
+      // Admit without marking paid — person stays unpaid in reports
       await doAdmit(a);
       return;
     }
 
+    const amount  = parseFloat(document.getElementById('pc-amount').value) || 0;
     const remarks = document.getElementById('pc-remarks').value.trim();
-    const mode = document.getElementById('pc-mode-online').checked ? 'online' : 'cash';
+    const mode    = document.getElementById('pc-mode-online').checked ? 'online' : 'cash';
     const screenshotInput = document.getElementById('pc-screenshot');
 
     let screenshotUrl = '';
@@ -925,7 +1008,7 @@ const App = (() => {
       screenshotUrl = await readFileAsDataUrl(screenshotInput.files[0]);
     }
 
-    await doAdmit(a, { remarks, paymentMode: mode, screenshotUrl });
+    await doAdmit(a, { collected: true, amount, paymentMode: mode, remarks, screenshotUrl });
   }
 
   function readFileAsDataUrl(file) {
@@ -1016,24 +1099,35 @@ const App = (() => {
     if (!a) return;
     a.paymentStatus = document.getElementById('m-pay-status').value;
     a.paymentAmount = parseFloat(document.getElementById('m-pay-amt').value) || 0;
-    a.paymentMode = document.getElementById('m-pay-mode').value;
-    a.remarks = document.getElementById('m-pay-remarks').value.trim();
-    a.paymentDate = a.paymentDate || new Date().toISOString().slice(0, 10);
+    a.paymentMode   = document.getElementById('m-pay-mode').value;
+    a.remarks       = document.getElementById('m-pay-remarks').value.trim();
+    a.paymentDate   = a.paymentDate || new Date().toISOString().slice(0, 10);
     await DB.put(DB.STORES.attendees, a);
     await DB.log('payment', `Payment updated: ${a.name} → ${a.paymentStatus}`, currentUser?.email);
+
+    // Keep local cache consistent
+    const idx = allAttendees.findIndex(x => x.id === a.id);
+    if (idx >= 0) allAttendees[idx] = { ...allAttendees[idx], ...a };
+
     Helpers.closeModal();
     Helpers.toast('Payment updated', 'success');
     const q = document.getElementById('att-search')?.value;
     if (q) searchAttendeesFromCache(q);
+    updateAdmitCountersFromCache();
   }
 
   async function unmarkAttendance(id) {
     const a = await DB.getById(DB.STORES.attendees, id);
     if (!a) return;
     a.attendance = 'absent';
-    a.entryTime = null;
-    a.markedBy = null;
+    a.entryTime  = null;
+    a.markedBy   = null;
     await DB.put(DB.STORES.attendees, a);
+
+    // Keep local cache consistent
+    const idx = allAttendees.findIndex(x => x.id === a.id);
+    if (idx >= 0) allAttendees[idx] = { ...allAttendees[idx], ...a };
+
     Helpers.toast(`Attendance removed for ${a.name}`, 'warning');
     const q = document.getElementById('att-search')?.value;
     if (q) searchAttendeesFromCache(q);
@@ -1269,7 +1363,12 @@ const App = (() => {
         </div>`;
     };
 
-    [search, teamSel, catSel, attSel].forEach(el => el.addEventListener('input', Helpers.debounce(renderFiltered, 200)));
+    // Use oninput assignment (not addEventListener) so re-entering this page doesn't stack handlers
+    const debouncedRender = Helpers.debounce(renderFiltered, 200);
+    search.oninput  = debouncedRender;
+    teamSel.oninput = debouncedRender;
+    catSel.oninput  = debouncedRender;
+    attSel.oninput  = debouncedRender;
     renderFiltered();
   }
 
@@ -1427,24 +1526,30 @@ const App = (() => {
     document.getElementById('btn-clear-attendance').onclick = async () => {
       Helpers.modal(`
         <h3 class="modal-title" style="color:var(--danger)">Clear All Attendance?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:1.25rem">This will unmark everyone as present. Payment data will stay intact.</p>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">This will unmark everyone as present. Payment data stays intact.</p>
         <div class="modal-actions">
           <button class="btn-danger" id="confirm-clear-att">Yes, Clear Attendance</button>
           <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
         </div>`);
       document.getElementById('confirm-clear-att').onclick = async () => {
         Helpers.closeModal();
-        Helpers.toast('Clearing...', 'info');
-        const all = await DB.getAll(DB.STORES.attendees);
-        const batch = [];
-        for (const a of all) {
-          a.attendance = 'absent'; a.entryTime = null; a.markedBy = null;
-          batch.push(DB.put(DB.STORES.attendees, a));
+        Helpers.toast('Clearing attendance...', 'info');
+        try {
+          const all = await DB.getAll(DB.STORES.attendees);
+          if (!all.length) { Helpers.toast('No records to clear', 'warning'); return; }
+          // Use sequential updates to avoid Firestore overload
+          for (const a of all) {
+            a.attendance = 'absent'; a.entryTime = null; a.markedBy = null;
+            await DB.put(DB.STORES.attendees, a);
+          }
+          allAttendees = [];
+          attendanceInited = false;
+          Helpers.toast(`Attendance cleared for ${all.length} records`, 'success');
+          navigate('dashboard');
+        } catch (err) {
+          console.error('Clear attendance error:', err);
+          Helpers.toast('Error: ' + (err.message || 'Permission denied. Check Firestore rules.'), 'error');
         }
-        await Promise.all(batch);
-        allAttendees = [];
-        Helpers.toast('Attendance cleared', 'success');
-        navigate('dashboard');
       };
     };
 
@@ -1452,20 +1557,25 @@ const App = (() => {
     document.getElementById('btn-clear-reimport').onclick = async () => {
       Helpers.modal(`
         <h3 class="modal-title" style="color:var(--danger)">Clear & Re-import?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:1.25rem">This will <strong>delete all participant data</strong> for this event, then take you to Import to upload a fresh Excel sheet.</p>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">This will <strong>delete all participant data</strong> for this event, then take you to Import.</p>
         <div class="modal-actions">
           <button class="btn-danger" id="confirm-clear-reimport">Yes, Clear Data</button>
           <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
         </div>`);
       document.getElementById('confirm-clear-reimport').onclick = async () => {
         Helpers.closeModal();
-        Helpers.toast('Clearing data...', 'info');
-        await DB.clearStore(DB.STORES.attendees);
-        await DB.clearStore(DB.STORES.auditLog);
-        allAttendees = [];
-        attendanceInited = false;
-        Helpers.toast('Data cleared. Upload your new sheet.', 'success');
-        navigate('import');
+        Helpers.toast('Deleting participants...', 'info');
+        try {
+          await DB.clearStore(DB.STORES.attendees);
+          await DB.clearStore(DB.STORES.auditLog);
+          allAttendees = [];
+          attendanceInited = false;
+          Helpers.toast('Data cleared. Upload your new sheet.', 'success');
+          navigate('import');
+        } catch (err) {
+          console.error('Clear reimport error:', err);
+          Helpers.toast('Error: ' + (err.message || 'Permission denied. Check Firestore rules.'), 'error');
+        }
       };
     };
 
@@ -1474,26 +1584,33 @@ const App = (() => {
       const evtName = document.getElementById('cfg-event-name').value || 'this event';
       Helpers.modal(`
         <h3 class="modal-title" style="color:var(--danger)">Delete All Data?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:.75rem">This will permanently delete <strong>all participants, buses and logs</strong> for <strong>${evtName}</strong>.</p>
-        <p style="color:var(--text-secondary);margin-bottom:1.25rem">Type <strong>DELETE</strong> to confirm:</p>
-        <input type="text" id="confirm-delete-input" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" />
+        <p style="color:var(--text-secondary);margin-bottom:.75rem">Permanently deletes <strong>all participants, buses and logs</strong> for <strong>${evtName}</strong>. The event itself stays.</p>
+        <p style="color:var(--text-secondary);margin-bottom:.5rem">Type <strong>DELETE</strong> to confirm:</p>
+        <input type="text" id="confirm-delete-input" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" autofocus />
         <div class="modal-actions">
           <button class="btn-danger" id="confirm-delete-all">Delete All Data</button>
           <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
         </div>`);
       document.getElementById('confirm-delete-all').onclick = async () => {
-        if (document.getElementById('confirm-delete-input').value.trim() !== 'DELETE') {
-          Helpers.toast('Type DELETE to confirm', 'error'); return;
+        if ((document.getElementById('confirm-delete-input').value || '').trim() !== 'DELETE') {
+          Helpers.toast('Type DELETE exactly to confirm', 'error'); return;
         }
-        Helpers.closeModal();
-        Helpers.toast('Deleting...', 'info');
-        await DB.clearStore(DB.STORES.attendees);
-        await DB.clearStore(DB.STORES.busRoutes);
-        await DB.clearStore(DB.STORES.auditLog);
-        allAttendees = [];
-        attendanceInited = false;
-        Helpers.toast('All data deleted', 'success');
-        navigate('dashboard');
+        const btn = document.getElementById('confirm-delete-all');
+        btn.disabled = true; btn.textContent = 'Deleting...';
+        try {
+          await DB.clearStore(DB.STORES.attendees);
+          await DB.clearStore(DB.STORES.busRoutes);
+          await DB.clearStore(DB.STORES.auditLog);
+          allAttendees = [];
+          attendanceInited = false;
+          Helpers.closeModal();
+          Helpers.toast('All data deleted', 'success');
+          navigate('dashboard');
+        } catch (err) {
+          console.error('Delete all data error:', err);
+          btn.disabled = false; btn.textContent = 'Delete All Data';
+          Helpers.toast('Error: ' + (err.message || 'Permission denied. Check Firestore rules.'), 'error');
+        }
       };
     };
 
@@ -1502,36 +1619,51 @@ const App = (() => {
       const evtName = document.getElementById('cfg-event-name').value || 'this event';
       Helpers.modal(`
         <h3 class="modal-title" style="color:var(--danger)">Delete Event?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:.75rem">This will permanently delete <strong>${evtName}</strong> and all its data.</p>
-        <p style="color:var(--text-secondary);margin-bottom:1.25rem">Type <strong>DELETE</strong> to confirm:</p>
-        <input type="text" id="confirm-event-delete-input" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" />
+        <p style="color:var(--text-secondary);margin-bottom:.75rem">Permanently deletes <strong>${evtName}</strong> and all its data. Cannot be undone.</p>
+        <p style="color:var(--text-secondary);margin-bottom:.5rem">Type <strong>DELETE</strong> to confirm:</p>
+        <input type="text" id="confirm-event-delete-input" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" autofocus />
         <div class="modal-actions">
           <button class="btn-danger" id="confirm-delete-event-btn">Delete Event</button>
           <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
         </div>`);
       document.getElementById('confirm-delete-event-btn').onclick = async () => {
-        if (document.getElementById('confirm-event-delete-input').value.trim() !== 'DELETE') {
-          Helpers.toast('Type DELETE to confirm', 'error'); return;
+        if ((document.getElementById('confirm-event-delete-input').value || '').trim() !== 'DELETE') {
+          Helpers.toast('Type DELETE exactly to confirm', 'error'); return;
         }
-        Helpers.closeModal();
-        Helpers.toast('Deleting event...', 'info');
-        const eid = DB.getCurrentEvent();
-        await DB.deleteEvent(eid);
-        DB.setCurrentEvent(null);
-        allAttendees = [];
-        attendanceInited = false;
-        await loadEventSelector();
-        Helpers.toast('Event deleted', 'success');
-        navigate('dashboard');
+        const btn = document.getElementById('confirm-delete-event-btn');
+        btn.disabled = true; btn.textContent = 'Deleting...';
+        try {
+          const eid = DB.getCurrentEvent();
+          await DB.deleteEvent(eid);
+          DB.setCurrentEvent(null);
+          allAttendees = [];
+          attendanceInited = false;
+          Helpers.closeModal();
+          await loadEventSelector();
+          Helpers.toast('Event deleted', 'success');
+          navigate('dashboard');
+        } catch (err) {
+          console.error('Delete event error:', err);
+          btn.disabled = false; btn.textContent = 'Delete Event';
+          Helpers.toast('Error: ' + (err.message || 'Permission denied. Check Firestore rules.'), 'error');
+        }
       };
     };
   }
 
   async function renderBusRoutes() {
     const routes = await DB.getAll(DB.STORES.busRoutes);
-    document.getElementById('bus-routes-list').innerHTML = routes.map(r =>
-      `<div class="bus-route-row"><div class="bus-route-info"><div class="bus-route-name">${r.name}</div><div class="bus-route-meta">Capacity: ${r.capacity} | Cost: ${Helpers.currency(r.cost)}</div></div><button class="btn-small danger" onclick="App.deleteBusRoute('${r.id}')">X</button></div>`
-    ).join('') || '<p style="color:var(--text-muted);font-size:.85rem">No routes</p>';
+    document.getElementById('bus-routes-list').innerHTML = routes.map(r => {
+      const count = parseInt(r.busCount || 1);
+      const cost  = parseFloat(r.cost || 0);
+      return `<div class="bus-route-row">
+        <div class="bus-route-info">
+          <div class="bus-route-name">${r.name}</div>
+          <div class="bus-route-meta">${count} bus${count !== 1 ? 'es' : ''} &nbsp;·&nbsp; ${Helpers.currency(cost)}/bus &nbsp;·&nbsp; Total: ${Helpers.currency(count * cost)} &nbsp;·&nbsp; Capacity: ${r.capacity || '—'}</div>
+        </div>
+        <button class="btn-small danger" onclick="App.deleteBusRoute('${r.id}')">✕</button>
+      </div>`;
+    }).join('') || '<p style="color:var(--text-muted);font-size:.85rem">No routes configured</p>';
   }
 
   function showAddBusRouteModal() {

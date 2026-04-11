@@ -266,7 +266,8 @@ const Reports = (() => {
     const s        = stats(filtered);
 
     document.getElementById('report-counts-bar').innerHTML  = countsBar(s);
-    document.getElementById('report-group-table').innerHTML = groupTable(_attendees, _groupType);
+    // groupTable breakdown should reflect the current payment/attendance filters
+    document.getElementById('report-group-table').innerHTML = groupTable(filtered, _groupType);
 
     // Update label
     const lbl = document.getElementById('rpt-dl-label');
