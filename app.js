@@ -447,19 +447,27 @@ const App = (() => {
             const total = list.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
             const personList = list.map(a =>
               `<div class="edc-person">
-                <span class="edc-person-name">${a.name}</span>
-                <span class="edc-person-meta">${a.mobile || ''} · ${a.team || ''}</span>
-                <span class="edc-person-amt">${Helpers.currency(a.paymentAmount || 0)} <span class="edc-mode ${a.paymentMode}">${a.paymentMode || ''}</span></span>
-                ${a.remarks ? `<span class="edc-person-note">${a.remarks}</span>` : ''}
+                <div>
+                  <div style="font-weight:500;font-size:.88rem">${a.name}</div>
+                  <div style="font-size:.75rem;color:var(--text-muted)">${a.mobile || ''} · ${a.team || a.reference || ''}</div>
+                  ${a.remarks ? `<div style="font-size:.72rem;color:var(--text-muted);font-style:italic">${a.remarks}</div>` : ''}
+                </div>
+                <div style="text-align:right;flex-shrink:0">
+                  <div style="font-weight:600;font-size:.88rem">${Helpers.currency(a.paymentAmount || 0)}</div>
+                  <span class="edc-mode ${(a.paymentMode||'').toLowerCase()}">${(a.paymentMode||'').toUpperCase()}</span>
+                </div>
               </div>`
             ).join('');
             return `
               <div class="edc-collector-block">
-                <div class="edc-collector-header">
+                <div class="edc-collector-header" onclick="const b=this.nextElementSibling;b.classList.toggle('hidden');this.querySelector('.edc-chev').style.transform=b.classList.contains('hidden')?'':'rotate(180deg)'" style="cursor:pointer;user-select:none">
                   <span class="edc-collector-name">Collected by: <strong>${collector}</strong></span>
-                  <span class="edc-collector-total">${Helpers.currency(total)}</span>
+                  <div style="display:flex;align-items:center;gap:.6rem">
+                    <span class="edc-collector-total">${Helpers.currency(total)}</span>
+                    <span class="edc-chev" style="font-size:.7rem;color:var(--text-muted);transition:transform .2s;display:inline-block">&#9660;</span>
+                  </div>
                 </div>
-                <div class="edc-person-list">${personList}</div>
+                <div class="edc-person-list hidden">${personList}</div>
               </div>`;
           }).join('');
 
@@ -473,13 +481,6 @@ const App = (() => {
         }
       }
 
-      // ── Recent activity ──────────────────────────────────────────────────
-      const logs   = await DB.getAll(DB.STORES.auditLog);
-      const recent = logs.slice(-8).reverse();
-      document.getElementById('dash-activity').innerHTML = recent.length ? recent.map(l =>
-        `<div class="activity-item"><div class="activity-dot ${l.action === 'checkin' ? 'green' : 'orange'}"></div>
-         <span>${l.details}</span><span class="activity-time">${Helpers.formatDateTime(l.timestamp)}</span></div>`
-      ).join('') : '<p style="color:var(--text-muted);font-size:.85rem">No activity yet</p>';
 
     } catch(e) { console.error('Dashboard error', e); }
   }

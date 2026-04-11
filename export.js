@@ -5,10 +5,11 @@ const Export = (() => {
   const SHEET_HEADER = [
     'Sr. No.', 'Name', 'Mobile number', 'Category', 'Reference',
     'Team Name', 'Pickup Point', 'Payment Status', 'Payment Remarks',
-    'Mode of Payment', 'Payment Amt.', 'Attendence', 'Admitted by', 'Admitted at'
+    'Mode of Payment', 'Payment Amt.', 'Attendence', 'Admitted by', 'Admitted at',
+    'Payment Timing'
   ];
 
-  const COL_WIDTHS = [7, 26, 14, 13, 22, 16, 18, 14, 28, 16, 13, 18, 20, 22];
+  const COL_WIDTHS = [7, 26, 14, 13, 22, 16, 18, 14, 28, 16, 13, 18, 20, 22, 16];
 
   // ── ExcelJS ARGB helper (ExcelJS needs alpha prefix) ──────────────────────
   function argb(hex) { return 'FF' + hex.toUpperCase(); }
@@ -37,7 +38,17 @@ const Export = (() => {
   function toRow(a, srNo) {
     const ps = a.paymentStatus || (parseFloat(a.paymentAmount || 0) > 0 ? 'paid' : 'unpaid');
     let att = 'Absent';
-    if (a.attendance === 'present') att = a.isWalkIn ? 'Present (walk-in)' : 'Presnt';
+    if (a.attendance === 'present') att = a.isWalkIn ? 'Present (walk-in)' : 'Present';
+
+    // Payment Timing: paidAtEvent flag = gate collection; paid/free without flag = before event
+    let timing = '';
+    const psLow = (a.paymentStatus || '').toLowerCase();
+    if (a.paidAtEvent) {
+      timing = 'On Event Date';
+    } else if (psLow === 'paid' || psLow === 'free' || parseFloat(a.paymentAmount || 0) > 0) {
+      timing = 'Before Event';
+    }
+
     return [
       srNo,
       a.name           || '',
@@ -52,7 +63,8 @@ const Export = (() => {
       parseFloat(a.paymentAmount || 0) || '',
       att,
       a.markedBy       || '',
-      a.entryTime ? new Date(a.entryTime).toLocaleString('en-IN') : ''
+      a.entryTime ? new Date(a.entryTime).toLocaleString('en-IN') : '',
+      timing
     ];
   }
 
@@ -119,6 +131,21 @@ const Export = (() => {
           cell.fill   = solidFill(C.attAbs);
           cell.font   = { bold: true, size: 10, color: { argb: argb(C.attAbsText) } };
           cell.border = thinBorder(C.attAbsBorder);
+        }
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      }
+
+      // Col 15 — Payment Timing: green = Before Event, orange = On Event Date
+      if (col === 15) {
+        const val = cell.value || '';
+        if (val === 'On Event Date') {
+          cell.fill   = solidFill('FFF7ED');
+          cell.font   = { bold: true, size: 10, color: { argb: argb('C2410C') } };
+          cell.border = thinBorder('FED7AA');
+        } else if (val === 'Before Event') {
+          cell.fill   = solidFill('F0FDF4');
+          cell.font   = { bold: true, size: 10, color: { argb: argb('15803D') } };
+          cell.border = thinBorder('BBF7D0');
         }
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
       }
@@ -339,5 +366,127 @@ const Export = (() => {
     await downloadFiltered(f, label);
   }
 
-  return { downloadFiltered, exportAttendees, exportAttendeesByGroup, exportAttendeesFiltered };
+  // ── PUBLIC: Gate Collections sheet — all paidAtEvent records ─────────────
+  async function downloadGateCollections() {
+    const allAtts = await DB.getAll(DB.STORES.attendees);
+    const gatePaid = allAtts.filter(a => a.paidAtEvent);
+
+    if (!gatePaid.length) {
+      Helpers.toast('No gate collections found', 'warning');
+      return;
+    }
+
+    const slug = await getEventSlug();
+    const wb   = new ExcelJS.Workbook();
+    const ws   = wb.addWorksheet('Gate Collections');
+
+    const HEADERS = [
+      'Sr. No.', 'Collected By', 'Name', 'Mobile', 'Team',
+      'Reference', 'Bus Route', 'Amount (₹)', 'Mode', 'Remarks', 'Entry Time'
+    ];
+    const WIDTHS = [7, 20, 26, 14, 18, 20, 18, 13, 10, 28, 22];
+
+    ws.columns = WIDTHS.map((w, i) => ({ header: HEADERS[i], key: `c${i}`, width: w }));
+    applyHeaderStyle(ws.getRow(1));
+
+    // Sort by collector name then entry time
+    const sorted = [...gatePaid].sort((a, b) => {
+      const ca = (a.collectedBy || '').toLowerCase();
+      const cb = (b.collectedBy || '').toLowerCase();
+      if (ca !== cb) return ca < cb ? -1 : 1;
+      return (a.entryTime || '') < (b.entryTime || '') ? -1 : 1;
+    });
+
+    // Track subtotals per collector for summary rows
+    const byCollector = {};
+    sorted.forEach(a => {
+      const who = a.collectedBy || 'Unknown';
+      if (!byCollector[who]) byCollector[who] = [];
+      byCollector[who].push(a);
+    });
+
+    let sr = 1;
+    Object.entries(byCollector).forEach(([collector, list]) => {
+      // Collector header row
+      const hdr = ws.addRow([`Collected by: ${collector}`, '', '', '', '', '', '', '', '', '', '']);
+      hdr.height = 22;
+      hdr.eachCell({ includeEmpty: true }, cell => {
+        cell.fill      = solidFill('F0FDF4');
+        cell.font      = { bold: true, size: 10, color: { argb: argb('15803D') } };
+        cell.border    = thinBorder('BBF7D0');
+        cell.alignment = { vertical: 'middle' };
+      });
+
+      list.forEach(a => {
+        const row = ws.addRow([
+          sr++,
+          a.collectedBy   || '',
+          a.name          || '',
+          a.mobile        || '',
+          a.team          || '',
+          a.reference     || '',
+          a.busRoute      || '',
+          parseFloat(a.paymentAmount || 0) || '',
+          (a.paymentMode || '').toUpperCase(),
+          a.remarks       || '',
+          a.entryTime ? new Date(a.entryTime).toLocaleString('en-IN') : ''
+        ]);
+        row.height = 20;
+        const isCash = (a.paymentMode || '').toLowerCase() === 'cash';
+        const bg = isCash ? 'FFF7ED' : 'EFF6FF';
+        const bdr = isCash ? 'FED7AA' : 'BFDBFE';
+        row.eachCell({ includeEmpty: true }, (cell, col) => {
+          cell.fill   = solidFill(bg);
+          cell.font   = { size: 10 };
+          cell.border = thinBorder(bdr);
+          cell.alignment = { vertical: 'middle' };
+          // Amount col bold green
+          if (col === 8 && cell.value) {
+            cell.font = { bold: true, size: 10, color: { argb: argb('15803D') } };
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          }
+          // Mode col badge
+          if (col === 9) {
+            cell.font = { bold: true, size: 10, color: { argb: isCash ? argb('92400E') : argb('1E40AF') } };
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          }
+        });
+      });
+
+      // Subtotal row
+      const subtotal = list.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+      const sub = ws.addRow(['', `Total — ${collector}`, '', '', '', '', '', subtotal, '', '', '']);
+      sub.height = 20;
+      sub.eachCell({ includeEmpty: true }, (cell, col) => {
+        cell.fill   = solidFill('DCFCE7');
+        cell.font   = { bold: true, size: 10, color: { argb: argb('14532D') } };
+        cell.border = thinBorder('86EFAC');
+        cell.alignment = { vertical: 'middle' };
+        if (col === 8) cell.alignment = { horizontal: 'right', vertical: 'middle' };
+      });
+
+      // Blank separator
+      const blank = ws.addRow([]);
+      blank.height = 6;
+    });
+
+    // Grand total row
+    const grandTotal = gatePaid.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+    const gt = ws.addRow(['', 'GRAND TOTAL', '', '', '', '', '', grandTotal, '', '', '']);
+    gt.height = 26;
+    gt.eachCell({ includeEmpty: true }, (cell, col) => {
+      cell.fill   = solidFill('15803D');
+      cell.font   = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+      cell.border = thinBorder('0F5C2E');
+      cell.alignment = { vertical: 'middle' };
+      if (col === 8) cell.alignment = { horizontal: 'right', vertical: 'middle' };
+    });
+
+    ws.views = [{ state: 'frozen', ySplit: 1, activeCell: 'A2' }];
+    const date = new Date().toISOString().slice(0, 10);
+    await saveWorkbook(wb, `Prerna_GateCollections_${slug}_${date}.xlsx`);
+    Helpers.toast(`Downloaded ${gatePaid.length} gate collections`, 'success');
+  }
+
+  return { downloadFiltered, exportAttendees, exportAttendeesByGroup, exportAttendeesFiltered, downloadGateCollections };
 })();

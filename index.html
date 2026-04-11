@@ -1414,28 +1414,16 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
             <!-- Event Day Collections (cashier reconciliation) -->
             <div class="card admin-only" style="margin-bottom:1rem">
-              <h3 class="card-title">Event Day Collections <span id="dash-edc-badge" style="font-size:.75rem;font-weight:400;color:var(--text-muted);margin-left:.5rem"></span></h3>
-              <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem">Payments collected at the gate today — for cashier reconciliation</p>
-              <div id="dash-edc"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:.35rem">
+                <div>
+                  <h3 class="card-title" style="margin:0">Event Day Collections <span id="dash-edc-badge" style="font-size:.75rem;font-weight:400;color:var(--text-muted);margin-left:.5rem"></span></h3>
+                  <p style="font-size:.78rem;color:var(--text-muted);margin:.2rem 0 0">Payments collected at the gate — for cashier reconciliation</p>
+                </div>
+                <button class="btn-secondary" onclick="Export.downloadGateCollections()" style="font-size:.8rem;padding:.45rem .9rem;white-space:nowrap">&#8595; Download Excel</button>
+              </div>
+              <div id="dash-edc" style="margin-top:.75rem"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
             </div>
 
-            <!-- Recent Activity + Quick Actions -->
-            <div class="dashboard-grid">
-              <div class="card">
-                <h3 class="card-title">Recent Activity</h3>
-                <div class="activity-list" id="dash-activity"></div>
-              </div>
-              <div class="card admin-only">
-                <h3 class="card-title">Quick Actions</h3>
-                <div class="quick-actions">
-                  <button class="qa-btn" onclick="App.navigate('import')">Import Excel</button>
-                  <button class="qa-btn" onclick="App.navigate('reports')">View Reports</button>
-                  <button class="qa-btn" onclick="App.navigate('settings')">Configure Event</button>
-                  <button class="qa-btn" onclick="App.navigate('attendance')">Admission</button>
-                  <button class="qa-btn" onclick="App.navigate('financial')">Financial Year</button>
-                </div>
-              </div>
-            </div>
 
           </div>
 
