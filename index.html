@@ -943,13 +943,17 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .settings-action-title { font-size: .9rem; font-weight: 500; margin-bottom: .2rem; }
 .settings-action-desc { font-size: .78rem; color: var(--text-muted); }
 /* Settings redesign */
-.s-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
-.s-col { display: flex; flex-direction: column; gap: 1.25rem; }
-.s-card-hdr { display: flex; align-items: center; gap: .65rem; margin-bottom: .25rem; }
-.s-icon { font-size: 1rem; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: var(--success-bg); border-radius: 8px; flex-shrink: 0; }
-.s-card-footer { display: flex; gap: .75rem; margin-top: 1rem; flex-wrap: wrap; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border); }
-.s-danger-card { border-color: #fee2e2; }
-.s-danger-card .s-icon { background: #fee2e2; }
+.s-icon { font-size: 1rem; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--success-bg); border-radius: 8px; flex-shrink: 0; }
+.settings-menu { display: flex; flex-direction: column; gap: .75rem; max-width: 560px; }
+.settings-menu-item { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: border-color .15s, background .15s, transform .1s; user-select: none; }
+.settings-menu-item:hover { border-color: var(--accent); background: var(--success-bg); }
+.settings-menu-item:active { transform: scale(.98); }
+.settings-menu-item.danger:hover { border-color: var(--danger); background: #fff5f5; }
+.settings-menu-info { flex: 1; min-width: 0; }
+.settings-menu-title { font-size: .95rem; font-weight: 600; color: var(--text-primary); margin-bottom: .18rem; }
+.settings-menu-desc { font-size: .78rem; color: var(--text-muted); }
+.settings-menu-arrow { font-size: 1.4rem; color: var(--text-muted); line-height: 1; }
+/* User rows in modal */
 .user-row { display: flex; align-items: center; gap: .65rem; padding: .65rem 0; border-bottom: 1px solid var(--border); }
 .user-row:last-child { border-bottom: none; }
 .user-row-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--success-bg); color: var(--accent); font-weight: 700; font-size: .9rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -1567,128 +1571,42 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
           <!-- SETTINGS PAGE -->
           <div id="page-settings" class="page hidden admin-page">
+            <div class="settings-menu">
 
-            <!-- EVENT CONFIGURATION -->
-            <div class="card" style="margin-bottom:1.25rem">
-              <div class="s-card-hdr">
+              <div class="settings-menu-item" id="smenu-event">
                 <span class="s-icon">&#128197;</span>
-                <h3 class="card-title" style="margin:0">Event Configuration</h3>
-              </div>
-              <div class="settings-event-grid" style="margin-top:1rem">
-                <div>
-                  <label class="settings-label">Event Name</label>
-                  <input type="text" id="cfg-event-name" placeholder="e.g. Prerna 2025" class="wi-input" style="width:100%" />
+                <div class="settings-menu-info">
+                  <div class="settings-menu-title">Event Configuration</div>
+                  <div class="settings-menu-desc">Name, date, charge per person, budget</div>
                 </div>
-                <div>
-                  <label class="settings-label">Event Date</label>
-                  <input type="date" id="cfg-event-date" class="wi-input" style="width:100%" />
-                </div>
-                <div>
-                  <label class="settings-label">Charge Per Person (&#8377;)</label>
-                  <input type="number" id="cfg-charge-per-person" placeholder="0" min="0" class="wi-input" style="width:100%" />
-                </div>
-                <div>
-                  <label class="settings-label">Other Expense Budget (&#8377;)</label>
-                  <input type="number" id="cfg-total-expense" placeholder="0" min="0" class="wi-input" style="width:100%" />
-                </div>
-              </div>
-              <div class="s-card-footer">
-                <button class="btn-primary" id="btn-save-event-cfg">Save Changes</button>
-                <button class="btn-secondary" onclick="App.showCreateEventModal()">+ New Event</button>
-                <button class="btn-danger" id="btn-delete-event" style="margin-left:auto">Delete This Event</button>
-              </div>
-            </div>
-
-            <!-- TWO COLUMN LAYOUT -->
-            <div class="s-two-col">
-
-              <!-- LEFT: Users + Buses -->
-              <div class="s-col">
-
-                <!-- TEAM & ACCESS -->
-                <div class="card">
-                  <div class="s-card-hdr">
-                    <span class="s-icon">&#128101;</span>
-                    <h3 class="card-title" style="margin:0">Team &amp; Access</h3>
-                  </div>
-                  <p style="font-size:.78rem;color:var(--text-muted);margin:.4rem 0 .75rem">Manage who can use this app and their permissions.</p>
-                  <div id="users-list"></div>
-                  <button class="btn-secondary" id="btn-add-user" style="margin-top:.75rem;width:100%">+ Invite User</button>
-                </div>
-
-                <!-- BUS ROUTES -->
-                <div class="card">
-                  <div class="s-card-hdr">
-                    <span class="s-icon">&#128652;</span>
-                    <h3 class="card-title" style="margin:0">Bus Routes</h3>
-                  </div>
-                  <div id="bus-routes-list" style="margin-top:.75rem"></div>
-                  <button class="btn-secondary" id="btn-add-bus-route" style="margin-top:.75rem;width:100%">+ Add Bus Route</button>
-                </div>
-
+                <span class="settings-menu-arrow">&#8250;</span>
               </div>
 
-              <!-- RIGHT: Profile + Danger Zone -->
-              <div class="s-col">
-
-                <!-- MY ACCOUNT -->
-                <div class="card">
-                  <div class="s-card-hdr">
-                    <span class="s-icon">&#128100;</span>
-                    <h3 class="card-title" style="margin:0">My Account</h3>
-                  </div>
-                  <div style="margin-top:.75rem">
-                    <div class="input-group" style="margin-bottom:.75rem">
-                      <label>Full Name</label>
-                      <input type="text" id="profile-name" placeholder="Your name" />
-                    </div>
-                    <div class="input-group" style="margin-bottom:.75rem">
-                      <label>Email</label>
-                      <input type="email" id="profile-email" disabled style="opacity:0.6" />
-                    </div>
-                    <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem">Role: <strong id="profile-role">Administrator</strong></p>
-                    <button class="btn-primary" id="btn-save-profile" style="width:100%">Save Profile</button>
-                  </div>
-                  <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)" />
-                  <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:.5rem">Change Password</label>
-                  <div class="pw-wrap" style="margin-bottom:.75rem">
-                    <input type="password" id="new-password" placeholder="Min 6 characters" style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.9rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:0.9rem" />
-                    <button type="button" class="pw-toggle">&#128065;</button>
-                  </div>
-                  <button class="btn-secondary" id="btn-change-pw" style="width:100%">Change Password</button>
+              <div class="settings-menu-item" id="smenu-users">
+                <span class="s-icon">&#128101;</span>
+                <div class="settings-menu-info">
+                  <div class="settings-menu-title">Team &amp; Access</div>
+                  <div class="settings-menu-desc">Manage roles and permissions</div>
                 </div>
+                <span class="settings-menu-arrow">&#8250;</span>
+              </div>
 
-                <!-- DANGER ZONE -->
-                <div class="card s-danger-card">
-                  <div class="s-card-hdr">
-                    <span class="s-icon">&#9888;</span>
-                    <h3 class="card-title" style="margin:0;color:var(--danger)">Danger Zone</h3>
-                  </div>
-                  <div style="margin-top:.25rem">
-                    <div class="settings-action-row">
-                      <div>
-                        <div class="settings-action-title">Clear Attendance</div>
-                        <div class="settings-action-desc">Unmark everyone as present. Payment data stays.</div>
-                      </div>
-                      <button class="btn-danger" id="btn-clear-attendance">Clear</button>
-                    </div>
-                    <div class="settings-action-row">
-                      <div>
-                        <div class="settings-action-title">Re-import (Replace Data)</div>
-                        <div class="settings-action-desc">Delete all participants and re-upload a fresh sheet.</div>
-                      </div>
-                      <button class="btn-danger" id="btn-clear-reimport">Clear &amp; Re-import</button>
-                    </div>
-                    <div class="settings-action-row">
-                      <div>
-                        <div class="settings-action-title">Delete All Data</div>
-                        <div class="settings-action-desc">Wipes all participants, buses, logs. Cannot be undone.</div>
-                      </div>
-                      <button class="btn-danger" id="btn-clear-all">Delete All</button>
-                    </div>
-                  </div>
+              <div class="settings-menu-item" id="smenu-buses">
+                <span class="s-icon">&#128652;</span>
+                <div class="settings-menu-info">
+                  <div class="settings-menu-title">Bus Routes</div>
+                  <div class="settings-menu-desc">Configure transport and seating capacity</div>
                 </div>
+                <span class="settings-menu-arrow">&#8250;</span>
+              </div>
 
+              <div class="settings-menu-item danger" id="smenu-danger">
+                <span class="s-icon" style="background:#fee2e2">&#9888;</span>
+                <div class="settings-menu-info">
+                  <div class="settings-menu-title" style="color:var(--danger)">Danger Zone</div>
+                  <div class="settings-menu-desc">Clear data, delete event — irreversible actions</div>
+                </div>
+                <span class="settings-menu-arrow" style="color:var(--danger)">&#8250;</span>
               </div>
 
             </div>

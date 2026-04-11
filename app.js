@@ -165,15 +165,7 @@ const App = (() => {
     if (isAdmin) {
       editIcon.style.display = '';
       userBtn.style.cursor = 'pointer';
-      userBtn.onclick = () => {
-        navigate('settings');
-        closeSidebar();
-        // Scroll to My Account card after settings renders
-        setTimeout(() => {
-          const profileCard = document.getElementById('profile-name');
-          if (profileCard) profileCard.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 100);
-      };
+      userBtn.onclick = () => { closeSidebar(); showMyAccountModal(); };
       userBtn.onmouseenter = () => { userBtn.style.background = 'var(--bg-card2)'; };
       userBtn.onmouseleave = () => { userBtn.style.background = ''; };
     } else {
@@ -1577,193 +1569,284 @@ const App = (() => {
     } catch (err) { el.innerHTML = `<p style="color:var(--danger);padding:2rem">Error: ${err.message}</p>`; }
   }
 
-  // ===== SETTINGS =====
-  async function initSettings() {
-    const evt = await DB.getEvent(DB.getCurrentEvent());
-    if (evt) {
-      document.getElementById('cfg-event-name').value = evt.name || '';
-      document.getElementById('cfg-event-date').value = evt.date || '';
-      document.getElementById('cfg-charge-per-person').value = evt.chargePerPerson || '';
-      document.getElementById('cfg-total-expense').value = evt.totalExpense || '';
-    }
+  // ===== SETTINGS — menu only, each option opens a modal =====
+  function initSettings() {
+    document.getElementById('smenu-event').onclick  = openEventConfigModal;
+    document.getElementById('smenu-users').onclick  = openTeamAccessModal;
+    document.getElementById('smenu-buses').onclick  = openBusRoutesModal;
+    document.getElementById('smenu-danger').onclick = openDangerZoneModal;
+  }
 
-    document.getElementById('btn-save-event-cfg').onclick = async () => {
-      const name = document.getElementById('cfg-event-name').value;
-      const date = document.getElementById('cfg-event-date').value;
-      const charge = document.getElementById('cfg-charge-per-person').value;
-      const expense = document.getElementById('cfg-total-expense').value;
-      await DB.updateEvent(DB.getCurrentEvent(), {
-        name, date, chargePerPerson: parseFloat(charge) || 0,
-        totalExpense: parseFloat(expense) || 0,
-        financialYear: date ? Helpers.getFinancialYear(date) : ''
-      });
-      await DB.setConfig('eventName', name);
-      await DB.setConfig('eventDate', date);
-      await DB.setConfig('chargePerPerson', charge);
-      Helpers.toast('Saved!', 'success');
-      await loadEventSelector();
+  async function openEventConfigModal() {
+    const evt = await DB.getEvent(DB.getCurrentEvent());
+    Helpers.modal(`
+      <h3 class="modal-title">&#128197; Event Configuration</h3>
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label class="settings-label">Event Name</label>
+        <input type="text" id="m-cfg-name" class="wi-input" value="${(evt?.name || '').replace(/"/g,'&quot;')}" style="width:100%" placeholder="e.g. Prerna 2025" />
+      </div>
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label class="settings-label">Event Date</label>
+        <input type="date" id="m-cfg-date" class="wi-input" value="${evt?.date || ''}" style="width:100%" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1.25rem">
+        <div>
+          <label class="settings-label">Charge Per Person (&#8377;)</label>
+          <input type="number" id="m-cfg-charge" class="wi-input" value="${evt?.chargePerPerson || 0}" min="0" style="width:100%" />
+        </div>
+        <div>
+          <label class="settings-label">Other Expense Budget (&#8377;)</label>
+          <input type="number" id="m-cfg-expense" class="wi-input" value="${evt?.totalExpense || 0}" min="0" style="width:100%" />
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-bottom:1rem">
+        <button class="btn-primary" onclick="App.saveEventConfig()">Save Changes</button>
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--border);margin-bottom:1rem">
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <button class="btn-secondary" onclick="App.showCreateEventModal()">+ New Event</button>
+        <button class="btn-danger" id="m-btn-del-evt">Delete This Event</button>
+      </div>
+    `);
+    document.getElementById('m-btn-del-evt').onclick = async () => {
+      const evtName = document.getElementById('m-cfg-name')?.value || 'this event';
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Delete Event?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:.75rem">Permanently deletes <strong>${evtName}</strong> and all its data. Cannot be undone.</p>
+        <p style="color:var(--text-secondary);margin-bottom:.5rem">Type <strong>DELETE</strong> to confirm:</p>
+        <input type="text" id="m-del-evt-confirm" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" autofocus />
+        <div class="modal-actions">
+          <button class="btn-danger" id="m-confirm-del-evt">Delete Event</button>
+          <button class="btn-ghost" onclick="App.openEventConfigModal()">Back</button>
+        </div>
+      `);
+      document.getElementById('m-confirm-del-evt').onclick = async () => {
+        if ((document.getElementById('m-del-evt-confirm').value || '').trim() !== 'DELETE') {
+          Helpers.toast('Type DELETE exactly', 'error'); return;
+        }
+        const btn = document.getElementById('m-confirm-del-evt');
+        btn.disabled = true; btn.textContent = 'Deleting...';
+        try {
+          await DB.deleteEvent(DB.getCurrentEvent());
+          DB.setCurrentEvent(null);
+          allAttendees = []; attendanceInited = false;
+          Helpers.closeModal();
+          await loadEventSelector();
+          Helpers.toast('Event deleted', 'success');
+          navigate('attendance');
+        } catch (err) {
+          btn.disabled = false; btn.textContent = 'Delete Event';
+          Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error');
+        }
+      };
+    };
+  }
+
+  async function saveEventConfig() {
+    const name    = document.getElementById('m-cfg-name').value;
+    const date    = document.getElementById('m-cfg-date').value;
+    const charge  = parseFloat(document.getElementById('m-cfg-charge').value) || 0;
+    const expense = parseFloat(document.getElementById('m-cfg-expense').value) || 0;
+    await DB.updateEvent(DB.getCurrentEvent(), { name, date, chargePerPerson: charge, totalExpense: expense, financialYear: date ? Helpers.getFinancialYear(date) : '' });
+    await DB.setConfig('eventName', name);
+    await DB.setConfig('eventDate', date);
+    await DB.setConfig('chargePerPerson', charge);
+    await loadEventSelector();
+    Helpers.closeModal();
+    Helpers.toast('Event saved!', 'success');
+  }
+
+  async function openTeamAccessModal() {
+    Helpers.modal(`
+      <h3 class="modal-title">&#128101; Team &amp; Access</h3>
+      <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:.75rem">Manage who can use this app and their permissions.</p>
+      <div id="users-list"></div>
+      <button class="btn-secondary" style="margin-top:.75rem;width:100%" onclick="App.showAddUserModal()">+ Invite User</button>
+    `);
+    await renderUsers();
+  }
+
+  async function openBusRoutesModal() {
+    Helpers.modal(`
+      <h3 class="modal-title">&#128652; Bus Routes</h3>
+      <div id="bus-routes-list" style="margin-bottom:.25rem"></div>
+      <div id="bus-add-inline" style="display:none;background:var(--bg-card2);border-radius:var(--radius-sm);padding:.85rem;margin-top:.75rem">
+        <div class="input-group" style="margin-bottom:.5rem">
+          <label class="settings-label">Route Name</label>
+          <input id="m-route-name" type="text" class="wi-input" style="width:100%" placeholder="e.g. Rajkot North" />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.5rem">
+          <div><label class="settings-label">No. of Buses</label><input id="m-route-count" type="number" value="1" min="1" class="wi-input" style="width:100%" /></div>
+          <div><label class="settings-label">Cost per Bus (&#8377;)</label><input id="m-route-cost" type="number" class="wi-input" style="width:100%" /></div>
+        </div>
+        <div class="input-group" style="margin-bottom:.75rem">
+          <label class="settings-label">Capacity (seats)</label>
+          <input id="m-route-cap" type="number" class="wi-input" style="width:100%" />
+        </div>
+        <div style="display:flex;gap:.5rem">
+          <button class="btn-primary" style="flex:1" onclick="App.saveBusRoute()">Save Route</button>
+          <button class="btn-ghost" onclick="document.getElementById('bus-add-inline').style.display='none'">Cancel</button>
+        </div>
+      </div>
+      <button class="btn-secondary" id="m-btn-show-add-bus" style="margin-top:.75rem;width:100%">+ Add Bus Route</button>
+    `);
+    document.getElementById('m-btn-show-add-bus').onclick = () => {
+      document.getElementById('bus-add-inline').style.display = 'block';
+      document.getElementById('m-route-name').focus();
+    };
+    await renderBusRoutes();
+  }
+
+  function openDangerZoneModal() {
+    Helpers.modal(`
+      <h3 class="modal-title" style="color:var(--danger)">&#9888; Danger Zone</h3>
+      <div class="settings-action-row">
+        <div>
+          <div class="settings-action-title">Clear Attendance</div>
+          <div class="settings-action-desc">Unmark everyone as present. Payment data stays.</div>
+        </div>
+        <button class="btn-danger" id="m-btn-clr-att">Clear</button>
+      </div>
+      <div class="settings-action-row">
+        <div>
+          <div class="settings-action-title">Re-import (Replace Data)</div>
+          <div class="settings-action-desc">Delete all participants and re-upload a fresh sheet.</div>
+        </div>
+        <button class="btn-danger" id="m-btn-reimport">Clear &amp; Re-import</button>
+      </div>
+      <div class="settings-action-row">
+        <div>
+          <div class="settings-action-title">Delete All Data</div>
+          <div class="settings-action-desc">Wipes all participants, buses, logs. Cannot be undone.</div>
+        </div>
+        <button class="btn-danger" id="m-btn-del-all">Delete All</button>
+      </div>
+    `);
+
+    document.getElementById('m-btn-clr-att').onclick = () => {
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Clear All Attendance?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">Unmarks everyone as present. Payment data stays intact.</p>
+        <div class="modal-actions">
+          <button class="btn-danger" id="m-confirm-clr-att">Yes, Clear</button>
+          <button class="btn-ghost" onclick="App.openDangerZoneModal()">Back</button>
+        </div>
+      `);
+      document.getElementById('m-confirm-clr-att').onclick = async () => {
+        Helpers.closeModal();
+        Helpers.toast('Clearing attendance...', 'info');
+        try {
+          const all = await DB.getAll(DB.STORES.attendees);
+          if (!all.length) { Helpers.toast('No records to clear', 'warning'); return; }
+          for (const a of all) { a.attendance = 'absent'; a.entryTime = null; a.markedBy = null; await DB.put(DB.STORES.attendees, a); }
+          allAttendees = []; attendanceInited = false;
+          Helpers.toast(`Attendance cleared for ${all.length} records`, 'success');
+        } catch (err) { Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error'); }
+      };
     };
 
-    if (currentUser) {
-      document.getElementById('profile-name').value = currentUser.name || '';
-      document.getElementById('profile-email').value = currentUser.email || '';
-      document.getElementById('profile-role').textContent = currentUser.role === 'admin' ? 'Administrator' : 'Volunteer';
-    }
+    document.getElementById('m-btn-reimport').onclick = () => {
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Clear &amp; Re-import?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">Deletes <strong>all participant data</strong> for this event, then takes you to Import.</p>
+        <div class="modal-actions">
+          <button class="btn-danger" id="m-confirm-reimport">Yes, Clear Data</button>
+          <button class="btn-ghost" onclick="App.openDangerZoneModal()">Back</button>
+        </div>
+      `);
+      document.getElementById('m-confirm-reimport').onclick = async () => {
+        Helpers.closeModal();
+        try {
+          await DB.clearStore(DB.STORES.attendees);
+          await DB.clearStore(DB.STORES.auditLog);
+          allAttendees = []; attendanceInited = false;
+          Helpers.toast('Data cleared. Upload your new sheet.', 'success');
+          navigate('import');
+        } catch (err) { Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error'); }
+      };
+    };
 
-    document.getElementById('btn-save-profile').onclick = async () => {
-      const name = document.getElementById('profile-name').value.trim();
+    document.getElementById('m-btn-del-all').onclick = () => {
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Delete All Data?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:.75rem">Permanently deletes <strong>all participants, buses and logs</strong> for this event. The event itself stays.</p>
+        <p style="color:var(--text-secondary);margin-bottom:.5rem">Type <strong>DELETE</strong> to confirm:</p>
+        <input type="text" id="m-del-all-input" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" autofocus />
+        <div class="modal-actions">
+          <button class="btn-danger" id="m-confirm-del-all">Delete All Data</button>
+          <button class="btn-ghost" onclick="App.openDangerZoneModal()">Back</button>
+        </div>
+      `);
+      document.getElementById('m-confirm-del-all').onclick = async () => {
+        if ((document.getElementById('m-del-all-input').value || '').trim() !== 'DELETE') {
+          Helpers.toast('Type DELETE exactly', 'error'); return;
+        }
+        const btn = document.getElementById('m-confirm-del-all');
+        btn.disabled = true; btn.textContent = 'Deleting...';
+        try {
+          await DB.clearStore(DB.STORES.attendees);
+          await DB.clearStore(DB.STORES.busRoutes);
+          await DB.clearStore(DB.STORES.auditLog);
+          allAttendees = []; attendanceInited = false;
+          Helpers.closeModal();
+          Helpers.toast('All data deleted', 'success');
+        } catch (err) {
+          btn.disabled = false; btn.textContent = 'Delete All Data';
+          Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error');
+        }
+      };
+    };
+  }
+
+  function showMyAccountModal() {
+    Helpers.modal(`
+      <h3 class="modal-title">&#128100; My Account</h3>
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label>Full Name</label>
+        <input type="text" id="m-profile-name" value="${(currentUser?.name || '').replace(/"/g,'&quot;')}" />
+      </div>
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label>Email</label>
+        <input type="email" id="m-profile-email" value="${currentUser?.email || ''}" disabled style="opacity:.6" />
+      </div>
+      <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem">Role: <strong>${currentUser?.role === 'admin' ? 'Administrator' : 'Volunteer'}</strong></p>
+      <button class="btn-primary" id="m-btn-save-profile" style="width:100%">Save Profile</button>
+      <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)">
+      <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:.5rem">Change Password</label>
+      <div class="pw-wrap" style="margin-bottom:.75rem">
+        <input type="password" id="m-new-password" placeholder="Min 6 characters" style="width:100%;padding:.7rem 2.5rem .7rem .9rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.9rem" />
+        <button type="button" id="m-pw-toggle" class="pw-toggle">&#128065;</button>
+      </div>
+      <button class="btn-secondary" id="m-btn-change-pw" style="width:100%">Change Password</button>
+    `);
+    document.getElementById('m-btn-save-profile').onclick = async () => {
+      const name = document.getElementById('m-profile-name').value.trim();
       if (!name) { Helpers.toast('Name required', 'error'); return; }
       await DB.setUserProfile(currentUser.uid, { name });
       currentUser.name = name;
       document.getElementById('sidebar-username').textContent = name;
       document.getElementById('sidebar-avatar').textContent = name[0].toUpperCase();
       Helpers.toast('Profile saved', 'success');
+      Helpers.closeModal();
     };
-
-    document.getElementById('btn-change-pw').onclick = async () => {
-      const pw = document.getElementById('new-password').value;
+    document.getElementById('m-btn-change-pw').onclick = async () => {
+      const pw = document.getElementById('m-new-password').value;
       if (!pw || pw.length < 6) { Helpers.toast('Min 6 characters', 'error'); return; }
       try {
         await auth.currentUser.updatePassword(pw);
-        document.getElementById('new-password').value = '';
+        document.getElementById('m-new-password').value = '';
         Helpers.toast('Password changed!', 'success');
       } catch (err) {
         if (err.code === 'auth/requires-recent-login') Helpers.toast('Please re-login first', 'warning');
         else Helpers.toast('Failed: ' + err.message, 'error');
       }
     };
-
-    renderBusRoutes();
-    renderUsers();
-    document.getElementById('btn-add-bus-route').onclick = showAddBusRouteModal;
-    document.getElementById('btn-add-user').onclick    = showAddUserModal;
-
-    // Clear attendance only (keep payment data)
-    document.getElementById('btn-clear-attendance').onclick = async () => {
-      Helpers.modal(`
-        <h3 class="modal-title" style="color:var(--danger)">Clear All Attendance?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:1.25rem">This will unmark everyone as present. Payment data stays intact.</p>
-        <div class="modal-actions">
-          <button class="btn-danger" id="confirm-clear-att">Yes, Clear Attendance</button>
-          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-        </div>`);
-      document.getElementById('confirm-clear-att').onclick = async () => {
-        Helpers.closeModal();
-        Helpers.toast('Clearing attendance...', 'info');
-        try {
-          const all = await DB.getAll(DB.STORES.attendees);
-          if (!all.length) { Helpers.toast('No records to clear', 'warning'); return; }
-          // Use sequential updates to avoid Firestore overload
-          for (const a of all) {
-            a.attendance = 'absent'; a.entryTime = null; a.markedBy = null;
-            await DB.put(DB.STORES.attendees, a);
-          }
-          allAttendees = [];
-          attendanceInited = false;
-          Helpers.toast(`Attendance cleared for ${all.length} records`, 'success');
-          navigate('dashboard');
-        } catch (err) {
-          console.error('Clear attendance error:', err);
-          Helpers.toast('Error: ' + (err.message || 'Permission denied. Check Firestore rules.'), 'error');
-        }
-      };
-    };
-
-    // Clear all participants → go to import
-    document.getElementById('btn-clear-reimport').onclick = async () => {
-      Helpers.modal(`
-        <h3 class="modal-title" style="color:var(--danger)">Clear & Re-import?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:1.25rem">This will <strong>delete all participant data</strong> for this event, then take you to Import.</p>
-        <div class="modal-actions">
-          <button class="btn-danger" id="confirm-clear-reimport">Yes, Clear Data</button>
-          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-        </div>`);
-      document.getElementById('confirm-clear-reimport').onclick = async () => {
-        Helpers.closeModal();
-        Helpers.toast('Deleting participants...', 'info');
-        try {
-          await DB.clearStore(DB.STORES.attendees);
-          await DB.clearStore(DB.STORES.auditLog);
-          allAttendees = [];
-          attendanceInited = false;
-          Helpers.toast('Data cleared. Upload your new sheet.', 'success');
-          navigate('import');
-        } catch (err) {
-          console.error('Clear reimport error:', err);
-          Helpers.toast('Error: ' + (err.message || 'Permission denied. Check Firestore rules.'), 'error');
-        }
-      };
-    };
-
-    // Delete ALL data for event (participants + buses + logs)
-    document.getElementById('btn-clear-all').onclick = async () => {
-      const evtName = document.getElementById('cfg-event-name').value || 'this event';
-      Helpers.modal(`
-        <h3 class="modal-title" style="color:var(--danger)">Delete All Data?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:.75rem">Permanently deletes <strong>all participants, buses and logs</strong> for <strong>${evtName}</strong>. The event itself stays.</p>
-        <p style="color:var(--text-secondary);margin-bottom:.5rem">Type <strong>DELETE</strong> to confirm:</p>
-        <input type="text" id="confirm-delete-input" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" autofocus />
-        <div class="modal-actions">
-          <button class="btn-danger" id="confirm-delete-all">Delete All Data</button>
-          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-        </div>`);
-      document.getElementById('confirm-delete-all').onclick = async () => {
-        if ((document.getElementById('confirm-delete-input').value || '').trim() !== 'DELETE') {
-          Helpers.toast('Type DELETE exactly to confirm', 'error'); return;
-        }
-        const btn = document.getElementById('confirm-delete-all');
-        btn.disabled = true; btn.textContent = 'Deleting...';
-        try {
-          await DB.clearStore(DB.STORES.attendees);
-          await DB.clearStore(DB.STORES.busRoutes);
-          await DB.clearStore(DB.STORES.auditLog);
-          allAttendees = [];
-          attendanceInited = false;
-          Helpers.closeModal();
-          Helpers.toast('All data deleted', 'success');
-          navigate('dashboard');
-        } catch (err) {
-          console.error('Delete all data error:', err);
-          btn.disabled = false; btn.textContent = 'Delete All Data';
-          Helpers.toast('Error: ' + (err.message || 'Permission denied. Check Firestore rules.'), 'error');
-        }
-      };
-    };
-
-    // Delete entire event
-    document.getElementById('btn-delete-event').onclick = async () => {
-      const evtName = document.getElementById('cfg-event-name').value || 'this event';
-      Helpers.modal(`
-        <h3 class="modal-title" style="color:var(--danger)">Delete Event?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:.75rem">Permanently deletes <strong>${evtName}</strong> and all its data. Cannot be undone.</p>
-        <p style="color:var(--text-secondary);margin-bottom:.5rem">Type <strong>DELETE</strong> to confirm:</p>
-        <input type="text" id="confirm-event-delete-input" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" autofocus />
-        <div class="modal-actions">
-          <button class="btn-danger" id="confirm-delete-event-btn">Delete Event</button>
-          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-        </div>`);
-      document.getElementById('confirm-delete-event-btn').onclick = async () => {
-        if ((document.getElementById('confirm-event-delete-input').value || '').trim() !== 'DELETE') {
-          Helpers.toast('Type DELETE exactly to confirm', 'error'); return;
-        }
-        const btn = document.getElementById('confirm-delete-event-btn');
-        btn.disabled = true; btn.textContent = 'Deleting...';
-        try {
-          const eid = DB.getCurrentEvent();
-          await DB.deleteEvent(eid);
-          DB.setCurrentEvent(null);
-          allAttendees = [];
-          attendanceInited = false;
-          Helpers.closeModal();
-          await loadEventSelector();
-          Helpers.toast('Event deleted', 'success');
-          navigate('dashboard');
-        } catch (err) {
-          console.error('Delete event error:', err);
-          btn.disabled = false; btn.textContent = 'Delete Event';
-          Helpers.toast('Error: ' + (err.message || 'Permission denied. Check Firestore rules.'), 'error');
-        }
-      };
+    document.getElementById('m-pw-toggle').onclick = () => {
+      const inp = document.getElementById('m-new-password');
+      const isPass = inp.type === 'password';
+      inp.type = isPass ? 'text' : 'password';
+      document.getElementById('m-pw-toggle').innerHTML = isPass ? '&#128584;' : '&#128065;';
     };
   }
 
@@ -1798,8 +1881,18 @@ const App = (() => {
     const cost     = parseFloat(document.getElementById('m-route-cost').value) || 0;
     const capacity = parseInt(document.getElementById('m-route-cap').value) || 0;
     await DB.add(DB.STORES.busRoutes, { name, busCount, cost, capacity, chargePerPassenger: 0 });
-    Helpers.closeModal(); Helpers.toast('Bus added', 'success');
-    renderBusRoutes();
+    Helpers.toast('Bus route added', 'success');
+    const inlineForm = document.getElementById('bus-add-inline');
+    if (inlineForm) {
+      // Inside the settings bus routes modal — hide inline form, clear inputs, re-render list
+      inlineForm.style.display = 'none';
+      ['m-route-name','m-route-cost','m-route-cap'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      document.getElementById('m-route-count').value = '1';
+      renderBusRoutes();
+    } else {
+      // Standalone modal (from dashboard) — close modal
+      Helpers.closeModal();
+    }
     if (currentPage === 'dashboard') initDashboard();
   }
 
@@ -1865,7 +1958,15 @@ const App = (() => {
     showAddBusModal, deleteBusRouteFromDash,
     showCreateEventModal, createEvent,
     showCountList,
-    initAttendees
+    initAttendees,
+    // Settings modals
+    openEventConfigModal, saveEventConfig,
+    openTeamAccessModal,
+    openBusRoutesModal,
+    openDangerZoneModal,
+    showAddUserModal,
+    showMyAccountModal,
+    closeSidebarPublic: closeSidebar
   };
 })();
 
