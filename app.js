@@ -8,6 +8,16 @@ const App = (() => {
   let liveUnsubscribe = null; // Firestore real-time listener
   const PAGE_SIZE = 100;
 
+  // Module-level sidebar helpers (needed by enterApp and nav items alike)
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebar-overlay').classList.remove('show');
+  }
+  function openSidebar() {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('sidebar-overlay').classList.add('show');
+  }
+
   // ===== INIT =====
   async function init() {
     await DB.open();
@@ -55,8 +65,6 @@ const App = (() => {
     document.getElementById('tab-register').addEventListener('click', () => switchLoginTab('register'));
 
     // Sidebar
-    function openSidebar()  { document.getElementById('sidebar').classList.add('open');    document.getElementById('sidebar-overlay').classList.add('show'); }
-    function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('show'); }
     document.getElementById('btn-menu').addEventListener('click', () => {
       document.getElementById('sidebar').classList.contains('open') ? closeSidebar() : openSidebar();
     });
@@ -120,7 +128,10 @@ const App = (() => {
       errEl.classList.add('hidden');
       document.getElementById('btn-register').disabled = true;
       const cred = await auth.createUserWithEmailAndPassword(email, password);
-      await DB.setUserProfile(cred.user.uid, { name, email, role: 'admin', createdAt: new Date().toISOString() });
+      // First user registered becomes admin; all others are volunteers by default
+      const existingUsers = await firestore.collection('users').limit(1).get();
+      const role = existingUsers.empty ? 'admin' : 'volunteer';
+      await DB.setUserProfile(cred.user.uid, { name, email, role, createdAt: new Date().toISOString() });
     } catch (err) {
       let msg = 'Registration failed';
       if (err.code === 'auth/email-already-in-use') msg = 'Email already in use';
@@ -143,11 +154,36 @@ const App = (() => {
 
   async function enterApp() {
     document.getElementById('sidebar-username').textContent = currentUser.name;
-    document.getElementById('sidebar-role').textContent = currentUser.role === 'admin' ? 'Administrator' : 'Volunteer';
     document.getElementById('sidebar-avatar').textContent = currentUser.name[0].toUpperCase();
 
+    const isAdmin = currentUser.role === 'admin';
+    document.getElementById('sidebar-role').textContent = isAdmin ? 'Tap to edit profile' : 'Volunteer';
+
+    // Make sidebar profile card clickable for admins
+    const userBtn = document.getElementById('sidebar-user-btn');
+    const editIcon = document.getElementById('sidebar-edit-icon');
+    if (isAdmin) {
+      editIcon.style.display = '';
+      userBtn.style.cursor = 'pointer';
+      userBtn.onclick = () => {
+        navigate('settings');
+        closeSidebar();
+        // Scroll to My Account card after settings renders
+        setTimeout(() => {
+          const profileCard = document.getElementById('profile-name');
+          if (profileCard) profileCard.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      };
+      userBtn.onmouseenter = () => { userBtn.style.background = 'var(--bg-card2)'; };
+      userBtn.onmouseleave = () => { userBtn.style.background = ''; };
+    } else {
+      editIcon.style.display = 'none';
+      userBtn.style.cursor = 'default';
+      userBtn.onclick = null;
+    }
+
     document.querySelectorAll('.admin-only, .admin-page').forEach(el => {
-      el.style.display = currentUser.role === 'admin' ? '' : 'none';
+      el.style.display = isAdmin ? '' : 'none';
     });
 
     document.getElementById('screen-login').classList.add('hidden');
@@ -265,8 +301,17 @@ const App = (() => {
     navigate('dashboard');
   }
 
+  // Pages volunteers are allowed to access
+  const VOLUNTEER_PAGES = ['attendance', 'walkin'];
+
   // ===== NAVIGATION =====
   function navigate(page) {
+    // Permission guard — volunteers can only access admission and walk-in
+    if (currentUser?.role !== 'admin' && !VOLUNTEER_PAGES.includes(page)) {
+      Helpers.toast('Access restricted. Contact your admin.', 'error');
+      page = 'attendance';
+    }
+
     if (currentPage === 'attendance' && page !== 'attendance') stopScanner();
 
     document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
@@ -561,16 +606,34 @@ const App = (() => {
     }
   }
 
+  let _importInited = false;
+
   function initImport() {
+    // Reset state on every visit so previous upload doesn't linger
+    importData = null;
+    importHeaders = null;
+    document.getElementById('column-mapping-section').classList.add('hidden');
+    const preview = document.getElementById('import-preview');
+    if (preview) preview.classList.add('hidden');
+
+    if (_importInited) return; // attach listeners only once
+    _importInited = true;
+
     const zone = document.getElementById('upload-zone');
     const fileInput = document.getElementById('file-input');
-    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
-    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-    zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('dragover'); if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); });
-    zone.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
-    document.getElementById('btn-confirm-import').addEventListener('click', confirmImport);
-    document.getElementById('btn-cancel-import').addEventListener('click', () => { document.getElementById('column-mapping-section').classList.add('hidden'); importData = null; });
+
+    zone.ondragover  = e => { e.preventDefault(); zone.classList.add('dragover'); };
+    zone.ondragleave = () => zone.classList.remove('dragover');
+    zone.ondrop      = e => { e.preventDefault(); zone.classList.remove('dragover'); if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); };
+    zone.onclick     = () => fileInput.click();
+    fileInput.onchange = e => { if (e.target.files[0]) processFile(e.target.files[0]); };
+
+    document.getElementById('btn-confirm-import').onclick = confirmImport;
+    document.getElementById('btn-cancel-import').onclick  = () => {
+      document.getElementById('column-mapping-section').classList.add('hidden');
+      importData = null;
+      importHeaders = null;
+    };
   }
 
   async function processFile(file) {
@@ -640,82 +703,135 @@ const App = (() => {
     document.getElementById('column-mapping-section').scrollIntoView({ behavior: 'smooth' });
   }
 
+  // Parse amount — handles "1,500", "1500.50", "₹ 500", etc.
+  function parseAmount(val) {
+    if (!val && val !== 0) return 0;
+    const cleaned = String(val).replace(/[₹,\s]/g, '');
+    return parseFloat(cleaned) || 0;
+  }
+
+  // Normalize mobile — keep digits only, take last 10
+  function normalizeMobile(val) {
+    const digits = String(val || '').replace(/\D/g, '');
+    return digits.length > 10 ? digits.slice(-10) : digits;
+  }
+
   async function confirmImport() {
+    if (!importData || !importHeaders) { Helpers.toast('Please upload a file first', 'error'); return; }
+
     const mapping = {};
     document.querySelectorAll('[data-field]').forEach(sel => {
       if (sel.value !== '') mapping[sel.dataset.field] = parseInt(sel.value);
     });
-    if (!('name' in mapping) || !('mobile' in mapping)) { Helpers.toast('Name and Mobile required', 'error'); return; }
+    if (!('name' in mapping)) { Helpers.toast('Name column is required', 'error'); return; }
+    if (!('mobile' in mapping)) { Helpers.toast('Mobile Number column is required', 'error'); return; }
 
-    const eventDate = await DB.getConfig('eventDate');
-    const records = importData.map(row => {
-      const r = { attendance: 'absent', isWalkIn: false, paymentStatus: 'unpaid', paymentMode: '', remarks: '', serviceStatus: '', activeStatus: '' };
-      SYSTEM_FIELDS.forEach(f => {
-        if (f.key in mapping) {
-          let val = row[mapping[f.key]];
-          if (val instanceof Date) val = val.toISOString().slice(0, 10);
-          r[f.key] = val !== undefined ? String(val).trim() : '';
+    const btn = document.getElementById('btn-confirm-import');
+    btn.disabled = true;
+    btn.textContent = 'Processing...';
+
+    try {
+      const eventDate = await DB.getConfig('eventDate');
+
+      const records = importData.map(row => {
+        const r = {
+          attendance: 'absent', isWalkIn: false,
+          paymentStatus: 'unpaid', paymentMode: '', paymentAmount: 0,
+          paymentDate: '', remarks: '', serviceStatus: '', activeStatus: ''
+        };
+
+        SYSTEM_FIELDS.forEach(f => {
+          if (f.key in mapping) {
+            let val = row[mapping[f.key]];
+            if (val instanceof Date) val = val.toISOString().slice(0, 10);
+            r[f.key] = (val !== undefined && val !== null) ? String(val).trim() : '';
+          }
+        });
+
+        // Normalize mobile — digits only, last 10 digits
+        r.mobile = normalizeMobile(r.mobile);
+
+        // Normalize payment amount — handle commas and currency symbols
+        r.paymentAmount = parseAmount(r.paymentAmount);
+
+        // Normalize payment status
+        const ps = (r.paymentStatus || '').toLowerCase().trim();
+        if (!ps || ps === '-' || ps === 'n/a' || ps === 'na') {
+          r.paymentStatus = 'unpaid';
+        } else if (['paid', 'yes', 'done', 'received', 'completed', 'haan', 'ha', 'p'].includes(ps)) {
+          r.paymentStatus = 'paid';
+        } else if (['free', 'complimentary', 'nil', 'no charge', 'exempt', 'f'].includes(ps)) {
+          r.paymentStatus = 'free';
+        } else if (ps.includes('partial') || ps.includes('advance') || ps.includes('part')) {
+          r.paymentStatus = 'partial';
+        } else if (['unpaid', 'no', 'pending', 'due', 'nhi', 'nahi', 'u'].includes(ps)) {
+          r.paymentStatus = 'unpaid';
+        } else if (!isNaN(parseAmount(ps)) && parseAmount(ps) > 0) {
+          // Column has an amount number instead of status text
+          r.paymentAmount = r.paymentAmount || parseAmount(ps);
+          r.paymentStatus = 'paid';
+        } else {
+          // Unknown — preserve as remark, mark unpaid
+          if (ps) r.remarks = (r.remarks ? r.remarks + '; ' : '') + 'Pay status: ' + r.paymentStatus;
+          r.paymentStatus = 'unpaid';
         }
-      });
 
-      // Normalize payment status — PRD: paid / unpaid / partial / free
-      const ps = (r.paymentStatus || '').toLowerCase().trim();
-      if (!ps || ps === '' || ps === '-') {
-        // Payment status column empty — derive from amount
-        r.paymentStatus = 'unpaid';
-      } else if (ps === 'paid' || ps === 'yes' || ps === 'done' || ps === 'received' || ps === 'completed' || ps === 'haan' || ps === 'ha') {
-        r.paymentStatus = 'paid';
-      } else if (ps === 'free' || ps === 'complimentary' || ps === 'na' || ps === 'n/a' || ps === 'nil' || ps === 'no charge' || ps === 'exempt') {
-        r.paymentStatus = 'free';
-      } else if (ps.includes('partial') || ps.includes('part') || ps.includes('advance') || ps.includes('some')) {
-        r.paymentStatus = 'partial';
-      } else if (ps === 'unpaid' || ps === 'no' || ps === 'pending' || ps === 'due' || ps === 'nhi' || ps === 'nahi') {
-        r.paymentStatus = 'unpaid';
-      } else if (!isNaN(parseFloat(ps))) {
-        // Payment status column has a number (it's actually the amount)
-        r.paymentAmount = parseFloat(ps);
-        r.paymentStatus = parseFloat(ps) > 0 ? 'paid' : 'unpaid';
-      } else {
-        // Unknown value — store as remark and mark unpaid
-        r.remarks = (r.remarks ? r.remarks + '; ' : '') + 'Payment: ' + r.paymentStatus;
-        r.paymentStatus = 'unpaid';
+        // Normalize payment mode
+        const pm = (r.paymentMode || '').toLowerCase().trim();
+        if (pm.includes('cash') || pm.includes('hand') || pm.includes('naqd')) {
+          r.paymentMode = 'cash';
+        } else if (pm.includes('online') || pm.includes('upi') || pm.includes('gpay') ||
+                   pm.includes('phonepe') || pm.includes('paytm') || pm.includes('neft') ||
+                   pm.includes('rtgs') || pm.includes('imps') || pm.includes('bank') ||
+                   pm.includes('transfer')) {
+          r.paymentMode = 'online';
+        } else if (pm === '-' || pm === '') {
+          r.paymentMode = '';
+        }
+        // else keep original value if unrecognised
+
+        // Auto-correct: amount > 0 but status still unpaid → mark paid
+        if (r.paymentAmount > 0 && r.paymentStatus === 'unpaid') r.paymentStatus = 'paid';
+        // Auto-correct: status is paid but no amount and no mode — leave as-is (pre-paid, amount unknown)
+
+        r.paymentTiming = Helpers.paymentTiming(r.paymentDate, eventDate);
+        r.attendeeId    = Helpers.generateId();
+        r.createdAt     = new Date().toISOString();
+        return r;
+      }).filter(r => r.name && r.name.length > 0);
+
+      if (!records.length) {
+        Helpers.toast('No valid records found. Check that Name column has data.', 'error');
+        btn.disabled = false; btn.textContent = 'Confirm Import';
+        return;
       }
 
-      // Normalize mode — handle many variations
-      const pm = (r.paymentMode || '').toLowerCase().trim();
-      if (pm.includes('cash') || pm.includes('naqd') || pm.includes('hand')) r.paymentMode = 'cash';
-      else if (pm.includes('online') || pm.includes('upi') || pm.includes('neft') || pm.includes('gpay') || pm.includes('phonepe') || pm.includes('paytm') || pm.includes('rtgs') || pm.includes('imps') || pm.includes('bank') || pm.includes('transfer')) r.paymentMode = 'online';
-      else if (pm && pm !== '-' && pm !== '') {
-        // If mode column has something like "RDD_date" or custom text, keep it
-        r.paymentMode = r.paymentMode;
+      const dupIds = Helpers.detectDuplicates(records);
+      records.forEach((r, i) => { r.isDuplicate = dupIds.has(i); });
+
+      const isReplace = document.getElementById('import-mode-replace')?.checked;
+      btn.textContent = isReplace ? 'Replacing data...' : `Uploading ${records.length} records...`;
+
+      if (isReplace) {
+        await DB.clearStore(DB.STORES.attendees);
+        allAttendees = [];
+        attendanceInited = false;
       }
 
-      r.attendeeId = Helpers.generateId();
-      r.paymentTiming = Helpers.paymentTiming(r.paymentDate, eventDate);
-      r.paymentAmount = parseFloat(r.paymentAmount) || 0;
+      await DB.bulkAdd(DB.STORES.attendees, records);
+      await DB.log('import', `${isReplace ? 'Replaced' : 'Imported'} ${records.length} records (${dupIds.size} dups)`, currentUser?.email);
 
-      // If amount > 0 but status is still unpaid, auto-correct to paid
-      if (r.paymentAmount > 0 && r.paymentStatus === 'unpaid') r.paymentStatus = 'paid';
-      r.createdAt = new Date().toISOString();
-      return r;
-    }).filter(r => r.name);
+      document.getElementById('column-mapping-section').classList.add('hidden');
+      showImportPreview(records, dupIds.size);
+      Helpers.toast(`✓ ${records.length} records imported${dupIds.size ? `, ${dupIds.size} duplicates flagged` : ''}`, 'success');
 
-    const dupIds = Helpers.detectDuplicates(records);
-    records.forEach((r, i) => { r.isDuplicate = dupIds.has(i); });
-
-    const isReplace = document.getElementById('import-mode-replace')?.checked;
-    Helpers.toast((isReplace ? 'Replacing' : 'Importing') + ' ' + records.length + ' records...', 'info');
-    if (isReplace) {
-      await DB.clearStore(DB.STORES.attendees);
-      allAttendees = [];
-      attendanceInited = false;
+    } catch (err) {
+      console.error('Import error:', err);
+      Helpers.toast('Import failed: ' + (err.message || 'Check Firestore rules or connection'), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Confirm Import';
     }
-    await DB.bulkAdd(DB.STORES.attendees, records);
-    await DB.log('import', `${isReplace ? 'Replaced' : 'Imported'} ${records.length} records (${dupIds.size} dups)`, currentUser?.email);
-
-    showImportPreview(records, dupIds.size);
-    document.getElementById('column-mapping-section').classList.add('hidden');
-    Helpers.toast(`Imported ${records.length} records`, 'success');
   }
 
   function showImportPreview(records, dupCount) {
@@ -745,8 +861,8 @@ const App = (() => {
         }))
       );
     };
-    searchInput.addEventListener('input', Helpers.debounce(render, 300));
-    filterSelect.addEventListener('change', render);
+    searchInput.oninput = Helpers.debounce(render, 300);
+    filterSelect.onchange = render;
     render();
     preview.scrollIntoView({ behavior: 'smooth' });
   }
@@ -1699,10 +1815,30 @@ const App = (() => {
 
   async function renderUsers() {
     const snap = await firestore.collection('users').get();
-    const users = snap.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
-    document.getElementById('users-list').innerHTML = users.map(u =>
-      `<div class="bus-route-row"><div class="bus-route-info"><div class="bus-route-name">${u.name}</div><div class="bus-route-meta">${u.email} | ${u.role}</div></div>${u.uid !== currentUser?.uid ? `<button class="btn-small" onclick="App.toggleUserRole('${u.uid}','${u.role}')">${u.role === 'admin' ? 'Make Vol' : 'Make Admin'}</button>` : '<span class="badge present">You</span>'}</div>`
-    ).join('');
+    const users = snap.docs.map(doc => ({ uid: doc.id, ...doc.data() }))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    document.getElementById('users-list').innerHTML = users.length ? users.map(u => {
+      const isYou = u.uid === currentUser?.uid;
+      const isAdmin = u.role === 'admin';
+      const roleBadge = isAdmin
+        ? `<span class="badge present" style="font-size:.7rem">Admin</span>`
+        : `<span class="badge before" style="font-size:.7rem">Volunteer</span>`;
+      const actionBtn = isYou
+        ? `<span style="font-size:.72rem;color:var(--text-muted);padding:.25rem .5rem">You</span>`
+        : isAdmin
+          ? `<button class="btn-small warning" onclick="App.toggleUserRole('${u.uid}','${u.role}')">Make Volunteer</button>`
+          : `<button class="btn-small" onclick="App.toggleUserRole('${u.uid}','${u.role}')">Make Admin</button>`;
+      return `<div class="user-row">
+        <div class="user-row-avatar">${((u.name || u.email || '?')[0]).toUpperCase()}</div>
+        <div class="user-row-info">
+          <div class="user-row-name">${u.name || '—'}</div>
+          <div class="user-row-meta">${u.email}</div>
+        </div>
+        ${roleBadge}
+        ${actionBtn}
+      </div>`;
+    }).join('') : '<p style="color:var(--text-muted);font-size:.85rem;padding:.5rem 0">No users found</p>';
   }
 
   function showAddUserModal() {

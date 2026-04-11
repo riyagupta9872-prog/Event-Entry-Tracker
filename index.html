@@ -942,6 +942,20 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .settings-action-row:last-child { border-bottom: none; }
 .settings-action-title { font-size: .9rem; font-weight: 500; margin-bottom: .2rem; }
 .settings-action-desc { font-size: .78rem; color: var(--text-muted); }
+/* Settings redesign */
+.s-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.s-col { display: flex; flex-direction: column; gap: 1.25rem; }
+.s-card-hdr { display: flex; align-items: center; gap: .65rem; margin-bottom: .25rem; }
+.s-icon { font-size: 1rem; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: var(--success-bg); border-radius: 8px; flex-shrink: 0; }
+.s-card-footer { display: flex; gap: .75rem; margin-top: 1rem; flex-wrap: wrap; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border); }
+.s-danger-card { border-color: #fee2e2; }
+.s-danger-card .s-icon { background: #fee2e2; }
+.user-row { display: flex; align-items: center; gap: .65rem; padding: .65rem 0; border-bottom: 1px solid var(--border); }
+.user-row:last-child { border-bottom: none; }
+.user-row-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--success-bg); color: var(--accent); font-weight: 700; font-size: .9rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.user-row-info { flex: 1; min-width: 0; }
+.user-row-name { font-weight: 500; font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-row-meta { font-size: .73rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Import mode toggle ─────────────────────────────────────── */
 .import-mode-bar { display: flex; gap: .75rem; margin-bottom: 1rem; flex-wrap: wrap; }
@@ -1072,6 +1086,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   .report-counts-bar { grid-template-columns: repeat(3, 1fr); }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .settings-grid { grid-template-columns: 1fr; }
+  .s-two-col { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .mapping-grid { grid-template-columns: 1fr; }
   #content-area { padding: 0.75rem; }
@@ -1172,7 +1187,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           <a class="nav-item" data-page="attendance">
             <span class="nav-icon">&#10003;</span> Admission
           </a>
-          <a class="nav-item" data-page="dashboard">
+          <a class="nav-item admin-only" data-page="dashboard">
             <span class="nav-icon">&#9632;</span> Dashboard
           </a>
           <a class="nav-item admin-only" data-page="import">
@@ -1195,12 +1210,13 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           </a>
         </nav>
         <div class="sidebar-footer">
-          <div class="user-badge">
+          <div class="user-badge" id="sidebar-user-btn" style="flex:1;border-radius:var(--radius-sm);transition:background .15s">
             <span class="user-avatar" id="sidebar-avatar">A</span>
-            <div>
+            <div style="flex:1;min-width:0">
               <div class="user-name" id="sidebar-username">Admin</div>
               <div class="user-role" id="sidebar-role">Administrator</div>
             </div>
+            <span id="sidebar-edit-icon" style="font-size:.85rem;opacity:.45;margin-left:.25rem;display:none">&#9998;</span>
           </div>
           <button class="btn-logout" id="btn-logout">Sign Out</button>
         </div>
@@ -1212,7 +1228,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           <button id="btn-menu" class="menu-btn">&#9776;</button>
           <h2 id="page-title">Admission</h2>
           <div class="top-bar-right">
-            <select id="event-selector" class="event-select"></select>
+            <select id="event-selector" class="event-select admin-only"></select>
             <button class="btn-new-event admin-only" onclick="App.showCreateEventModal()">+ Event</button>
             <span id="sync-status" class="sync-status online">Online</span>
             <span id="offline-badge" class="offline-badge hidden">Queued</span>
@@ -1552,10 +1568,13 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           <!-- SETTINGS PAGE -->
           <div id="page-settings" class="page hidden admin-page">
 
-            <!-- EVENT CONFIG (full width) -->
+            <!-- EVENT CONFIGURATION -->
             <div class="card" style="margin-bottom:1.25rem">
-              <h3 class="card-title">Event Configuration</h3>
-              <div class="settings-event-grid">
+              <div class="s-card-hdr">
+                <span class="s-icon">&#128197;</span>
+                <h3 class="card-title" style="margin:0">Event Configuration</h3>
+              </div>
+              <div class="settings-event-grid" style="margin-top:1rem">
                 <div>
                   <label class="settings-label">Event Name</label>
                   <input type="text" id="cfg-event-name" placeholder="e.g. Prerna 2025" class="wi-input" style="width:100%" />
@@ -1573,75 +1592,103 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                   <input type="number" id="cfg-total-expense" placeholder="0" min="0" class="wi-input" style="width:100%" />
                 </div>
               </div>
-              <div style="display:flex;gap:.75rem;margin-top:1rem;flex-wrap:wrap;align-items:center">
-                <button class="btn-primary" id="btn-save-event-cfg">Save</button>
+              <div class="s-card-footer">
+                <button class="btn-primary" id="btn-save-event-cfg">Save Changes</button>
                 <button class="btn-secondary" onclick="App.showCreateEventModal()">+ New Event</button>
                 <button class="btn-danger" id="btn-delete-event" style="margin-left:auto">Delete This Event</button>
               </div>
             </div>
 
-            <div class="settings-grid">
+            <!-- TWO COLUMN LAYOUT -->
+            <div class="s-two-col">
 
-              <!-- DATA ACTIONS -->
-              <div class="card">
-                <h3 class="card-title">Data Actions</h3>
-                <div class="settings-action-row">
-                  <div>
-                    <div class="settings-action-title">Clear Attendance</div>
-                    <div class="settings-action-desc">Unmark everyone as present. Payment data stays.</div>
+              <!-- LEFT: Users + Buses -->
+              <div class="s-col">
+
+                <!-- TEAM & ACCESS -->
+                <div class="card">
+                  <div class="s-card-hdr">
+                    <span class="s-icon">&#128101;</span>
+                    <h3 class="card-title" style="margin:0">Team &amp; Access</h3>
                   </div>
-                  <button class="btn-danger" id="btn-clear-attendance">Clear</button>
+                  <p style="font-size:.78rem;color:var(--text-muted);margin:.4rem 0 .75rem">Manage who can use this app and their permissions.</p>
+                  <div id="users-list"></div>
+                  <button class="btn-secondary" id="btn-add-user" style="margin-top:.75rem;width:100%">+ Invite User</button>
                 </div>
-                <div class="settings-action-row">
-                  <div>
-                    <div class="settings-action-title">Re-import (Replace Data)</div>
-                    <div class="settings-action-desc">Delete all participants and go to Import to upload fresh sheet.</div>
+
+                <!-- BUS ROUTES -->
+                <div class="card">
+                  <div class="s-card-hdr">
+                    <span class="s-icon">&#128652;</span>
+                    <h3 class="card-title" style="margin:0">Bus Routes</h3>
                   </div>
-                  <button class="btn-danger" id="btn-clear-reimport">Clear &amp; Re-import</button>
+                  <div id="bus-routes-list" style="margin-top:.75rem"></div>
+                  <button class="btn-secondary" id="btn-add-bus-route" style="margin-top:.75rem;width:100%">+ Add Bus Route</button>
                 </div>
-                <div class="settings-action-row">
-                  <div>
-                    <div class="settings-action-title">Delete All Data</div>
-                    <div class="settings-action-desc">Wipes all participants, buses, logs. Cannot be undone.</div>
-                  </div>
-                  <button class="btn-danger" id="btn-clear-all">Delete All</button>
-                </div>
+
               </div>
 
-              <!-- BUSES -->
-              <div class="card">
-                <h3 class="card-title">Bus Configuration</h3>
-                <div id="bus-routes-list"></div>
-                <button class="btn-secondary" id="btn-add-bus-route" style="margin-top:.5rem">+ Add Bus</button>
-              </div>
+              <!-- RIGHT: Profile + Danger Zone -->
+              <div class="s-col">
 
-              <!-- USERS -->
-              <div class="card">
-                <h3 class="card-title">User Management</h3>
-                <div id="users-list"></div>
-                <button class="btn-secondary" id="btn-add-user" style="margin-top:.5rem">+ Invite User</button>
-              </div>
+                <!-- MY ACCOUNT -->
+                <div class="card">
+                  <div class="s-card-hdr">
+                    <span class="s-icon">&#128100;</span>
+                    <h3 class="card-title" style="margin:0">My Account</h3>
+                  </div>
+                  <div style="margin-top:.75rem">
+                    <div class="input-group" style="margin-bottom:.75rem">
+                      <label>Full Name</label>
+                      <input type="text" id="profile-name" placeholder="Your name" />
+                    </div>
+                    <div class="input-group" style="margin-bottom:.75rem">
+                      <label>Email</label>
+                      <input type="email" id="profile-email" disabled style="opacity:0.6" />
+                    </div>
+                    <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem">Role: <strong id="profile-role">Administrator</strong></p>
+                    <button class="btn-primary" id="btn-save-profile" style="width:100%">Save Profile</button>
+                  </div>
+                  <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)" />
+                  <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:.5rem">Change Password</label>
+                  <div class="pw-wrap" style="margin-bottom:.75rem">
+                    <input type="password" id="new-password" placeholder="Min 6 characters" style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.9rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:0.9rem" />
+                    <button type="button" class="pw-toggle">&#128065;</button>
+                  </div>
+                  <button class="btn-secondary" id="btn-change-pw" style="width:100%">Change Password</button>
+                </div>
 
-              <!-- PROFILE -->
-              <div class="card">
-                <h3 class="card-title">My Profile</h3>
-                <div class="input-group" style="margin-bottom:.75rem">
-                  <label>Full Name</label>
-                  <input type="text" id="profile-name" placeholder="Your name" />
+                <!-- DANGER ZONE -->
+                <div class="card s-danger-card">
+                  <div class="s-card-hdr">
+                    <span class="s-icon">&#9888;</span>
+                    <h3 class="card-title" style="margin:0;color:var(--danger)">Danger Zone</h3>
+                  </div>
+                  <div style="margin-top:.25rem">
+                    <div class="settings-action-row">
+                      <div>
+                        <div class="settings-action-title">Clear Attendance</div>
+                        <div class="settings-action-desc">Unmark everyone as present. Payment data stays.</div>
+                      </div>
+                      <button class="btn-danger" id="btn-clear-attendance">Clear</button>
+                    </div>
+                    <div class="settings-action-row">
+                      <div>
+                        <div class="settings-action-title">Re-import (Replace Data)</div>
+                        <div class="settings-action-desc">Delete all participants and re-upload a fresh sheet.</div>
+                      </div>
+                      <button class="btn-danger" id="btn-clear-reimport">Clear &amp; Re-import</button>
+                    </div>
+                    <div class="settings-action-row">
+                      <div>
+                        <div class="settings-action-title">Delete All Data</div>
+                        <div class="settings-action-desc">Wipes all participants, buses, logs. Cannot be undone.</div>
+                      </div>
+                      <button class="btn-danger" id="btn-clear-all">Delete All</button>
+                    </div>
+                  </div>
                 </div>
-                <div class="input-group" style="margin-bottom:.75rem">
-                  <label>Email</label>
-                  <input type="email" id="profile-email" disabled style="opacity:0.6" />
-                </div>
-                <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem">Role: <strong id="profile-role">Admin</strong></p>
-                <button class="btn-primary" id="btn-save-profile">Save Profile</button>
-                <hr style="margin:1rem 0;border-color:var(--border)" />
-                <label style="font-size:.85rem;font-weight:500;display:block;margin-bottom:.5rem">New Password</label>
-                <div class="pw-wrap" style="margin-bottom:.75rem">
-                  <input type="password" id="new-password" placeholder="Min 6 characters" style="width:100%;padding:0.7rem 2.5rem 0.7rem 0.9rem;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:0.9rem" />
-                  <button type="button" class="pw-toggle">&#128065;</button>
-                </div>
-                <button class="btn-secondary" id="btn-change-pw">Change Password</button>
+
               </div>
 
             </div>
