@@ -2,7 +2,7 @@
   "name": "Prerna Festival Management",
   "short_name": "Prerna",
   "description": "Attendance tracking and reporting for Prerna Festival",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#16a34a",

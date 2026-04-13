@@ -1,14 +1,19 @@
-const CACHE_NAME = 'prerna-festival-v25';
+const CACHE_NAME = 'prerna-festival-v26';
+
+// Derive base URL from the service worker's own location
+// Works correctly on GitHub Pages subdirectory (e.g. /Event-Entry-Tracker/)
+const BASE = self.location.href.replace(/\/sw\.js.*$/, '/');
+
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/firebase-config.js',
-  '/db.js',
-  '/helper.js',
-  '/reports.js',
-  '/export.js',
-  '/app.js',
-  '/manifest.json',
+  BASE,
+  BASE + 'index.html',
+  BASE + 'firebase-config.js',
+  BASE + 'db.js',
+  BASE + 'helper.js',
+  BASE + 'reports.js',
+  BASE + 'export.js',
+  BASE + 'app.js',
+  BASE + 'manifest.json',
   'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap',
   'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
@@ -51,7 +56,7 @@ self.addEventListener('fetch', (e) => {
         const clone = response.clone();
         caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
         return response;
-      }).catch(() => caches.match('/index.html'));
+      }).catch(() => caches.match(BASE + 'index.html'));
     })
   );
 });
