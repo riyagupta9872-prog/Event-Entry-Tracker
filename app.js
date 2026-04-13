@@ -202,7 +202,8 @@ const App = (() => {
       if (!eid) return;
       const col = firestore.collection('events').doc(eid).collection('participants');
       liveUnsubscribe = col.onSnapshot(snap => {
-        allAttendees = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        allAttendees = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+          .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
         updateAdmitCountersFromCache();
         // Re-render the attendance list whenever data changes
         if (currentPage === 'attendance') {
@@ -958,17 +959,6 @@ const App = (() => {
     // Apply search
     if (query && query.trim()) list = list.filter(a => Helpers.searchFilter(a, query.trim()));
 
-    // Sort: unpaid+absent first, then absent paid, then present
-    list.sort((a, b) => {
-      const score = x => {
-        if (x.attendance === 'present') return 2;
-        const ps = (x.paymentStatus || '').toLowerCase();
-        if (ps === 'unpaid' || ps === '') return 0;
-        return 1;
-      };
-      return score(a) - score(b);
-    });
-
     const info = document.getElementById('att-list-info');
     if (info) info.textContent = `${list.length} of ${allAttendees.length} shown`;
 
@@ -1407,6 +1397,7 @@ const App = (() => {
       if (catSel.value) filtered = filtered.filter(a => a.category === catSel.value);
       if (attSel.value) filtered = filtered.filter(a => attSel.value === 'present' ? a.attendance === 'present' : a.attendance !== 'present');
 
+      filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
       document.getElementById('attendees-count').textContent = `${filtered.length} attendees`;
 
       const rows = filtered.slice(0, PAGE_SIZE).map((a, i) => {
@@ -1645,10 +1636,10 @@ const App = (() => {
   }
 
   async function saveEventConfig() {
-    const name    = document.getElementById('m-cfg-name').value;
-    const date    = document.getElementById('m-cfg-date').value;
-    const charge  = parseFloat(document.getElementById('m-cfg-charge').value) || 0;
-    const expense = parseFloat(document.getElementById('m-cfg-expense').value) || 0;
+    const name      = document.getElementById('m-cfg-name').value;
+    const date      = document.getElementById('m-cfg-date').value;
+    const charge    = parseFloat(document.getElementById('m-cfg-charge').value) || 0;
+    const expense   = parseFloat(document.getElementById('m-cfg-expense').value) || 0;
     await DB.updateEvent(DB.getCurrentEvent(), { name, date, chargePerPerson: charge, totalExpense: expense, financialYear: date ? Helpers.getFinancialYear(date) : '' });
     await DB.setConfig('eventName', name);
     await DB.setConfig('eventDate', date);
@@ -1950,6 +1941,168 @@ const App = (() => {
     el.className = 'sync-status ' + (navigator.onLine ? 'online' : 'offline');
   }
 
+  // ── OCR Attendance Sheet ──────────────────────────────────────────────────
+
+  function openOcrModal() {
+    Helpers.modal(`
+      <h3 class="modal-title">&#128247; Scan Attendance Sheet</h3>
+      <p style="font-size:.82rem;color:var(--text-secondary);margin-bottom:.75rem">
+        Take a photo of your handwritten attendance sheet. The app will read the names and match them to registered attendees.
+      </p>
+      <div id="ocr-upload-area">
+        <label style="display:block;border:2px dashed var(--border);border-radius:var(--radius-sm);padding:1.5rem;text-align:center;cursor:pointer;color:var(--text-muted);background:var(--bg-card2)" id="ocr-drop-label">
+          <div style="font-size:2rem;margin-bottom:.4rem">&#128247;</div>
+          <div style="font-weight:500;margin-bottom:.25rem">Tap to upload photo</div>
+          <div style="font-size:.78rem">or use camera on mobile</div>
+          <input type="file" id="ocr-file-input" accept="image/*" capture="environment" hidden />
+        </label>
+        <div id="ocr-preview" style="margin-top:.75rem;display:none">
+          <img id="ocr-img" style="max-width:100%;border-radius:var(--radius-sm);border:1px solid var(--border)" />
+        </div>
+        <button class="btn-primary" id="ocr-run-btn" style="width:100%;margin-top:.75rem;display:none">&#128269; Extract Names</button>
+      </div>
+      <div id="ocr-processing" style="display:none;text-align:center;padding:1.5rem 0;color:var(--text-muted)">
+        <div style="font-size:1.5rem;margin-bottom:.5rem">&#8987;</div>
+        <div>Reading handwriting... this takes a few seconds</div>
+      </div>
+      <div id="ocr-review" style="display:none"></div>
+    `);
+
+    let _base64 = '';
+    document.getElementById('ocr-drop-label').onclick = () => document.getElementById('ocr-file-input').click();
+    document.getElementById('ocr-file-input').onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        _base64 = ev.target.result.split(',')[1];
+        document.getElementById('ocr-img').src = ev.target.result;
+        document.getElementById('ocr-preview').style.display = 'block';
+        document.getElementById('ocr-run-btn').style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    };
+    document.getElementById('ocr-run-btn').onclick = async () => {
+      if (!_base64) return;
+      document.getElementById('ocr-upload-area').style.display = 'none';
+      document.getElementById('ocr-processing').style.display = 'block';
+      try {
+        const lines = await runOcr(_base64);
+        const matches = matchOcrToAttendees(lines, allAttendees);
+        document.getElementById('ocr-processing').style.display = 'none';
+        document.getElementById('ocr-review').style.display = 'block';
+        document.getElementById('ocr-review').innerHTML = renderOcrReview(matches);
+        _updateOcrConfirmBtn();
+      } catch (err) {
+        document.getElementById('ocr-processing').style.display = 'none';
+        document.getElementById('ocr-upload-area').style.display = 'block';
+        Helpers.toast(err.message || 'OCR failed', 'error');
+      }
+    };
+  }
+
+  async function runOcr(base64Image) {
+    if (typeof Tesseract === 'undefined') throw new Error('OCR library not loaded. Check your internet connection and reload.');
+    // Show a progress update inside the processing div
+    const proc = document.getElementById('ocr-processing');
+    if (proc) proc.innerHTML = '<div style="font-size:1.5rem;margin-bottom:.5rem">&#8987;</div><div>Reading handwriting... this takes a few seconds</div>';
+
+    const dataUrl = 'data:image/jpeg;base64,' + base64Image;
+    const result  = await Tesseract.recognize(dataUrl, 'eng', {
+      logger: m => {
+        if (proc && m.status === 'recognizing text') {
+          const pct = Math.round((m.progress || 0) * 100);
+          proc.innerHTML = `<div style="font-size:1.5rem;margin-bottom:.5rem">&#8987;</div><div>Reading handwriting... ${pct}%</div>`;
+        }
+      }
+    });
+    const text = result?.data?.text || '';
+    if (!text.trim()) throw new Error('No text detected in the image. Try a clearer, well-lit photo.');
+    // Split into lines, remove empty / very short lines and obvious non-name noise
+    return text.split('\n').map(l => l.trim()).filter(l => l.length >= 2);
+  }
+
+  function matchOcrToAttendees(lines, attendees) {
+    const high = [], medium = [], low = [];
+    lines.forEach(rawText => {
+      let best = null, bestScore = 0;
+      attendees.forEach(a => {
+        const score = Helpers.similarName(rawText, a.name);
+        if (score > bestScore) { bestScore = score; best = a; }
+      });
+      const entry = { rawText, match: best, score: bestScore };
+      if (bestScore >= 0.75) high.push(entry);
+      else if (bestScore >= 0.40) medium.push(entry);
+      else low.push(entry);
+    });
+    return { high, medium, low };
+  }
+
+  function renderOcrReview({ high, medium, low }) {
+    const row = (e, checked, group) => `
+      <label class="ocr-match-row" style="display:flex;align-items:center;gap:.6rem;padding:.45rem .5rem;border-radius:6px;cursor:pointer;background:var(--bg-card2);margin-bottom:.3rem">
+        <input type="checkbox" class="ocr-chk" data-id="${e.match?.id || ''}" data-group="${group}" ${checked ? 'checked' : ''} ${!e.match ? 'disabled' : ''} onchange="App._updateOcrConfirmBtn()" />
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.82rem;color:var(--text-muted)">"${e.rawText}"</div>
+          ${e.match
+            ? `<div style="font-weight:500;font-size:.9rem">${e.match.name} <span style="font-weight:400;color:var(--text-muted);font-size:.78rem">${e.match.team ? `[${e.match.team}]` : ''}</span></div>`
+            : `<div style="color:var(--text-muted);font-size:.85rem">No match found</div>`}
+        </div>
+        <div style="font-size:.75rem;color:${group==='high'?'var(--success)':group==='medium'?'#d97706':'var(--text-muted)'}">${Math.round(e.score*100)}%</div>
+      </label>`;
+
+    let html = '';
+    if (high.length) {
+      html += `<div style="font-size:.78rem;font-weight:600;color:var(--success);margin:.75rem 0 .4rem">&#10003; HIGH CONFIDENCE — ${high.length} name${high.length!==1?'s':''} (auto-selected)</div>`;
+      html += high.map(e => row(e, true, 'high')).join('');
+    }
+    if (medium.length) {
+      html += `<div style="font-size:.78rem;font-weight:600;color:#d97706;margin:.75rem 0 .4rem">&#9888; POSSIBLE MATCH — review these ${medium.length}</div>`;
+      html += medium.map(e => row(e, false, 'medium')).join('');
+    }
+    if (low.length) {
+      html += `<div style="font-size:.78rem;font-weight:600;color:var(--text-muted);margin:.75rem 0 .4rem">&#10067; NOT RECOGNISED — ${low.length} line${low.length!==1?'s':''}</div>`;
+      html += low.map(e => row(e, false, 'low')).join('');
+    }
+    if (!high.length && !medium.length && !low.length) {
+      html = '<div style="text-align:center;color:var(--text-muted);padding:1rem">No names could be extracted. Try a clearer photo.</div>';
+    }
+    html += `<button class="btn-primary" id="ocr-confirm-btn" style="width:100%;margin-top:1rem" onclick="App.confirmOcrMarks()">Mark 0 People Present</button>`;
+    return html;
+  }
+
+  function _updateOcrConfirmBtn() {
+    const count = document.querySelectorAll('.ocr-chk:checked').length;
+    const btn   = document.getElementById('ocr-confirm-btn');
+    if (btn) btn.textContent = `Mark ${count} People Present`;
+  }
+
+  async function confirmOcrMarks() {
+    const checkboxes = [...document.querySelectorAll('.ocr-chk:checked')];
+    const ids = [...new Set(checkboxes.map(c => c.dataset.id).filter(Boolean))];
+    if (!ids.length) { Helpers.toast('No people selected', 'error'); return; }
+
+    const btn = document.getElementById('ocr-confirm-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Marking...'; }
+
+    let count = 0;
+    for (const id of ids) {
+      const a = allAttendees.find(x => x.id === id);
+      if (!a || a.attendance === 'present') continue;
+      a.attendance = 'present';
+      a.entryTime  = new Date().toISOString();
+      a.markedBy   = currentUser?.name || 'Unknown';
+      await DB.put(DB.STORES.attendees, a);
+      const idx = allAttendees.findIndex(x => x.id === id);
+      if (idx >= 0) allAttendees[idx] = { ...allAttendees[idx], ...a };
+      count++;
+    }
+    await DB.log('checkin', `OCR scan: ${count} attendee${count!==1?'s':''} marked present`, currentUser?.email);
+    updateAdmitCountersFromCache();
+    Helpers.closeModal();
+    Helpers.toast(`${count} people marked present via OCR scan!`, 'success');
+  }
+
   return {
     init, navigate,
     downloadTemplate,
@@ -1967,6 +2120,8 @@ const App = (() => {
     openDangerZoneModal,
     showAddUserModal,
     showMyAccountModal,
+    // OCR
+    openOcrModal, confirmOcrMarks, _updateOcrConfirmBtn,
     closeSidebarPublic: closeSidebar
   };
 })();

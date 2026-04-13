@@ -203,7 +203,7 @@ const Export = (() => {
       const row = ws.addRow([key, members.length, present, members.length - present, paid, unpaid, free, amt]);
       row.height = 20;
       const bg = idx % 2 === 0 ? 'F0FDF4' : 'FFFFFF';
-      row.eachCell({ includeEmpty: true }, (cell, col) => {
+      row.eachCell({ includeEmpty: true }, (cell) => {
         cell.fill      = solidFill(bg);
         cell.font      = { size: 10 };
         cell.border    = thinBorder('D1FAE5');
@@ -264,6 +264,38 @@ const Export = (() => {
   async function getEventSlug() {
     const summ = await Reports.reportSummary();
     return (summ.cfg.eventName || 'Event').replace(/\s+/g, '_');
+  }
+
+  // ── PUBLIC: Multi-sheet download grouped by a field (team/category/reference) ─
+  async function downloadFilteredByGroup(attendees, groupField, label) {
+    if (!attendees || !attendees.length) {
+      Helpers.toast('No records match this filter', 'warning');
+      return;
+    }
+    const slug   = await getEventSlug();
+    const wb     = new ExcelJS.Workbook();
+    const used   = new Set();
+    const date   = new Date().toISOString().slice(0, 10);
+    const defVal = groupField === 'team' ? 'Unassigned' : 'Unknown';
+    const prefix = groupField === 'team' ? 'Team' : groupField === 'category' ? 'Category' : 'Reference';
+    const sumLbl = groupField === 'team' ? 'Team Name' : groupField === 'category' ? 'Category' : 'Reference';
+
+    const groupMap = {};
+    attendees.forEach(a => {
+      const key = (a[groupField] || defVal).trim();
+      if (!groupMap[key]) groupMap[key] = [];
+      groupMap[key].push(a);
+    });
+
+    const sorted = Object.entries(groupMap).sort((a, b) => b[1].length - a[1].length);
+
+    addSummarySheet(wb, safeSheetName(`${prefix} Summary`, used), sumLbl, sorted);
+    sorted.forEach(([key, members]) =>
+      addAttSheet(wb, safeSheetName(`${prefix} - ${key}`, used), members)
+    );
+
+    await saveWorkbook(wb, `Prerna_${label || prefix + 'wise'}_${slug}_${date}.xlsx`);
+    Helpers.toast(`Downloaded ${sorted.length} ${prefix.toLowerCase()} sheet${sorted.length !== 1 ? 's' : ''}!`, 'success');
   }
 
   // ── PUBLIC: Download any filtered list as single-sheet Excel ──────────────
@@ -488,5 +520,5 @@ const Export = (() => {
     Helpers.toast(`Downloaded ${gatePaid.length} gate collections`, 'success');
   }
 
-  return { downloadFiltered, exportAttendees, exportAttendeesByGroup, exportAttendeesFiltered, downloadGateCollections };
+  return { downloadFiltered, downloadFilteredByGroup, exportAttendees, exportAttendeesByGroup, exportAttendeesFiltered, downloadGateCollections };
 })();

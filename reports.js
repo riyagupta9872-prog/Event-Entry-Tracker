@@ -253,10 +253,15 @@ const Reports = (() => {
       _updateView();
     });
 
-    // Download button
+    // Download button — multi-sheet when a group type is active with no specific value
     document.getElementById('btn-rpt-excel').addEventListener('click', () => {
       const filtered = applyFilters(_attendees);
-      Export.downloadFiltered(filtered, buildLabel());
+      if (_groupType !== 'all' && !_groupValue) {
+        const field = _groupType === 'team' ? 'team' : _groupType === 'category' ? 'category' : 'reference';
+        Export.downloadFilteredByGroup(filtered, field, buildLabel());
+      } else {
+        Export.downloadFiltered(filtered, buildLabel());
+      }
     });
   }
 

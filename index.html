@@ -1255,6 +1255,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               <button class="admit-scan-btn" id="btn-toggle-scan" title="QR Scan">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
               </button>
+              <button class="admit-scan-btn admin-page" id="btn-ocr-scan" title="Scan Attendance Sheet (OCR)" onclick="App.openOcrModal()" style="font-size:1.1rem">&#128247;</button>
             </div>
 
             <div id="att-scan-section" class="hidden">
@@ -1616,6 +1617,8 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   <div id="toast-container"></div>
 
   <!-- External Scripts -->
+  <!-- Tesseract.js: browser-based OCR for attendance sheet scanning (no API key needed) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <!-- ExcelJS: used for styled Excel export (SheetJS CE does not support cell styling) -->
