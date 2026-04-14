@@ -1,6 +1,9 @@
 // ===== REPORTS MODULE =====
 const Reports = (() => {
 
+  // ── Known category order for Pre Event reports ────────────────────────────
+  const CATEGORY_ORDER = ['ICF_Prji', 'ICF_Mtg', 'IYF', 'IGF', 'Balarama Team'];
+
   // ── Module-level filter state ─────────────────────────────────────────────
   let _attendees  = [];
   let _groupType  = 'all';   // 'all' | 'team' | 'category' | 'reference'
@@ -152,6 +155,109 @@ const Reports = (() => {
     return parts.length ? parts.join('_') : 'All';
   }
 
+  // ── Render Pre Event Reports HTML (category-wise + team-wise tables) ──────
+  function renderPreEventReports(attendees) {
+    const cats = {};
+    attendees.forEach(a => {
+      const cat  = (a.category || 'Unknown').trim();
+      const team = (a.team || 'Other').trim();
+      if (!cats[cat]) cats[cat] = {};
+      if (!cats[cat][team]) cats[cat][team] = [];
+      cats[cat][team].push(a);
+    });
+
+    const allCats = [
+      ...CATEGORY_ORDER.filter(c => cats[c]),
+      ...Object.keys(cats).filter(c => !CATEGORY_ORDER.includes(c)).sort()
+    ];
+
+    let grandPaid = 0, grandUnpaid = 0, grandTotal = 0;
+    const catSummary = [];
+    let teamBodyRows = '';
+
+    allCats.forEach(cat => {
+      const teamMap = cats[cat] || {};
+      const teams = Object.keys(teamMap).sort();
+      let catPaid = 0, catUnpaid = 0, catTotal = 0;
+
+      teamBodyRows += `<tr class="pre-cat-hdr"><td colspan="4">${cat}</td></tr>`;
+
+      teams.forEach(team => {
+        const members = teamMap[team];
+        const paid   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'paid').length;
+        const free   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'free').length;
+        const unpaid = members.length - paid - free;
+        catPaid += paid; catUnpaid += unpaid; catTotal += members.length;
+
+        teamBodyRows += `<tr class="pre-data-row">
+          <td style="padding-left:1.25rem">${team}</td>
+          <td style="text-align:center;color:#15803d;font-weight:600">${paid}</td>
+          <td style="text-align:center;color:#dc2626;font-weight:600">${unpaid}</td>
+          <td style="text-align:center;font-weight:700">${members.length}</td>
+        </tr>`;
+      });
+
+      teamBodyRows += `<tr class="pre-subtotal">
+        <td>Sub-Total</td>
+        <td style="text-align:center">${catPaid}</td>
+        <td style="text-align:center">${catUnpaid}</td>
+        <td style="text-align:center">${catTotal}</td>
+      </tr>`;
+
+      catSummary.push({ cat, total: catTotal });
+      grandPaid += catPaid; grandUnpaid += catUnpaid; grandTotal += catTotal;
+    });
+
+    const catBodyRows = catSummary.map(c =>
+      `<tr class="pre-data-row"><td>${c.cat}</td><td style="text-align:center;font-weight:700">${c.total}</td></tr>`
+    ).join('');
+
+    return `
+      <div class="card" style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
+          <h3 class="card-title" style="margin:0">Category wise Report</h3>
+          <button class="btn-primary" id="btn-pre-cat-xl" style="font-size:.82rem;padding:.4rem .9rem">&#8595; Download</button>
+        </div>
+        <div class="table-wrap">
+          <table class="report-table pre-rpt-table">
+            <thead><tr><th>Category</th><th style="text-align:center">Number of Devotees</th></tr></thead>
+            <tbody>
+              ${catBodyRows}
+              <tr class="pre-grand-total"><td>Grand Total</td><td style="text-align:center">${grandTotal}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
+          <h3 class="card-title" style="margin:0">Team wise Report</h3>
+          <button class="btn-primary" id="btn-pre-team-xl" style="font-size:.82rem;padding:.4rem .9rem">&#8595; Download</button>
+        </div>
+        <div class="table-wrap">
+          <table class="report-table pre-rpt-table">
+            <thead><tr><th>Team</th><th style="text-align:center">Paid</th><th style="text-align:center">Unpaid</th><th style="text-align:center">Total</th></tr></thead>
+            <tbody>
+              ${teamBodyRows}
+              <tr class="pre-grand-total">
+                <td>TOTAL</td>
+                <td style="text-align:center">${grandPaid}</td>
+                <td style="text-align:center">${grandUnpaid}</td>
+                <td style="text-align:center">${grandTotal}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  // ── Wire Pre Event download buttons ───────────────────────────────────────
+  function initPreEventReports(attendees) {
+    document.getElementById('btn-pre-cat-xl')?.addEventListener('click', () =>
+      Export.downloadPreEventCategoryExcel(attendees));
+    document.getElementById('btn-pre-team-xl')?.addEventListener('click', () =>
+      Export.downloadPreEventTeamExcel(attendees));
+  }
+
   // ── Render the full reports page (initial HTML only) ─────────────────────
   function renderReports(_data) {
     // Reset state on each render
@@ -161,50 +267,59 @@ const Reports = (() => {
       '<option value="">— select —</option>' + arr.map(v => `<option>${v}</option>`).join('');
 
     return `
-      <div class="card report-filters-card">
-
-        <div class="filter-section">
-          <div class="filter-label">Filter by</div>
-          <div class="filter-row">
-            <button class="rep-filter active" data-ft="group" data-val="all">All</button>
-            <button class="rep-filter" data-ft="group" data-val="team">Team wise</button>
-            <button class="rep-filter" data-ft="group" data-val="category">Category wise</button>
-            <button class="rep-filter" data-ft="group" data-val="reference">Reference wise</button>
-          </div>
-          <div id="group-val-wrap" style="display:none;margin-top:.6rem">
-            <select id="group-val-select" class="wi-input" style="width:100%;max-width:300px">
-              ${optionsHtml([])}
-            </select>
-          </div>
-        </div>
-
-        <div class="filter-section" style="margin-top:.9rem">
-          <div class="filter-label">Payment</div>
-          <div class="filter-row">
-            <button class="rep-filter active" data-ft="pay" data-val="all">All</button>
-            <button class="rep-filter" data-ft="pay" data-val="paid">Paid</button>
-            <button class="rep-filter" data-ft="pay" data-val="unpaid">Unpaid</button>
-          </div>
-        </div>
-
-        <div class="filter-section" style="margin-top:.9rem">
-          <div class="filter-label">Attendance</div>
-          <div class="filter-row">
-            <button class="rep-filter active" data-ft="att" data-val="all">All</button>
-            <button class="rep-filter" data-ft="att" data-val="present">Present</button>
-            <button class="rep-filter" data-ft="att" data-val="absent">Absent</button>
-          </div>
-        </div>
-
+      <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+        <button class="rep-tab active" data-rptab="live">Live Reports</button>
+        <button class="rep-tab" data-rptab="preevt">Pre Event Reports</button>
       </div>
 
-      <div id="report-counts-bar"></div>
-      <div id="report-group-table"></div>
+      <div id="rpt-live-content">
+        <div class="card report-filters-card">
 
-      <div style="margin:.75rem 0 1.5rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
-        <button class="btn-primary" id="btn-rpt-excel" style="min-width:180px">↓ Download Excel</button>
-        <span id="rpt-dl-label" style="color:var(--text-muted);font-size:.85rem"></span>
+          <div class="filter-section">
+            <div class="filter-label">Filter by</div>
+            <div class="filter-row">
+              <button class="rep-filter active" data-ft="group" data-val="all">All</button>
+              <button class="rep-filter" data-ft="group" data-val="team">Team wise</button>
+              <button class="rep-filter" data-ft="group" data-val="category">Category wise</button>
+              <button class="rep-filter" data-ft="group" data-val="reference">Reference wise</button>
+            </div>
+            <div id="group-val-wrap" style="display:none;margin-top:.6rem">
+              <select id="group-val-select" class="wi-input" style="width:100%;max-width:300px">
+                ${optionsHtml([])}
+              </select>
+            </div>
+          </div>
+
+          <div class="filter-section" style="margin-top:.9rem">
+            <div class="filter-label">Payment</div>
+            <div class="filter-row">
+              <button class="rep-filter active" data-ft="pay" data-val="all">All</button>
+              <button class="rep-filter" data-ft="pay" data-val="paid">Paid</button>
+              <button class="rep-filter" data-ft="pay" data-val="unpaid">Unpaid</button>
+            </div>
+          </div>
+
+          <div class="filter-section" style="margin-top:.9rem">
+            <div class="filter-label">Attendance</div>
+            <div class="filter-row">
+              <button class="rep-filter active" data-ft="att" data-val="all">All</button>
+              <button class="rep-filter" data-ft="att" data-val="present">Present</button>
+              <button class="rep-filter" data-ft="att" data-val="absent">Absent</button>
+            </div>
+          </div>
+
+        </div>
+
+        <div id="report-counts-bar"></div>
+        <div id="report-group-table"></div>
+
+        <div style="margin:.75rem 0 1.5rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+          <button class="btn-primary" id="btn-rpt-excel" style="min-width:180px">&#8595; Download Excel</button>
+          <span id="rpt-dl-label" style="color:var(--text-muted);font-size:.85rem"></span>
+        </div>
       </div>
+
+      <div id="rpt-preevt-content" class="hidden"></div>
     `;
   }
 
@@ -213,7 +328,23 @@ const Reports = (() => {
     const { teams, categories, references } = data;
     const groupOptions = { team: teams, category: categories, reference: references };
 
-    // Initial render
+    // Page-level tab switching (Live Reports ↔ Pre Event Reports)
+    document.querySelectorAll('[data-rptab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-rptab]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.rptab;
+        document.getElementById('rpt-live-content').classList.toggle('hidden', tab !== 'live');
+        const preEl = document.getElementById('rpt-preevt-content');
+        preEl.classList.toggle('hidden', tab !== 'preevt');
+        if (tab === 'preevt' && !preEl.innerHTML.trim()) {
+          preEl.innerHTML = renderPreEventReports(data.attendees);
+          initPreEventReports(data.attendees);
+        }
+      });
+    });
+
+    // Initial render of live counts
     _updateView();
 
     // Filter button clicks
@@ -306,5 +437,5 @@ const Reports = (() => {
     };
   }
 
-  return { reportData, renderReports, initReportFilters, reportSummary };
+  return { reportData, renderReports, initReportFilters, reportSummary, renderPreEventReports, CATEGORY_ORDER };
 })();

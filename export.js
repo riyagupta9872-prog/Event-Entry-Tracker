@@ -520,5 +520,132 @@ const Export = (() => {
     Helpers.toast(`Downloaded ${gatePaid.length} gate collections`, 'success');
   }
 
-  return { downloadFiltered, downloadFilteredByGroup, exportAttendees, exportAttendeesByGroup, exportAttendeesFiltered, downloadGateCollections };
+  // ── PRE-EVENT: Category-wise Excel ────────────────────────────────────────
+  async function downloadPreEventCategoryExcel(attendees) {
+    const CATEGORY_ORDER = Reports.CATEGORY_ORDER;
+    const cats = {};
+    attendees.forEach(a => {
+      const cat = (a.category || 'Unknown').trim();
+      cats[cat] = (cats[cat] || 0) + 1;
+    });
+    const allCats = [...CATEGORY_ORDER.filter(c => cats[c]), ...Object.keys(cats).filter(c => !CATEGORY_ORDER.includes(c)).sort()];
+    const slug = await getEventSlug();
+    const wb   = new ExcelJS.Workbook();
+    const ws   = wb.addWorksheet('Category Wise');
+
+    ws.columns = [
+      { header: 'Category', key: 'cat', width: 22 },
+      { header: 'Number of Devotees', key: 'n', width: 22 }
+    ];
+    applyHeaderStyle(ws.getRow(1));
+
+    let grand = 0;
+    allCats.forEach((cat, i) => {
+      const n = cats[cat] || 0; grand += n;
+      const row = ws.addRow([cat, n]);
+      row.height = 20;
+      const bg = i % 2 === 0 ? 'F0FDF4' : 'FFFFFF';
+      row.eachCell(cell => {
+        cell.fill = solidFill(bg); cell.font = { size: 10 };
+        cell.border = thinBorder('D1FAE5'); cell.alignment = { vertical: 'middle' };
+      });
+      row.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+    const totRow = ws.addRow(['Grand Total', grand]);
+    totRow.height = 24;
+    totRow.eachCell(cell => {
+      cell.fill = solidFill('15803D'); cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+      cell.border = thinBorder('0F5C2E'); cell.alignment = { vertical: 'middle' };
+    });
+    totRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.views = [{ state: 'frozen', ySplit: 1, activeCell: 'A2' }];
+    await saveWorkbook(wb, `Prerna_CategoryWise_${slug}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    Helpers.toast('Category report downloaded!', 'success');
+  }
+
+  // ── PRE-EVENT: Team-wise grouped by category Excel ────────────────────────
+  async function downloadPreEventTeamExcel(attendees) {
+    const CATEGORY_ORDER = Reports.CATEGORY_ORDER;
+    const cats = {};
+    attendees.forEach(a => {
+      const cat  = (a.category || 'Unknown').trim();
+      const team = (a.team || 'Other').trim();
+      if (!cats[cat]) cats[cat] = {};
+      if (!cats[cat][team]) cats[cat][team] = [];
+      cats[cat][team].push(a);
+    });
+    const allCats = [...CATEGORY_ORDER.filter(c => cats[c]), ...Object.keys(cats).filter(c => !CATEGORY_ORDER.includes(c)).sort()];
+
+    const slug = await getEventSlug();
+    const wb   = new ExcelJS.Workbook();
+    const ws   = wb.addWorksheet('Team Wise');
+
+    ws.columns = [
+      { header: 'Team', key: 'team', width: 24 },
+      { header: 'Paid', key: 'paid', width: 10 },
+      { header: 'Unpaid', key: 'unpaid', width: 10 },
+      { header: 'Total', key: 'total', width: 10 }
+    ];
+    applyHeaderStyle(ws.getRow(1));
+
+    let grandPaid = 0, grandUnpaid = 0, grandTotal = 0;
+
+    allCats.forEach(cat => {
+      const teamMap = cats[cat];
+      const teams = Object.keys(teamMap).sort();
+
+      // Category header row (merged across 4 cols)
+      const catHdr = ws.addRow([cat, '', '', '']);
+      catHdr.height = 22;
+      catHdr.eachCell({ includeEmpty: true }, cell => {
+        cell.fill = solidFill('166534'); cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+        cell.border = thinBorder('14532D'); cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      });
+      ws.mergeCells(`A${catHdr.number}:D${catHdr.number}`);
+
+      let catPaid = 0, catUnpaid = 0, catTotal = 0;
+      teams.forEach((team, i) => {
+        const members = teamMap[team];
+        const paid   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'paid').length;
+        const free   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'free').length;
+        const unpaid = members.length - paid - free;
+        catPaid += paid; catUnpaid += unpaid; catTotal += members.length;
+
+        const row = ws.addRow([team, paid, unpaid, members.length]);
+        row.height = 20;
+        const bg = i % 2 === 0 ? 'F0FDF4' : 'FFFFFF';
+        row.eachCell({ includeEmpty: true }, (cell, col) => {
+          cell.fill = solidFill(bg); cell.font = { size: 10 };
+          cell.border = thinBorder('D1FAE5'); cell.alignment = { vertical: 'middle' };
+          if (col === 2) { cell.font = { size: 10, bold: true, color: { argb: argb('15803D') } }; cell.alignment = { horizontal: 'center', vertical: 'middle' }; }
+          if (col === 3) { cell.font = { size: 10, bold: true, color: { argb: argb('DC2626') } }; cell.alignment = { horizontal: 'center', vertical: 'middle' }; }
+          if (col === 4) { cell.font = { size: 10, bold: true }; cell.alignment = { horizontal: 'center', vertical: 'middle' }; }
+        });
+      });
+
+      const sub = ws.addRow(['Sub-Total', catPaid, catUnpaid, catTotal]);
+      sub.height = 22;
+      sub.eachCell({ includeEmpty: true }, (cell, col) => {
+        cell.fill = solidFill('DCFCE7'); cell.font = { bold: true, size: 10, color: { argb: argb('14532D') } };
+        cell.border = thinBorder('86EFAC'); cell.alignment = { vertical: 'middle' };
+        if (col > 1) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      grandPaid += catPaid; grandUnpaid += catUnpaid; grandTotal += catTotal;
+    });
+
+    const gt = ws.addRow(['TOTAL', grandPaid, grandUnpaid, grandTotal]);
+    gt.height = 26;
+    gt.eachCell({ includeEmpty: true }, (cell, col) => {
+      cell.fill = solidFill('15803D'); cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+      cell.border = thinBorder('0F5C2E'); cell.alignment = { vertical: 'middle' };
+      if (col > 1) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+
+    ws.views = [{ state: 'frozen', ySplit: 1, activeCell: 'A2' }];
+    await saveWorkbook(wb, `Prerna_TeamWise_${slug}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    Helpers.toast('Team report downloaded!', 'success');
+  }
+
+  return { downloadFiltered, downloadFilteredByGroup, exportAttendees, exportAttendeesByGroup, exportAttendeesFiltered, downloadGateCollections, downloadPreEventCategoryExcel, downloadPreEventTeamExcel };
 })();

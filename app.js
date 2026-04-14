@@ -8,6 +8,24 @@ const App = (() => {
   let liveUnsubscribe = null; // Firestore real-time listener
   const PAGE_SIZE = 100;
 
+  // ── Known category → team mapping ─────────────────────────────────────────
+  const CATEGORY_TEAMS = {
+    'IGF':           ['Lalita', 'Visakha', 'Chitralekha', 'Champakalata', 'Tungavidya', 'Indulekha', 'Rangadevi', 'Sudevi'],
+    'IYF':           ['Anant', 'Govind', 'Madhav', 'Keshav', 'Janardhan'],
+    'ICF_Mtg':       ['Rohini', 'Rukmini', 'Kalindi', 'Satyabhama', 'Jamvanti', 'Lakshmana', 'Kaushal', 'Bhadra'],
+    'ICF_Prji':      ['Vasudev', 'Sankarshan', 'Anirudha', 'Pradyuman'],
+    'Balarama Team': []
+  };
+
+  // Return the category for a team name (case-insensitive); null if unknown
+  function getCategoryForTeam(teamName) {
+    const lower = (teamName || '').toLowerCase();
+    for (const [cat, teams] of Object.entries(CATEGORY_TEAMS)) {
+      if (teams.some(t => t.toLowerCase() === lower)) return cat;
+    }
+    return null;
+  }
+
   // Module-level sidebar helpers (needed by enterApp and nav items alike)
   function closeSidebar() {
     document.getElementById('sidebar').classList.remove('open');
@@ -791,6 +809,13 @@ const App = (() => {
         r.paymentTiming = Helpers.paymentTiming(r.paymentDate, eventDate);
         r.attendeeId    = Helpers.generateId();
         r.createdAt     = new Date().toISOString();
+
+        // Auto-assign category from team name if category is missing
+        if (!r.category && r.team) {
+          const guessed = getCategoryForTeam(r.team);
+          if (guessed) r.category = guessed;
+        }
+
         return r;
       }).filter(r => r.name && r.name.length > 0);
 
@@ -819,6 +844,9 @@ const App = (() => {
       showImportPreview(records, dupIds.size);
       Helpers.toast(`✓ ${records.length} records imported${dupIds.size ? `, ${dupIds.size} duplicates flagged` : ''}`, 'success');
 
+      // Detect teams not in the predefined list — load saved map then prompt
+      checkAndSaveUnknownTeams(records);
+
     } catch (err) {
       console.error('Import error:', err);
       Helpers.toast('Import failed: ' + (err.message || 'Check Firestore rules or connection'), 'error');
@@ -826,6 +854,68 @@ const App = (() => {
       btn.disabled = false;
       btn.textContent = 'Confirm Import';
     }
+  }
+
+  async function checkAndSaveUnknownTeams(records) {
+    // Load saved team→category mappings from this event's config
+    const savedMapRaw = await DB.getConfig('teamCategoryMap');
+    const savedMap    = savedMapRaw ? JSON.parse(savedMapRaw) : {};
+
+    // Collect teams that aren't in CATEGORY_TEAMS and not already mapped
+    const allKnown = Object.values(CATEGORY_TEAMS).flat().map(t => t.toLowerCase());
+    const unknownTeams = [...new Set(
+      records
+        .map(r => (r.team || '').trim())
+        .filter(t => t && t !== 'Other' && !allKnown.includes(t.toLowerCase()) && !savedMap[t.toLowerCase()])
+    )];
+
+    if (!unknownTeams.length) return;
+
+    // Show a modal to assign categories for unknown teams
+    const selects = unknownTeams.map(t => `
+      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem;flex-wrap:wrap">
+        <span style="flex:1;min-width:120px;font-weight:500">${t}</span>
+        <select class="wi-input unknown-team-cat" data-team="${t}" style="flex:1;min-width:130px">
+          <option value="">— select category —</option>
+          ${Object.keys(CATEGORY_TEAMS).map(c => `<option value="${c}">${c}</option>`).join('')}
+          <option value="Other">Other</option>
+        </select>
+      </div>`).join('');
+
+    Helpers.modal(`
+      <h3 class="modal-title">&#128690; New Teams Found</h3>
+      <p style="font-size:.82rem;color:var(--text-secondary);margin-bottom:.75rem">
+        ${unknownTeams.length} team${unknownTeams.length > 1 ? 's' : ''} not in the predefined list. Assign ${unknownTeams.length > 1 ? 'their categories' : 'a category'} — this will be remembered for future imports.
+      </p>
+      ${selects}
+      <div class="modal-actions" style="margin-top:1rem">
+        <button class="btn-primary" id="btn-save-team-cats">Save &amp; Apply</button>
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Skip</button>
+      </div>
+    `);
+
+    document.getElementById('btn-save-team-cats').onclick = async () => {
+      const newMap = { ...savedMap };
+      document.querySelectorAll('.unknown-team-cat').forEach(sel => {
+        if (sel.value) newMap[sel.dataset.team.toLowerCase()] = sel.value;
+      });
+      await DB.setConfig('teamCategoryMap', JSON.stringify(newMap));
+
+      // Apply the new categories to any records that still lack one
+      const affected = records.filter(r => {
+        const t = (r.team || '').trim().toLowerCase();
+        return newMap[t] && !r.category;
+      });
+      for (const r of affected) {
+        r.category = newMap[(r.team || '').toLowerCase()];
+        await DB.put(DB.STORES.attendees, r);
+        const idx = allAttendees.findIndex(x => x.id === r.id);
+        if (idx >= 0) allAttendees[idx] = { ...allAttendees[idx], ...r };
+      }
+
+      Helpers.closeModal();
+      Helpers.toast('Team categories saved!', 'success');
+    };
   }
 
   function showImportPreview(records, dupCount) {
