@@ -563,18 +563,23 @@ const Export = (() => {
     Helpers.toast('Category report downloaded!', 'success');
   }
 
-  // ── PRE-EVENT: Team-wise grouped by category Excel ────────────────────────
-  async function downloadPreEventTeamExcel(attendees) {
+  // ── PRE-EVENT: Team-wise grouped by TEAM'S DEPARTMENT Excel ─────────────
+  // Correct logic: group teams by which dept they BELONG TO,
+  // count ALL devotees brought by each team (ignore devotee's own category)
+  async function downloadPreEventTeamExcel(attendees, teamCategoryMap) {
+    const savedMap    = teamCategoryMap || {};
     const CATEGORY_ORDER = Reports.CATEGORY_ORDER;
-    const cats = {};
+
+    // Build dept → { team → members[] } using team's DEPARTMENT (not devotee category)
+    const deptMap = {};
     attendees.forEach(a => {
-      const cat  = (a.category || 'Unknown').trim();
       const team = (a.team || 'Other').trim();
-      if (!cats[cat]) cats[cat] = {};
-      if (!cats[cat][team]) cats[cat][team] = [];
-      cats[cat][team].push(a);
+      const dept = Reports.getTeamDept(team, savedMap) || 'Unassigned';
+      if (!deptMap[dept]) deptMap[dept] = {};
+      if (!deptMap[dept][team]) deptMap[dept][team] = [];
+      deptMap[dept][team].push(a);
     });
-    const allCats = [...CATEGORY_ORDER.filter(c => cats[c]), ...Object.keys(cats).filter(c => !CATEGORY_ORDER.includes(c)).sort()];
+    const allCats = [...CATEGORY_ORDER.filter(d => deptMap[d]), ...Object.keys(deptMap).filter(d => !CATEGORY_ORDER.includes(d)).sort()];
 
     const slug = await getEventSlug();
     const wb   = new ExcelJS.Workbook();
@@ -591,10 +596,10 @@ const Export = (() => {
     let grandPaid = 0, grandUnpaid = 0, grandTotal = 0;
 
     allCats.forEach(cat => {
-      const teamMap = cats[cat];
+      const teamMap = deptMap[cat];
       const teams = Object.keys(teamMap).sort();
 
-      // Category header row (merged across 4 cols)
+      // Department header row (merged across 4 cols)
       const catHdr = ws.addRow([cat, '', '', '']);
       catHdr.height = 22;
       catHdr.eachCell({ includeEmpty: true }, cell => {

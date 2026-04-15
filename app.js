@@ -8,22 +8,9 @@ const App = (() => {
   let liveUnsubscribe = null; // Firestore real-time listener
   const PAGE_SIZE = 100;
 
-  // ── Known category → team mapping ─────────────────────────────────────────
-  const CATEGORY_TEAMS = {
-    'IGF':           ['Lalita', 'Visakha', 'Chitralekha', 'Champakalata', 'Tungavidya', 'Indulekha', 'Rangadevi', 'Sudevi'],
-    'IYF':           ['Anant', 'Govind', 'Madhav', 'Keshav', 'Janardhan'],
-    'ICF_Mtg':       ['Rohini', 'Rukmini', 'Kalindi', 'Satyabhama', 'Jamvanti', 'Lakshmana', 'Kaushal', 'Bhadra'],
-    'ICF_Prji':      ['Vasudev', 'Sankarshan', 'Anirudha', 'Pradyuman'],
-    'Balarama Team': []
-  };
-
-  // Return the category for a team name (case-insensitive); null if unknown
+  // Return the department for a team name — delegates to Reports module
   function getCategoryForTeam(teamName) {
-    const lower = (teamName || '').toLowerCase();
-    for (const [cat, teams] of Object.entries(CATEGORY_TEAMS)) {
-      if (teams.some(t => t.toLowerCase() === lower)) return cat;
-    }
-    return null;
+    return Reports.getTeamDept(teamName, null);
   }
 
   // Module-level sidebar helpers (needed by enterApp and nav items alike)
@@ -861,8 +848,8 @@ const App = (() => {
     const savedMapRaw = await DB.getConfig('teamCategoryMap');
     const savedMap    = savedMapRaw ? JSON.parse(savedMapRaw) : {};
 
-    // Collect teams that aren't in CATEGORY_TEAMS and not already mapped
-    const allKnown = Object.values(CATEGORY_TEAMS).flat().map(t => t.toLowerCase());
+    // Collect teams that aren't in the predefined list and not already mapped
+    const allKnown = Object.values(Reports.CATEGORY_TEAMS).flat().map(t => t.toLowerCase());
     const unknownTeams = [...new Set(
       records
         .map(r => (r.team || '').trim())
@@ -877,7 +864,7 @@ const App = (() => {
         <span style="flex:1;min-width:120px;font-weight:500">${t}</span>
         <select class="wi-input unknown-team-cat" data-team="${t}" style="flex:1;min-width:130px">
           <option value="">— select category —</option>
-          ${Object.keys(CATEGORY_TEAMS).map(c => `<option value="${c}">${c}</option>`).join('')}
+          ${Object.keys(Reports.CATEGORY_TEAMS).map(c => `<option value="${c}">${c}</option>`).join('')}
           <option value="Other">Other</option>
         </select>
       </div>`).join('');

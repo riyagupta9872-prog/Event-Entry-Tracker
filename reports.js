@@ -1,8 +1,27 @@
 // ===== REPORTS MODULE =====
 const Reports = (() => {
 
-  // ── Known category order for Pre Event reports ────────────────────────────
+  // ── Known department order and team membership ────────────────────────────
   const CATEGORY_ORDER = ['ICF_Prji', 'ICF_Mtg', 'IYF', 'IGF', 'Balarama Team'];
+
+  const CATEGORY_TEAMS = {
+    'IGF':           ['Lalita', 'Visakha', 'Chitralekha', 'Champakalata', 'Tungavidya', 'Indulekha', 'Rangadevi', 'Sudevi'],
+    'IYF':           ['Anant', 'Govind', 'Madhav', 'Keshav', 'Janardhan'],
+    'ICF_Mtg':       ['Rohini', 'Rukmini', 'Kalindi', 'Satyabhama', 'Jamvanti', 'Lakshmana', 'Kaushal', 'Bhadra'],
+    'ICF_Prji':      ['Vasudev', 'Sankarshan', 'Anirudha', 'Pradyuman'],
+    'Balarama Team': []
+  };
+
+  // Return which department a TEAM belongs to (not the devotee's category)
+  function getTeamDept(teamName, extraMap) {
+    const lower = (teamName || '').toLowerCase().trim();
+    for (const [dept, teams] of Object.entries(CATEGORY_TEAMS)) {
+      if (teams.some(t => t.toLowerCase() === lower)) return dept;
+    }
+    // Fall back to user-saved mappings from import flow
+    if (extraMap && extraMap[lower]) return extraMap[lower];
+    return null;
+  }
 
   // ── Module-level filter state ─────────────────────────────────────────────
   let _attendees  = [];
@@ -33,7 +52,10 @@ const Reports = (() => {
     }, 0);
     const profitLoss = totalPay - totalBusCost - cfg.totalExpense;
 
-    return { attendees: _attendees, busRoutes, cfg, teams, categories, references, totalPay, totalBusCost, profitLoss };
+    const rawMap = await DB.getConfig('teamCategoryMap');
+    const teamCategoryMap = rawMap ? JSON.parse(rawMap) : {};
+
+    return { attendees: _attendees, busRoutes, cfg, teams, categories, references, totalPay, totalBusCost, profitLoss, teamCategoryMap };
   }
 
   // ── Apply current filters to attendees array ──────────────────────────────
@@ -155,39 +177,54 @@ const Reports = (() => {
     return parts.length ? parts.join('_') : 'All';
   }
 
-  // ── Render Pre Event Reports HTML (category-wise + team-wise tables) ──────
-  function renderPreEventReports(attendees) {
-    const cats = {};
+  // ── Render Pre Event Reports HTML ─────────────────────────────────────────
+  // teamCategoryMap: user-saved unknown-team→dept assignments from Firestore
+  function renderPreEventReports(attendees, teamCategoryMap) {
+    const savedMap = teamCategoryMap || {};
+
+    // ── TABLE 1: Category-wise (devotee's own category) ───────────────────
+    // "Har category ke kitne devotees aa rhe hai" → group by a.category
+    const devCatMap = {};
     attendees.forEach(a => {
-      const cat  = (a.category || 'Unknown').trim();
+      const cat = (a.category || 'Unknown').trim();
+      devCatMap[cat] = (devCatMap[cat] || 0) + 1;
+    });
+    const catOrder = [...CATEGORY_ORDER.filter(c => devCatMap[c]), ...Object.keys(devCatMap).filter(c => !CATEGORY_ORDER.includes(c)).sort()];
+    const catBodyRows = catOrder.map(cat =>
+      `<tr class="pre-data-row"><td>${cat}</td><td style="text-align:center;font-weight:700">${devCatMap[cat]}</td></tr>`
+    ).join('');
+    const catGrand = attendees.length;
+
+    // ── TABLE 2: Team-wise grouped by TEAM'S DEPARTMENT ───────────────────
+    // Group by which department the TEAM belongs to (not devotee's category)
+    // Count ALL devotees a team brought, regardless of their own category
+    const deptMap = {}; // dept → { teamName → members[] }
+    attendees.forEach(a => {
       const team = (a.team || 'Other').trim();
-      if (!cats[cat]) cats[cat] = {};
-      if (!cats[cat][team]) cats[cat][team] = [];
-      cats[cat][team].push(a);
+      const dept = getTeamDept(team, savedMap) || 'Unassigned';
+      if (!deptMap[dept]) deptMap[dept] = {};
+      if (!deptMap[dept][team]) deptMap[dept][team] = [];
+      deptMap[dept][team].push(a);
     });
 
-    const allCats = [
-      ...CATEGORY_ORDER.filter(c => cats[c]),
-      ...Object.keys(cats).filter(c => !CATEGORY_ORDER.includes(c)).sort()
-    ];
+    const allDepts = [...CATEGORY_ORDER.filter(d => deptMap[d]), ...Object.keys(deptMap).filter(d => !CATEGORY_ORDER.includes(d)).sort()];
 
     let grandPaid = 0, grandUnpaid = 0, grandTotal = 0;
-    const catSummary = [];
     let teamBodyRows = '';
 
-    allCats.forEach(cat => {
-      const teamMap = cats[cat] || {};
+    allDepts.forEach(dept => {
+      const teamMap = deptMap[dept] || {};
       const teams = Object.keys(teamMap).sort();
-      let catPaid = 0, catUnpaid = 0, catTotal = 0;
+      let deptPaid = 0, deptUnpaid = 0, deptTotal = 0;
 
-      teamBodyRows += `<tr class="pre-cat-hdr"><td colspan="4">${cat}</td></tr>`;
+      teamBodyRows += `<tr class="pre-cat-hdr"><td colspan="4">${dept}</td></tr>`;
 
       teams.forEach(team => {
         const members = teamMap[team];
         const paid   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'paid').length;
         const free   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'free').length;
         const unpaid = members.length - paid - free;
-        catPaid += paid; catUnpaid += unpaid; catTotal += members.length;
+        deptPaid += paid; deptUnpaid += unpaid; deptTotal += members.length;
 
         teamBodyRows += `<tr class="pre-data-row">
           <td style="padding-left:1.25rem">${team}</td>
@@ -199,18 +236,13 @@ const Reports = (() => {
 
       teamBodyRows += `<tr class="pre-subtotal">
         <td>Sub-Total</td>
-        <td style="text-align:center">${catPaid}</td>
-        <td style="text-align:center">${catUnpaid}</td>
-        <td style="text-align:center">${catTotal}</td>
+        <td style="text-align:center">${deptPaid}</td>
+        <td style="text-align:center">${deptUnpaid}</td>
+        <td style="text-align:center">${deptTotal}</td>
       </tr>`;
 
-      catSummary.push({ cat, total: catTotal });
-      grandPaid += catPaid; grandUnpaid += catUnpaid; grandTotal += catTotal;
+      grandPaid += deptPaid; grandUnpaid += deptUnpaid; grandTotal += deptTotal;
     });
-
-    const catBodyRows = catSummary.map(c =>
-      `<tr class="pre-data-row"><td>${c.cat}</td><td style="text-align:center;font-weight:700">${c.total}</td></tr>`
-    ).join('');
 
     return `
       <div class="card" style="margin-bottom:1rem">
@@ -223,7 +255,7 @@ const Reports = (() => {
             <thead><tr><th>Category</th><th style="text-align:center">Number of Devotees</th></tr></thead>
             <tbody>
               ${catBodyRows}
-              <tr class="pre-grand-total"><td>Grand Total</td><td style="text-align:center">${grandTotal}</td></tr>
+              <tr class="pre-grand-total"><td>Grand Total</td><td style="text-align:center">${catGrand}</td></tr>
             </tbody>
           </table>
         </div>
@@ -251,11 +283,11 @@ const Reports = (() => {
   }
 
   // ── Wire Pre Event download buttons ───────────────────────────────────────
-  function initPreEventReports(attendees) {
+  function initPreEventReports(attendees, teamCategoryMap) {
     document.getElementById('btn-pre-cat-xl')?.addEventListener('click', () =>
       Export.downloadPreEventCategoryExcel(attendees));
     document.getElementById('btn-pre-team-xl')?.addEventListener('click', () =>
-      Export.downloadPreEventTeamExcel(attendees));
+      Export.downloadPreEventTeamExcel(attendees, teamCategoryMap));
   }
 
   // ── Render the full reports page (initial HTML only) ─────────────────────
@@ -338,8 +370,8 @@ const Reports = (() => {
         const preEl = document.getElementById('rpt-preevt-content');
         preEl.classList.toggle('hidden', tab !== 'preevt');
         if (tab === 'preevt' && !preEl.innerHTML.trim()) {
-          preEl.innerHTML = renderPreEventReports(data.attendees);
-          initPreEventReports(data.attendees);
+          preEl.innerHTML = renderPreEventReports(data.attendees, data.teamCategoryMap);
+          initPreEventReports(data.attendees, data.teamCategoryMap);
         }
       });
     });
@@ -437,5 +469,5 @@ const Reports = (() => {
     };
   }
 
-  return { reportData, renderReports, initReportFilters, reportSummary, renderPreEventReports, CATEGORY_ORDER };
+  return { reportData, renderReports, initReportFilters, reportSummary, renderPreEventReports, CATEGORY_ORDER, CATEGORY_TEAMS, getTeamDept };
 })();
