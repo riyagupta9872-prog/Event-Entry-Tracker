@@ -166,8 +166,6 @@ const Helpers = (() => {
     return (
       (item.name || '').toLowerCase().includes(q) ||
       (item.mobile || '').includes(q) ||
-      (item.team || '').toLowerCase().includes(q) ||
-      (item.reference || '').toLowerCase().includes(q) ||
       (item.attendeeId || '').toLowerCase().includes(q)
     );
   }
