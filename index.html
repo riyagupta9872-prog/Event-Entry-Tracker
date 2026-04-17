@@ -263,8 +263,26 @@ a { text-decoration: none; color: inherit; }
   background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius-sm); color: var(--text-primary);
   font-size: 0.8rem; max-width: 200px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.event-select:focus { border-color: var(--accent); }
+.event-select:focus, .event-select:hover { border-color: var(--accent); }
+.event-picker-search {
+  width: 100%; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-input); color: var(--text-primary);
+  font-size: 0.9rem; box-sizing: border-box;
+}
+.event-picker-search:focus { outline: none; border-color: var(--accent); }
+.event-picker-list { max-height: 280px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.event-picker-item {
+  padding: 0.6rem 0.75rem; border-radius: var(--radius-sm);
+  cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.9rem; color: var(--text-primary); transition: background 0.15s;
+}
+.event-picker-item:hover { background: var(--success-bg); }
+.event-picker-item.active { background: var(--success-bg); font-weight: 600; color: var(--accent); }
+.event-picker-item .evt-date { font-size: 0.75rem; color: var(--text-secondary); margin-left: auto; }
+.event-picker-empty { text-align: center; color: var(--text-secondary); padding: 1rem; font-size: 0.9rem; }
 .btn-new-event {
   padding: 0.3rem 0.5rem;
   background: var(--success-bg); border: 1px solid var(--accent);
@@ -653,6 +671,39 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 }
 .admit-counter-item small { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .admit-counter-divider { width: 1px; height: 28px; background: var(--border); }
+
+/* ── My Bus bar (admission page) ─────────────────────────── */
+.my-bus-bar {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  padding: .35rem .75rem .4rem; background: var(--bg-card2);
+  border-bottom: 1px solid var(--border); margin-bottom: .5rem;
+}
+.my-bus-label { font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
+.my-bus-pills { display: flex; gap: .4rem; flex-wrap: wrap; }
+.my-bus-pill {
+  padding: .25rem .65rem; border-radius: 999px; font-size: .78rem; font-weight: 500;
+  border: 1px solid var(--border); background: var(--bg-input); color: var(--text-secondary);
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.my-bus-pill:hover { border-color: var(--accent); color: var(--accent); }
+.my-bus-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── Bus Occupancy dashboard card ───────────────────────── */
+.bus-occ-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .6rem; margin-bottom: .5rem; }
+.bus-occ-tile {
+  background: var(--bg-card2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: .65rem .75rem;
+}
+.bus-occ-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .35rem; }
+.bus-occ-name { font-weight: 600; font-size: .9rem; color: var(--text-primary); }
+.bus-occ-count { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+.bus-occ-coordinator { font-size: .75rem; color: var(--text-muted); margin-bottom: .45rem; }
+.bus-occ-bar-wrap { background: var(--border); border-radius: 999px; height: 6px; overflow: hidden; }
+.bus-occ-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width .4s; min-width: 2px; }
+.bus-occ-bar-fill.full { background: var(--danger); }
+.bus-occ-head { font-size: .78rem; color: var(--text-secondary); padding: .4rem 0 0; border-top: 1px solid var(--border); margin-top: .5rem; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.25); animation: livepulse 1.6s ease-in-out infinite; }
+@keyframes livepulse { 0%,100%{opacity:1;box-shadow:0 0 0 2px rgba(34,197,94,.25)} 50%{opacity:.7;box-shadow:0 0 0 5px rgba(34,197,94,.1)} }
 
 .admit-search-wrap {
   display: flex; align-items: center; gap: 0;
@@ -1239,7 +1290,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           <button id="btn-menu" class="menu-btn">&#9776;</button>
           <h2 id="page-title">Admission</h2>
           <div class="top-bar-right">
-            <select id="event-selector" class="event-select admin-only"></select>
+            <button id="event-selector-btn" class="event-select" onclick="App.showEventPicker()" title="Switch event">—</button>
             <button class="btn-new-event admin-only" onclick="App.showCreateEventModal()">+ Event</button>
             <span id="sync-status" class="sync-status online">Online</span>
             <span id="offline-badge" class="offline-badge hidden">Queued</span>
@@ -1254,6 +1305,12 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               <div class="admit-counter-item"><span id="admit-count-present">0</span><small>In</small></div>
               <div class="admit-counter-divider"></div>
               <div class="admit-counter-item"><span id="admit-count-total">0</span><small>Total</small></div>
+            </div>
+
+            <!-- My Bus selector (shown when buses are configured) -->
+            <div id="my-bus-bar" class="my-bus-bar hidden">
+              <span class="my-bus-label">Your Bus:</span>
+              <div id="my-bus-pills" class="my-bus-pills"></div>
             </div>
 
             <div class="admit-search-wrap">
@@ -1408,7 +1465,16 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               </div>
             </div>
 
-            <!-- Buses -->
+            <!-- Bus Occupancy (live, visible to all) -->
+            <div class="card" id="dash-bus-occ-card" style="margin-bottom:1rem;display:none">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
+                <h3 class="card-title" style="margin:0">Bus Occupancy</h3>
+                <span><span class="live-dot"></span>&nbsp;<span style="font-size:.75rem;color:var(--text-muted)">Live</span></span>
+              </div>
+              <div id="dash-bus-occupancy"></div>
+            </div>
+
+            <!-- Buses (financial — admin only) -->
             <div class="card admin-only" style="margin-bottom:1rem">
               <h3 class="card-title">Buses</h3>
               <div id="dash-buses"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
@@ -1590,8 +1656,17 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               <div class="settings-menu-item" id="smenu-buses">
                 <span class="s-icon">&#128652;</span>
                 <div class="settings-menu-info">
-                  <div class="settings-menu-title">Bus Routes</div>
-                  <div class="settings-menu-desc">Configure transport and seating capacity</div>
+                  <div class="settings-menu-title">Bus Routes (Financial)</div>
+                  <div class="settings-menu-desc">Routes, cost per bus, P&amp;L tracking</div>
+                </div>
+                <span class="settings-menu-arrow">&#8250;</span>
+              </div>
+
+              <div class="settings-menu-item" id="smenu-bus-manage">
+                <span class="s-icon">&#128661;</span>
+                <div class="settings-menu-info">
+                  <div class="settings-menu-title">Bus Management</div>
+                  <div class="settings-menu-desc">Live boarding — Bus 1, Bus 2, coordinator names</div>
                 </div>
                 <span class="settings-menu-arrow">&#8250;</span>
               </div>

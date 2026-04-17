@@ -231,11 +231,48 @@ const App = (() => {
     if (el2) el2.textContent = allAttendees.length;
   }
 
+  // ===== MY BUS (admission-page bus selector) =====
+  function _myBusKey() { return `prerna_my_bus_${DB.getCurrentEvent() || 'default'}`; }
+  function getMyBus()   { return localStorage.getItem(_myBusKey()) || ''; }
+  function setMyBus(name) {
+    if (name) localStorage.setItem(_myBusKey(), name);
+    else       localStorage.removeItem(_myBusKey());
+  }
+
+  async function initMyBusPicker() {
+    const buses = await DB.getAll(DB.STORES.buses);
+    const bar   = document.getElementById('my-bus-bar');
+    const pills = document.getElementById('my-bus-pills');
+    if (!bar || !pills) return;
+
+    if (!buses.length) { bar.classList.add('hidden'); return; }
+
+    bar.classList.remove('hidden');
+    const active = getMyBus();
+    pills.innerHTML = buses.map(b =>
+      `<button class="my-bus-pill ${b.name === active ? 'active' : ''}" onclick="App._selectMyBus('${b.name.replace(/'/g,"\\'")}', this)">${b.name}</button>`
+    ).join('');
+  }
+
+  function _selectMyBus(name, btn) {
+    const wasActive = btn.classList.contains('active');
+    document.querySelectorAll('.my-bus-pill').forEach(p => p.classList.remove('active'));
+    if (wasActive) {
+      setMyBus('');
+    } else {
+      btn.classList.add('active');
+      setMyBus(name);
+    }
+  }
+
   // ===== EVENT MANAGEMENT =====
+  let _cachedEvents = [];
+
   async function loadEventSelector() {
     const events = await DB.getEvents();
-    const selector = document.getElementById('event-selector');
+    _cachedEvents = events;
     const activeId = DB.getCurrentEvent();
+    const btn = document.getElementById('event-selector-btn');
 
     if (events.length === 0) {
       const id = await DB.createEvent({
@@ -248,24 +285,79 @@ const App = (() => {
       return;
     }
 
-    selector.innerHTML = events.map(e =>
-      `<option value="${e.id}" ${e.id === activeId ? 'selected' : ''}>${e.name}${e.date ? ' (' + Helpers.formatDate(e.date) + ')' : ''}</option>`
-    ).join('');
-
     if (!activeId || !events.find(e => e.id === activeId)) {
       DB.setCurrentEvent(events[0].id);
-      selector.value = events[0].id;
     }
 
-    selector.onchange = () => {
-      DB.setCurrentEvent(selector.value);
-      allAttendees = [];
-      attendanceInited = false;
-      startLiveSync();
-      navigate(currentPage);
-    };
+    const active = events.find(e => e.id === DB.getCurrentEvent()) || events[0];
+    if (btn) btn.textContent = active.name;
 
     startLiveSync();
+  }
+
+  function showEventPicker() {
+    const activeId = DB.getCurrentEvent();
+    let filtered = _cachedEvents;
+
+    const renderList = (query) => {
+      const q = (query || '').toLowerCase().trim();
+      filtered = q ? _cachedEvents.filter(e => e.name.toLowerCase().includes(q) || (e.date && e.date.includes(q))) : _cachedEvents;
+      const list = document.getElementById('evt-picker-list');
+      if (!list) return;
+      if (filtered.length === 0) {
+        list.innerHTML = '<li class="event-picker-empty">No events found</li>';
+        return;
+      }
+      list.innerHTML = filtered.map(e => `
+        <li class="event-picker-item ${e.id === activeId ? 'active' : ''}" onclick="App._pickEvent('${e.id}')">
+          <span>${e.name}</span>
+          ${e.date ? `<span class="evt-date">${Helpers.formatDate(e.date)}</span>` : ''}
+        </li>`).join('');
+    };
+
+    Helpers.modal(`
+      <h3 class="modal-title">Choose Event</h3>
+      <input id="evt-picker-search" class="event-picker-search" type="text" placeholder="Search events…" oninput="App._filterEvents(this.value)" />
+      <ul id="evt-picker-list" class="event-picker-list"></ul>
+    `);
+
+    renderList('');
+
+    // Focus search after modal renders
+    setTimeout(() => {
+      const inp = document.getElementById('evt-picker-search');
+      if (inp) inp.focus();
+    }, 50);
+  }
+
+  function _filterEvents(query) {
+    const activeId = DB.getCurrentEvent();
+    const q = (query || '').toLowerCase().trim();
+    const filtered = q ? _cachedEvents.filter(e => e.name.toLowerCase().includes(q) || (e.date && e.date.includes(q))) : _cachedEvents;
+    const list = document.getElementById('evt-picker-list');
+    if (!list) return;
+    if (filtered.length === 0) {
+      list.innerHTML = '<li class="event-picker-empty">No events found</li>';
+      return;
+    }
+    list.innerHTML = filtered.map(e => `
+      <li class="event-picker-item ${e.id === activeId ? 'active' : ''}" onclick="App._pickEvent('${e.id}')">
+        <span>${e.name}</span>
+        ${e.date ? `<span class="evt-date">${Helpers.formatDate(e.date)}</span>` : ''}
+      </li>`).join('');
+  }
+
+  function _pickEvent(id) {
+    Helpers.closeModal();
+    if (id === DB.getCurrentEvent()) return;
+    DB.setCurrentEvent(id);
+    allAttendees = [];
+    attendanceInited = false;
+    const active = _cachedEvents.find(e => e.id === id);
+    const btn = document.getElementById('event-selector-btn');
+    if (btn && active) btn.textContent = active.name;
+    startLiveSync();
+    navigate(currentPage);
   }
 
   function showCreateEventModal() {
@@ -332,7 +424,7 @@ const App = (() => {
     switch (page) {
       case 'dashboard': initDashboard(); break;
       case 'import': initImport(); break;
-      case 'attendance': initAttendance(); break;
+      case 'attendance': initAttendance(); initMyBusPicker(); break;
       case 'walkin': initWalkin(); break;
       case 'attendees': initAttendees(); break;
       case 'reports': initReports(); break;
@@ -393,7 +485,44 @@ const App = (() => {
           </div>
         </div>`;
 
-      // ── Buses ────────────────────────────────────────────────────────────
+      // ── Bus Occupancy (live count per bus, visible to all) ───────────────
+      const occCard = document.getElementById('dash-bus-occ-card');
+      const occEl   = document.getElementById('dash-bus-occupancy');
+      const buses   = await DB.getAll(DB.STORES.buses);
+      if (occCard && occEl && buses.length) {
+        occCard.style.display = '';
+        const busCoordHead  = await DB.getConfig('busCoordinatorHead') || '';
+        const boardedCounts = {};
+        attendees.filter(a => a.attendance === 'present' && a.boardedBus).forEach(a => {
+          boardedCounts[a.boardedBus] = (boardedCounts[a.boardedBus] || 0) + 1;
+        });
+        const tiles = buses.map(b => {
+          const cap   = parseInt(b.capacity) || 0;
+          const count = boardedCounts[b.name] || 0;
+          const pct   = cap ? Math.min(100, Math.round(count / cap * 100)) : 0;
+          const full  = cap && count >= cap;
+          return `<div class="bus-occ-tile">
+            <div class="bus-occ-header">
+              <span class="bus-occ-name">${b.name}</span>
+              <span class="bus-occ-count">${count}${cap ? '/' + cap : ''}</span>
+            </div>
+            ${b.coordinator ? `<div class="bus-occ-coordinator">&#128100; ${b.coordinator}</div>` : ''}
+            ${cap ? `<div class="bus-occ-bar-wrap"><div class="bus-occ-bar-fill${full ? ' full' : ''}" style="width:${pct}%"></div></div>` : ''}
+          </div>`;
+        }).join('');
+        occEl.innerHTML = `<div class="bus-occ-grid">${tiles}</div>` +
+          (busCoordHead ? `<div class="bus-occ-head">&#128081; Bus Coordinator Head: <strong>${busCoordHead}</strong></div>` : '') +
+          `<div style="text-align:right;margin-top:.5rem"><button class="btn-ghost" style="font-size:.78rem" onclick="App.openBusManageModal()">&#9881; Manage Buses</button></div>`;
+      } else if (occCard) {
+        occCard.style.display = buses.length === 0 ? '' : 'none';
+        if (occEl && buses.length === 0) {
+          occEl.innerHTML = `<p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">No buses configured yet.</p>
+            <button class="btn-secondary" style="font-size:.85rem" onclick="App.openBusManageModal()">+ Configure Buses</button>`;
+          occCard.style.display = '';
+        }
+      }
+
+      // ── Bus Routes (financial P&L) ───────────────────────────────────────
       const busRows = busRoutes.map(r => {
         const count    = parseInt(r.busCount || 1);
         const cost     = parseFloat(r.cost || 0);
@@ -1133,6 +1262,8 @@ const App = (() => {
     a.attendance = 'present';
     a.entryTime  = new Date().toISOString();
     a.markedBy   = currentUser?.name || 'Unknown';
+    const myBus  = getMyBus();
+    if (myBus) a.boardedBus = myBus;
 
     if (extraPayment && extraPayment.collected) {
       // Payment was collected at the gate — mark as PAID
@@ -1640,10 +1771,11 @@ const App = (() => {
 
   // ===== SETTINGS — menu only, each option opens a modal =====
   function initSettings() {
-    document.getElementById('smenu-event').onclick  = openEventConfigModal;
-    document.getElementById('smenu-users').onclick  = openTeamAccessModal;
-    document.getElementById('smenu-buses').onclick  = openBusRoutesModal;
-    document.getElementById('smenu-danger').onclick = openDangerZoneModal;
+    document.getElementById('smenu-event').onclick      = openEventConfigModal;
+    document.getElementById('smenu-users').onclick      = openTeamAccessModal;
+    document.getElementById('smenu-buses').onclick      = openBusRoutesModal;
+    document.getElementById('smenu-bus-manage').onclick = openBusManageModal;
+    document.getElementById('smenu-danger').onclick     = openDangerZoneModal;
   }
 
   async function openEventConfigModal() {
@@ -1738,7 +1870,7 @@ const App = (() => {
 
   async function openBusRoutesModal() {
     Helpers.modal(`
-      <h3 class="modal-title">&#128652; Bus Routes</h3>
+      <h3 class="modal-title">&#128652; Bus Routes (Financial)</h3>
       <div id="bus-routes-list" style="margin-bottom:.25rem"></div>
       <div id="bus-add-inline" style="display:none;background:var(--bg-card2);border-radius:var(--radius-sm);padding:.85rem;margin-top:.75rem">
         <div class="input-group" style="margin-bottom:.5rem">
@@ -1944,24 +2076,105 @@ const App = (() => {
   }
 
   async function saveBusRoute() {
-    const name = document.getElementById('m-route-name').value.trim();
+    const name     = document.getElementById('m-route-name').value.trim();
     if (!name) { Helpers.toast('Name required', 'error'); return; }
     const busCount = parseInt(document.getElementById('m-route-count')?.value) || 1;
-    const cost     = parseFloat(document.getElementById('m-route-cost').value) || 0;
-    const capacity = parseInt(document.getElementById('m-route-cap').value) || 0;
+    const cost     = parseFloat(document.getElementById('m-route-cost')?.value) || 0;
+    const capacity = parseInt(document.getElementById('m-route-cap')?.value) || 0;
     await DB.add(DB.STORES.busRoutes, { name, busCount, cost, capacity, chargePerPassenger: 0 });
     Helpers.toast('Bus route added', 'success');
     const inlineForm = document.getElementById('bus-add-inline');
     if (inlineForm) {
-      // Inside the settings bus routes modal — hide inline form, clear inputs, re-render list
       inlineForm.style.display = 'none';
       ['m-route-name','m-route-cost','m-route-cap'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
       document.getElementById('m-route-count').value = '1';
       renderBusRoutes();
     } else {
-      // Standalone modal (from dashboard) — close modal
       Helpers.closeModal();
     }
+    if (currentPage === 'dashboard') initDashboard();
+  }
+
+  // ===== BUS MANAGEMENT (live boarding — separate from financial bus routes) =====
+  async function openBusManageModal() {
+    const busCoordHead = await DB.getConfig('busCoordinatorHead') || '';
+    Helpers.modal(`
+      <h3 class="modal-title">&#128652; Bus Management</h3>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:end;margin-bottom:1rem">
+        <div>
+          <label class="settings-label">Bus Coordinator Head</label>
+          <input id="m-bus-coord-head" type="text" class="wi-input" style="width:100%" placeholder="Overall head name" value="${(busCoordHead).replace(/"/g,'&quot;')}" />
+        </div>
+        <button class="btn-secondary" style="white-space:nowrap" onclick="App._saveBusCoordHead()">Save</button>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--border);margin-bottom:.75rem">
+      <div id="bus-manage-list" style="margin-bottom:.5rem"></div>
+      <div id="bus-add-form" style="display:none;background:var(--bg-card2);border-radius:var(--radius-sm);padding:.85rem;margin-top:.5rem">
+        <div class="input-group" style="margin-bottom:.5rem">
+          <label class="settings-label">Bus Name</label>
+          <input id="m-bus-name" type="text" class="wi-input" style="width:100%" placeholder="e.g. Bus 1" />
+        </div>
+        <div class="input-group" style="margin-bottom:.5rem">
+          <label class="settings-label">Coordinator Name</label>
+          <input id="m-bus-coordinator" type="text" class="wi-input" style="width:100%" placeholder="Name of coordinator for this bus" />
+        </div>
+        <div class="input-group" style="margin-bottom:.75rem">
+          <label class="settings-label">Capacity (seats)</label>
+          <input id="m-bus-capacity" type="number" class="wi-input" style="width:100%" placeholder="e.g. 50" />
+        </div>
+        <div style="display:flex;gap:.5rem">
+          <button class="btn-primary" style="flex:1" onclick="App.saveBus()">Add Bus</button>
+          <button class="btn-ghost" onclick="document.getElementById('bus-add-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+      <button class="btn-secondary" id="m-btn-show-add-bus-new" style="margin-top:.5rem;width:100%">+ Add Bus</button>
+    `);
+    document.getElementById('m-btn-show-add-bus-new').onclick = () => {
+      document.getElementById('bus-add-form').style.display = 'block';
+      document.getElementById('m-bus-name').focus();
+    };
+    await renderBusManageList();
+  }
+
+  async function renderBusManageList() {
+    const buses = await DB.getAll(DB.STORES.buses);
+    const el = document.getElementById('bus-manage-list');
+    if (!el) return;
+    el.innerHTML = buses.map(b => `
+      <div class="bus-route-row">
+        <div class="bus-route-info">
+          <div class="bus-route-name">${b.name}</div>
+          <div class="bus-route-meta">&#128100; ${b.coordinator || '—'} &nbsp;·&nbsp; Capacity: ${b.capacity || '—'}</div>
+        </div>
+        <button class="btn-small danger" onclick="App.deleteBus('${b.id}')">✕</button>
+      </div>`).join('') || '<p style="color:var(--text-muted);font-size:.85rem">No buses added yet</p>';
+  }
+
+  async function saveBus() {
+    const name        = (document.getElementById('m-bus-name')?.value || '').trim();
+    if (!name) { Helpers.toast('Bus name required', 'error'); return; }
+    const coordinator = (document.getElementById('m-bus-coordinator')?.value || '').trim();
+    const capacity    = parseInt(document.getElementById('m-bus-capacity')?.value) || 0;
+    await DB.add(DB.STORES.buses, { name, coordinator, capacity });
+    Helpers.toast(`${name} added`, 'success');
+    document.getElementById('bus-add-form').style.display = 'none';
+    ['m-bus-name','m-bus-coordinator','m-bus-capacity'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    await renderBusManageList();
+    if (currentPage === 'dashboard') initDashboard();
+    if (currentPage === 'attendance') initMyBusPicker();
+  }
+
+  async function deleteBus(id) {
+    await DB.deleteRecord(DB.STORES.buses, id);
+    await renderBusManageList();
+    if (currentPage === 'dashboard') initDashboard();
+    if (currentPage === 'attendance') initMyBusPicker();
+  }
+
+  async function _saveBusCoordHead() {
+    const name = (document.getElementById('m-bus-coord-head')?.value || '').trim();
+    await DB.setConfig('busCoordinatorHead', name);
+    Helpers.toast('Saved', 'success');
     if (currentPage === 'dashboard') initDashboard();
   }
 
@@ -2187,6 +2400,9 @@ const App = (() => {
     resolveDuplicate, acceptDuplicate, deleteDuplicate,
     saveBusRoute, deleteBusRoute, toggleUserRole,
     showAddBusModal, deleteBusRouteFromDash,
+    showEventPicker, _filterEvents, _pickEvent,
+    _selectMyBus, _saveBusCoordHead,
+    openBusManageModal, saveBus, deleteBus,
     showCreateEventModal, createEvent,
     showCountList,
     initAttendees,

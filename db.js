@@ -7,6 +7,7 @@ const DB = (() => {
     users: 'users',
     config: 'config',
     busRoutes: 'busRoutes',
+    buses: 'buses',
     auditLog: 'auditLog',
     offlineQueue: 'offlineQueue'
   };
@@ -135,7 +136,7 @@ const DB = (() => {
 
   async function deleteEvent(eventId) {
     // Delete subcollections first
-    for (const sub of ['participants', 'config', 'busRoutes', 'auditLog']) {
+    for (const sub of ['participants', 'config', 'busRoutes', 'buses', 'auditLog']) {
       const snap = await firestore.collection('events').doc(eventId).collection(sub).get();
       for (let i = 0; i < snap.docs.length; i += 500) {
         const batch = firestore.batch();
