@@ -504,22 +504,38 @@ const Reports = (() => {
       DB.setCurrentEvent(evt.id);
       let participants = [];
       try { participants = await DB.getAll(DB.STORES.attendees); } catch { participants = []; }
+      // Collapse duplicate participant rows for the same mobile within this
+      // event (e.g. re-imports, walk-in created alongside a registration) so a
+      // single event contributes at most ONE history entry per devotee.
+      // A devotee is considered "present" for the event if ANY of their rows
+      // for that event are marked present.
+      const perDevoteeInEvent = new Map();
       for (const p of participants) {
         const key = _mobileKey(p.mobile);
         if (!key) continue;
+        const existing = perDevoteeInEvent.get(key);
+        if (!existing) {
+          perDevoteeInEvent.set(key, { name: p.name || '', team: p.team || '', present: p.attendance === 'present' });
+        } else {
+          if (!existing.name && p.name) existing.name = p.name;
+          if (!existing.team && p.team) existing.team = p.team;
+          if (p.attendance === 'present') existing.present = true;
+        }
+      }
+      for (const [key, info] of perDevoteeInEvent) {
         let entry = map.get(key);
         if (!entry) {
-          entry = { name: p.name || '', mobile: key, team: p.team || '', history: [] };
+          entry = { name: info.name, mobile: key, team: info.team, history: [] };
           map.set(key, entry);
         }
         // Keep latest known name/team (events are processed newest→oldest, so first wins)
-        if (!entry.name && p.name) entry.name = p.name;
-        if (!entry.team && p.team) entry.team = p.team;
+        if (!entry.name && info.name) entry.name = info.name;
+        if (!entry.team && info.team) entry.team = info.team;
         entry.history.push({
           eventId: evt.id,
           eventName: evt.name || 'Event',
           date: evt.date || evt.createdAt || '',
-          present: p.attendance === 'present'
+          present: info.present
         });
       }
     }
