@@ -302,6 +302,7 @@ const Reports = (() => {
       <div style="display:flex;gap:.5rem;margin-bottom:1rem">
         <button class="rep-tab active" data-rptab="live">Live Reports</button>
         <button class="rep-tab" data-rptab="preevt">Pre Event Reports</button>
+        <button class="rep-tab" data-rptab="absentees">Repeat Absentees</button>
       </div>
 
       <div id="rpt-live-content">
@@ -352,6 +353,7 @@ const Reports = (() => {
       </div>
 
       <div id="rpt-preevt-content" class="hidden"></div>
+      <div id="rpt-absentees-content" class="hidden"></div>
     `;
   }
 
@@ -369,9 +371,20 @@ const Reports = (() => {
         document.getElementById('rpt-live-content').classList.toggle('hidden', tab !== 'live');
         const preEl = document.getElementById('rpt-preevt-content');
         preEl.classList.toggle('hidden', tab !== 'preevt');
+        const absEl = document.getElementById('rpt-absentees-content');
+        absEl.classList.toggle('hidden', tab !== 'absentees');
         if (tab === 'preevt' && !preEl.innerHTML.trim()) {
           preEl.innerHTML = renderPreEventReports(data.attendees, data.teamCategoryMap);
           initPreEventReports(data.attendees, data.teamCategoryMap);
+        }
+        if (tab === 'absentees' && !absEl.innerHTML.trim()) {
+          absEl.innerHTML = '<p style="color:var(--text-muted);padding:1.5rem;text-align:center">Scanning past events…</p>';
+          computeRepeatAbsenteeMap().then(map => {
+            absEl.innerHTML = renderRepeatAbsentees(map, 2);
+            initRepeatAbsentees(map);
+          }).catch(err => {
+            absEl.innerHTML = `<p style="color:var(--danger);padding:1.5rem">Error: ${err.message}</p>`;
+          });
         }
       });
     });
@@ -442,6 +455,157 @@ const Reports = (() => {
     if (lbl) lbl.textContent = `${filtered.length} record${filtered.length !== 1 ? 's' : ''} match current filters`;
   }
 
+  // ── REPEAT ABSENTEES (cross-event) ────────────────────────────────────────
+  // Cache: Map<mobileKey, { name, mobile, team, consecutive, totalPast, lastAttended, history: [{eventName, date, present}] }>
+  let _absenteeCache = null;
+  let _absenteeCacheEventId = null;
+
+  function _mobileKey(m) {
+    return (m || '').toString().replace(/\D/g, '').slice(-10);
+  }
+
+  // Build cross-event attendance per devotee. Most-recent-past-first event order.
+  // Consecutive = absence streak starting from the most recent past event the
+  // devotee was registered in, ending when we hit the first 'present' (or no
+  // further past registrations).
+  async function computeRepeatAbsenteeMap(force) {
+    const currentEid = DB.getCurrentEvent();
+    if (!force && _absenteeCache && _absenteeCacheEventId === currentEid) return _absenteeCache;
+
+    const allEvents = await DB.getEvents();
+    // Past events only, sorted by date descending (fall back to createdAt)
+    const pastEvents = allEvents
+      .filter(e => e.id !== currentEid)
+      .sort((a, b) => {
+        const da = a.date || a.createdAt || '';
+        const db = b.date || b.createdAt || '';
+        return db.localeCompare(da);
+      });
+
+    // mobileKey → { name, mobile, team, history: [{eventName, date, present}] }
+    const map = new Map();
+
+    for (const evt of pastEvents) {
+      DB.setCurrentEvent(evt.id);
+      let participants = [];
+      try { participants = await DB.getAll(DB.STORES.attendees); } catch { participants = []; }
+      for (const p of participants) {
+        const key = _mobileKey(p.mobile);
+        if (!key) continue;
+        let entry = map.get(key);
+        if (!entry) {
+          entry = { name: p.name || '', mobile: key, team: p.team || '', history: [] };
+          map.set(key, entry);
+        }
+        // Keep latest known name/team (events are processed newest→oldest, so first wins)
+        if (!entry.name && p.name) entry.name = p.name;
+        if (!entry.team && p.team) entry.team = p.team;
+        entry.history.push({
+          eventId: evt.id,
+          eventName: evt.name || 'Event',
+          date: evt.date || evt.createdAt || '',
+          present: p.attendance === 'present'
+        });
+      }
+    }
+    // Restore current event scope
+    DB.setCurrentEvent(currentEid);
+
+    // Compute consecutive-absent count from most recent past event
+    for (const entry of map.values()) {
+      let streak = 0;
+      let lastAttended = null;
+      for (const h of entry.history) {
+        if (h.present) { lastAttended = h; break; }
+        streak += 1;
+      }
+      entry.consecutive = streak;
+      entry.totalPast = entry.history.length;
+      entry.lastAttended = lastAttended;
+    }
+
+    _absenteeCache = map;
+    _absenteeCacheEventId = currentEid;
+    return map;
+  }
+
+  function clearAbsenteeCache() { _absenteeCache = null; _absenteeCacheEventId = null; }
+
+  // Lookup helper used by admission flow in app.js
+  async function getAbsenteeWarning(mobile) {
+    const key = _mobileKey(mobile);
+    if (!key) return null;
+    const map = await computeRepeatAbsenteeMap();
+    const entry = map.get(key);
+    if (!entry || !entry.consecutive) return null;
+    return entry;
+  }
+
+  function renderRepeatAbsentees(map, minStreak) {
+    const min = Math.max(1, parseInt(minStreak || 2));
+    const rows = [...map.values()]
+      .filter(e => e.consecutive >= min)
+      .sort((a, b) => b.consecutive - a.consecutive || (a.name || '').localeCompare(b.name || ''));
+
+    const body = rows.length ? rows.map(e => {
+      const last = e.lastAttended
+        ? `${e.lastAttended.eventName}${e.lastAttended.date ? ' (' + Helpers.formatDate(e.lastAttended.date) + ')' : ''}`
+        : '<span style="color:var(--text-muted)">Never</span>';
+      const recent = e.history.slice(0, e.consecutive).map(h => h.eventName).join(', ');
+      return `<tr>
+        <td>${e.name || '-'}</td>
+        <td>${e.mobile || '-'}</td>
+        <td>${e.team || '-'}</td>
+        <td style="text-align:center;font-weight:700;color:#dc2626">${e.consecutive}</td>
+        <td style="text-align:center">${e.totalPast}</td>
+        <td>${last}</td>
+        <td style="font-size:.8rem;color:var(--text-muted)">${recent}</td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.25rem">No devotees absent in ${min}+ consecutive past events.</td></tr>`;
+
+    return `
+      <div class="card" style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
+          <h3 class="card-title" style="margin:0">Repeat Absentees</h3>
+          <div style="display:flex;gap:.5rem;align-items:center">
+            <label style="font-size:.85rem;color:var(--text-muted)">Min consecutive</label>
+            <select id="rpt-abs-min" class="wi-input" style="width:80px">
+              <option value="1"${min===1?' selected':''}>1</option>
+              <option value="2"${min===2?' selected':''}>2</option>
+              <option value="3"${min===3?' selected':''}>3</option>
+              <option value="4"${min===4?' selected':''}>4</option>
+              <option value="5"${min===5?' selected':''}>5</option>
+            </select>
+          </div>
+        </div>
+        <p style="font-size:.85rem;color:var(--text-muted);margin:0 0 .75rem">
+          Devotees who were absent in their most recent consecutive past events (matched by mobile number). The current event is excluded.
+        </p>
+        <div class="table-wrap">
+          <table class="report-table">
+            <thead><tr>
+              <th>Name</th><th>Mobile</th><th>Team</th>
+              <th style="text-align:center">Consecutive Absent</th>
+              <th style="text-align:center">Past Events</th>
+              <th>Last Attended</th>
+              <th>Absent In</th>
+            </tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function initRepeatAbsentees(map) {
+    const sel = document.getElementById('rpt-abs-min');
+    if (!sel) return;
+    sel.addEventListener('change', () => {
+      const host = document.getElementById('rpt-absentees-content');
+      host.innerHTML = renderRepeatAbsentees(map, sel.value);
+      initRepeatAbsentees(map);
+    });
+  }
+
   // ── Legacy helpers kept for Financial Year page ────────────────────────────
   async function reportSummary() {
     const attendees  = await DB.getAll(DB.STORES.attendees);
@@ -469,5 +633,7 @@ const Reports = (() => {
     };
   }
 
-  return { reportData, renderReports, initReportFilters, reportSummary, renderPreEventReports, CATEGORY_ORDER, CATEGORY_TEAMS, getTeamDept };
+  return { reportData, renderReports, initReportFilters, reportSummary, renderPreEventReports,
+           computeRepeatAbsenteeMap, getAbsenteeWarning, clearAbsenteeCache,
+           CATEGORY_ORDER, CATEGORY_TEAMS, getTeamDept };
 })();

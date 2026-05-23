@@ -187,10 +187,98 @@ const App = (() => {
     document.getElementById('screen-app').classList.remove('hidden');
 
     await loadEventSelector();
+    await ensureSessionSetup();
     navigate('attendance');
   }
 
+  // ===== LOGIN-TIME SESSION SETUP (event + bus) =====
+  // Asked once per browser session (clearing on logout). User must pick which
+  // festival they are checking in for and which bus they are stationed at;
+  // both selections feed into the admission flow's bus tagging.
+  function _sessionSetupDone() {
+    return sessionStorage.getItem('prerna_session_setup_done') === '1';
+  }
+  function _markSessionSetupDone() {
+    sessionStorage.setItem('prerna_session_setup_done', '1');
+  }
+  function _clearSessionSetup() {
+    sessionStorage.removeItem('prerna_session_setup_done');
+  }
+
+  async function ensureSessionSetup() {
+    if (_sessionSetupDone()) return;
+    if (!_cachedEvents || _cachedEvents.length === 0) {
+      _markSessionSetupDone();
+      return;
+    }
+    await showSessionSetupModal();
+  }
+
+  async function showSessionSetupModal() {
+    let buses = [];
+    try { buses = await DB.getAll(DB.STORES.buses); } catch { buses = []; }
+
+    const activeEid = DB.getCurrentEvent();
+    const myBus = getMyBus();
+
+    const evtOptions = _cachedEvents.map(e =>
+      `<option value="${e.id}" ${e.id === activeEid ? 'selected' : ''}>${e.name}${e.date ? ' — ' + Helpers.formatDate(e.date) : ''}</option>`
+    ).join('');
+
+    const busOptions = buses.length
+      ? '<option value="">— select a bus —</option>' + buses.map(b =>
+          `<option value="${b.name.replace(/"/g,'&quot;')}" ${b.name === myBus ? 'selected' : ''}>${b.name}${b.coordinator ? ' · ' + b.coordinator : ''}</option>`
+        ).join('')
+      : '';
+
+    const busBlock = buses.length
+      ? `<label style="display:block;margin-top:.85rem;font-size:.88rem;font-weight:600">Your Bus</label>
+         <select id="ss-bus" class="wi-input" style="width:100%">${busOptions}</select>
+         <p style="font-size:.78rem;color:var(--text-muted);margin:.4rem 0 0">All devotees you admit will be tagged to this bus.</p>`
+      : `<p style="margin-top:.85rem;padding:.6rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:.85rem;color:#92400e">No buses configured yet. Add buses from Settings to enable bus tagging.</p>`;
+
+    Helpers.modal(`
+      <h3 class="modal-title">Start of Shift</h3>
+      <p style="color:var(--text-muted);font-size:.88rem;margin:0 0 1rem">
+        Confirm which festival and bus you are marking attendance for.
+      </p>
+      <label style="display:block;font-size:.88rem;font-weight:600">Festival / Event</label>
+      <select id="ss-event" class="wi-input" style="width:100%">${evtOptions}</select>
+      ${busBlock}
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1.25rem">
+        <button class="btn-primary" id="ss-confirm">Continue</button>
+      </div>
+    `);
+
+    return new Promise(resolve => {
+      document.getElementById('ss-confirm').onclick = async () => {
+        const newEid = document.getElementById('ss-event').value;
+        const newBus = document.getElementById('ss-bus')?.value || '';
+        if (buses.length && !newBus) {
+          Helpers.toast('Please select a bus (or pick "— select a bus —" again if none applies)', 'warning');
+          // Allow continuing even with no bus selected — second confirm
+        }
+        if (newEid && newEid !== DB.getCurrentEvent()) {
+          DB.setCurrentEvent(newEid);
+          allAttendees = [];
+          attendanceInited = false;
+          _absenteeMap = null;
+          Reports.clearAbsenteeCache();
+          const active = _cachedEvents.find(e => e.id === newEid);
+          const btn = document.getElementById('event-selector-btn');
+          if (btn && active) btn.textContent = active.name;
+          startLiveSync();
+        }
+        setMyBus(newBus);
+        _markSessionSetupDone();
+        Helpers.closeModal();
+        resolve();
+      };
+    });
+  }
+
   function handleLogout() {
+    _clearSessionSetup();
     currentUser = null;
     stopScanner();
     stopLiveSync();
@@ -353,6 +441,8 @@ const App = (() => {
     DB.setCurrentEvent(id);
     allAttendees = [];
     attendanceInited = false;
+    _absenteeMap = null;
+    Reports.clearAbsenteeCache();
     const active = _cachedEvents.find(e => e.id === id);
     const btn = document.getElementById('event-selector-btn');
     if (btn && active) btn.textContent = active.name;
@@ -1074,6 +1164,7 @@ const App = (() => {
 
   function initAttendance() {
     updateAdmitCountersFromCache();
+    primeAbsenteeMap();
     renderAllAttendance(); // always show full list on enter
 
     if (attendanceInited) return;
@@ -1181,6 +1272,29 @@ const App = (() => {
     return { label: 'Unpaid', cls: 'status-unpaid' };
   }
 
+  // Cross-event absentee warning: prime the cache when entering attendance page
+  let _absenteeMap = null;
+  function primeAbsenteeMap() {
+    Reports.computeRepeatAbsenteeMap()
+      .then(map => {
+        _absenteeMap = map;
+        // Re-render results so badges appear once the data lands
+        if (currentPage === 'attendance') {
+          const q = document.getElementById('att-search')?.value;
+          renderAllAttendance(q);
+        }
+      })
+      .catch(() => {});
+  }
+  function _mobileKey(m) { return (m || '').toString().replace(/\D/g, '').slice(-10); }
+  function getAbsenteeInfo(mobile) {
+    if (!_absenteeMap) return null;
+    const k = _mobileKey(mobile);
+    if (!k) return null;
+    const e = _absenteeMap.get(k);
+    return (e && e.consecutive >= 1) ? e : null;
+  }
+
   // PRD Section 8: ONE-TAP ADMISSION
   // - Paid/Free → green card, tap = instant admit
   // - Unpaid/Partial (no amount) → yellow card, tap = collect payment info then admit
@@ -1192,6 +1306,10 @@ const App = (() => {
     el.innerHTML = results.map(a => {
       const ps = getPaymentStatus(a);
       const isPres = a.attendance === 'present';
+      const absInfo = getAbsenteeInfo(a.mobile);
+      const absBadge = absInfo
+        ? `<div class="att-payment-badge" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;margin-top:.2rem">&#9888; Absent in last ${absInfo.consecutive} event${absInfo.consecutive>1?'s':''}</div>`
+        : '';
 
       if (isPres) {
         // Already admitted — green tick, show who admitted, NO re-admit
@@ -1202,6 +1320,7 @@ const App = (() => {
               <div class="att-name">${a.name}</div>
               <div class="att-meta">${a.mobile || ''} · ${a.team || ''}</div>
               <div class="att-payment-badge status-already-present">Admitted by ${a.markedBy || '?'} at ${Helpers.formatDateTime(a.entryTime)}</div>
+              ${absBadge}
             </div>
           </div>`;
       }
@@ -1216,6 +1335,7 @@ const App = (() => {
             <div class="att-name">${a.name} ${a.isWalkIn ? '<span class="badge walkin">WI</span>' : ''}</div>
             <div class="att-meta">${a.mobile || ''} · ${a.team || ''} · ${a.attendeeId || ''}</div>
             <div class="att-payment-badge ${ps.cls}">${ps.label}${a.paymentMode ? ' · ' + a.paymentMode : ''}${a.paymentAmount > 0 ? ' · ' + Helpers.currency(a.paymentAmount) : ''}</div>
+            ${absBadge}
           </div>
           <div class="att-admit-btn ${ps.cls}">${admitLabel}</div>
         </div>`;
@@ -1223,13 +1343,23 @@ const App = (() => {
   }
 
   // INSTANT ADMIT — one tap, no modal for paid/free; payment collection for unpaid/partial
-  async function instantAdmit(id) {
+  async function instantAdmit(id, ackedAbsentee) {
     const a = await DB.getById(DB.STORES.attendees, id);
     if (!a) return;
     if (a.attendance === 'present') {
       Helpers.toast(`Already admitted by ${a.markedBy}`, 'warning');
       return;
     }
+
+    // Cross-event repeat-absentee alert (skipped once the user confirms)
+    if (!ackedAbsentee) {
+      const abs = getAbsenteeInfo(a.mobile);
+      if (abs) {
+        showAbsenteeWarning(a, abs);
+        return;
+      }
+    }
+
     const ps = (a.paymentStatus || '').toLowerCase();
     const isUnpaid = ps === 'unpaid' || ps === 'partial' || ps === '';
 
@@ -1240,6 +1370,34 @@ const App = (() => {
     }
 
     await doAdmit(a);
+  }
+
+  // Modal warning shown before admitting a devotee with a cross-event absence streak
+  function showAbsenteeWarning(a, abs) {
+    const absentList = abs.history.slice(0, abs.consecutive).map(h =>
+      `<li>${h.eventName}${h.date ? ' <span style="color:var(--text-muted);font-size:.8rem">· ' + Helpers.formatDate(h.date) + '</span>' : ''}</li>`
+    ).join('');
+    const lastAtt = abs.lastAttended
+      ? `${abs.lastAttended.eventName}${abs.lastAttended.date ? ' (' + Helpers.formatDate(abs.lastAttended.date) + ')' : ''}`
+      : 'Never attended any past event';
+
+    Helpers.modal(`
+      <h3 class="modal-title" style="color:#92400e">&#9888; Repeat Absentee Alert</h3>
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:.85rem;margin-bottom:.75rem">
+        <div style="font-weight:700;font-size:1.05rem">${a.name}</div>
+        <div style="color:var(--text-muted);font-size:.85rem">${a.mobile || ''} · ${a.team || ''}</div>
+        <div style="margin-top:.5rem;font-size:.95rem">
+          Was <b>absent in the last ${abs.consecutive} consecutive past event${abs.consecutive>1?'s':''}</b>.
+        </div>
+      </div>
+      <div style="font-size:.88rem;margin-bottom:.4rem"><b>Absent in:</b></div>
+      <ul style="margin:0 0 .75rem 1.2rem;padding:0;font-size:.88rem">${absentList}</ul>
+      <div style="font-size:.88rem;margin-bottom:1rem"><b>Last attended:</b> ${lastAtt}</div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end">
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="Helpers.closeModal();App.instantAdmit('${a.id}', true)">Admit Anyway</button>
+      </div>
+    `);
   }
 
   // Show bottom panel to collect payment info for unpaid attendees
@@ -2400,7 +2558,7 @@ const App = (() => {
     resolveDuplicate, acceptDuplicate, deleteDuplicate,
     saveBusRoute, deleteBusRoute, toggleUserRole,
     showAddBusModal, deleteBusRouteFromDash,
-    showEventPicker, _filterEvents, _pickEvent,
+    showEventPicker, _filterEvents, _pickEvent, showSessionSetupModal,
     _selectMyBus, _saveBusCoordHead,
     openBusManageModal, saveBus, deleteBus,
     showCreateEventModal, createEvent,
