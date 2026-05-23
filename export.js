@@ -6,10 +6,10 @@ const Export = (() => {
     'Sr. No.', 'Name', 'Mobile number', 'Category', 'Reference',
     'Team Name', 'Pickup Point', 'Payment Status', 'Payment Remarks',
     'Mode of Payment', 'Payment Amt.', 'Attendence', 'Admitted by', 'Admitted at',
-    'Payment Timing'
+    'Payment Timing', 'Boarded Bus'
   ];
 
-  const COL_WIDTHS = [7, 26, 14, 13, 22, 16, 18, 14, 28, 16, 13, 18, 20, 22, 16];
+  const COL_WIDTHS = [7, 26, 14, 13, 22, 16, 18, 14, 28, 16, 13, 18, 20, 22, 16, 18];
 
   // ── ExcelJS ARGB helper (ExcelJS needs alpha prefix) ──────────────────────
   function argb(hex) { return 'FF' + hex.toUpperCase(); }
@@ -64,7 +64,8 @@ const Export = (() => {
       att,
       a.markedBy       || '',
       a.entryTime ? new Date(a.entryTime).toLocaleString('en-IN') : '',
-      timing
+      timing,
+      a.boardedBus || ''
     ];
   }
 
@@ -276,9 +277,15 @@ const Export = (() => {
     const wb     = new ExcelJS.Workbook();
     const used   = new Set();
     const date   = new Date().toISOString().slice(0, 10);
-    const defVal = groupField === 'team' ? 'Unassigned' : 'Unknown';
-    const prefix = groupField === 'team' ? 'Team' : groupField === 'category' ? 'Category' : 'Reference';
-    const sumLbl = groupField === 'team' ? 'Team Name' : groupField === 'category' ? 'Category' : 'Reference';
+    const defVal = groupField === 'team' ? 'Unassigned' : groupField === 'boardedBus' ? 'No Bus' : 'Unknown';
+    const prefix = groupField === 'team' ? 'Team'
+                 : groupField === 'category' ? 'Category'
+                 : groupField === 'boardedBus' ? 'Bus'
+                 : 'Reference';
+    const sumLbl = groupField === 'team' ? 'Team Name'
+                 : groupField === 'category' ? 'Category'
+                 : groupField === 'boardedBus' ? 'Bus'
+                 : 'Reference';
 
     const groupMap = {};
     attendees.forEach(a => {

@@ -25,7 +25,7 @@ const Reports = (() => {
 
   // ── Module-level filter state ─────────────────────────────────────────────
   let _attendees  = [];
-  let _groupType  = 'all';   // 'all' | 'team' | 'category' | 'reference'
+  let _groupType  = 'all';   // 'all' | 'team' | 'category' | 'reference' | 'bus'
   let _groupValue = '';      // e.g. 'Anirudha', 'IGF', 'Priya'
   let _payFilter  = 'all';   // 'all' | 'paid' | 'unpaid'
   let _attFilter  = 'all';   // 'all' | 'present' | 'absent'
@@ -44,6 +44,7 @@ const Reports = (() => {
     const teams      = [...new Set(_attendees.map(a => a.team).filter(Boolean))].sort();
     const categories = [...new Set(_attendees.map(a => a.category).filter(Boolean))].sort();
     const references = [...new Set(_attendees.map(a => a.reference).filter(Boolean))].sort();
+    const buses      = [...new Set(_attendees.map(a => a.boardedBus).filter(Boolean))].sort();
 
     const totalPay    = _attendees.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
     const totalBusCost = busRoutes.reduce((s, r) => {
@@ -55,7 +56,7 @@ const Reports = (() => {
     const rawMap = await DB.getConfig('teamCategoryMap');
     const teamCategoryMap = rawMap ? JSON.parse(rawMap) : {};
 
-    return { attendees: _attendees, busRoutes, cfg, teams, categories, references, totalPay, totalBusCost, profitLoss, teamCategoryMap };
+    return { attendees: _attendees, busRoutes, cfg, teams, categories, references, buses, totalPay, totalBusCost, profitLoss, teamCategoryMap };
   }
 
   // ── Apply current filters to attendees array ──────────────────────────────
@@ -68,6 +69,8 @@ const Reports = (() => {
       f = f.filter(a => (a.category || 'Unknown') === _groupValue);
     else if (_groupType === 'reference' && _groupValue)
       f = f.filter(a => (a.reference || 'Unknown') === _groupValue);
+    else if (_groupType === 'bus' && _groupValue)
+      f = f.filter(a => (a.boardedBus || 'No Bus') === _groupValue);
 
     if (_payFilter === 'paid')
       f = f.filter(a => (a.paymentStatus || '').toLowerCase() === 'paid');
@@ -122,9 +125,17 @@ const Reports = (() => {
   function groupTable(attendees, groupType) {
     if (groupType === 'all') return '';
 
-    const field    = groupType === 'team' ? 'team' : groupType === 'category' ? 'category' : 'reference';
-    const defVal   = groupType === 'team' ? 'Unassigned' : 'Unknown';
-    const label    = groupType === 'team' ? 'Team' : groupType === 'category' ? 'Category' : 'Reference';
+    const field    = groupType === 'team' ? 'team'
+                   : groupType === 'category' ? 'category'
+                   : groupType === 'bus' ? 'boardedBus'
+                   : 'reference';
+    const defVal   = groupType === 'team' ? 'Unassigned'
+                   : groupType === 'bus' ? 'No Bus'
+                   : 'Unknown';
+    const label    = groupType === 'team' ? 'Team'
+                   : groupType === 'category' ? 'Category'
+                   : groupType === 'bus' ? 'Bus'
+                   : 'Reference';
 
     const map = {};
     attendees.forEach(a => {
@@ -315,6 +326,7 @@ const Reports = (() => {
               <button class="rep-filter" data-ft="group" data-val="team">Team wise</button>
               <button class="rep-filter" data-ft="group" data-val="category">Category wise</button>
               <button class="rep-filter" data-ft="group" data-val="reference">Reference wise</button>
+              <button class="rep-filter" data-ft="group" data-val="bus">Bus wise</button>
             </div>
             <div id="group-val-wrap" style="display:none;margin-top:.6rem">
               <select id="group-val-select" class="wi-input" style="width:100%;max-width:300px">
@@ -359,8 +371,8 @@ const Reports = (() => {
 
   // ── Wire up filter buttons + dropdown after HTML is in DOM ────────────────
   function initReportFilters(data) {
-    const { teams, categories, references } = data;
-    const groupOptions = { team: teams, category: categories, reference: references };
+    const { teams, categories, references, buses } = data;
+    const groupOptions = { team: teams, category: categories, reference: references, bus: buses || [] };
 
     // Page-level tab switching (Live Reports ↔ Pre Event Reports)
     document.querySelectorAll('[data-rptab]').forEach(btn => {
@@ -433,7 +445,10 @@ const Reports = (() => {
     document.getElementById('btn-rpt-excel').addEventListener('click', () => {
       const filtered = applyFilters(_attendees);
       if (_groupType !== 'all' && !_groupValue) {
-        const field = _groupType === 'team' ? 'team' : _groupType === 'category' ? 'category' : 'reference';
+        const field = _groupType === 'team' ? 'team'
+                    : _groupType === 'category' ? 'category'
+                    : _groupType === 'bus' ? 'boardedBus'
+                    : 'reference';
         Export.downloadFilteredByGroup(filtered, field, buildLabel());
       } else {
         Export.downloadFiltered(filtered, buildLabel());
@@ -551,7 +566,9 @@ const Reports = (() => {
       const last = e.lastAttended
         ? `${e.lastAttended.eventName}${e.lastAttended.date ? ' (' + Helpers.formatDate(e.lastAttended.date) + ')' : ''}`
         : '<span style="color:var(--text-muted)">Never</span>';
-      const recent = e.history.slice(0, e.consecutive).map(h => h.eventName).join(', ');
+      const recent = e.history.slice(0, e.consecutive).map(h =>
+        `<div>&bull; ${h.eventName}${h.date ? ' <span style="color:#94a3b8">(' + Helpers.formatDate(h.date) + ')</span>' : ''}</div>`
+      ).join('');
       return `<tr>
         <td>${e.name || '-'}</td>
         <td>${e.mobile || '-'}</td>
@@ -559,7 +576,7 @@ const Reports = (() => {
         <td style="text-align:center;font-weight:700;color:#dc2626">${e.consecutive}</td>
         <td style="text-align:center">${e.totalPast}</td>
         <td>${last}</td>
-        <td style="font-size:.8rem;color:var(--text-muted)">${recent}</td>
+        <td style="font-size:.8rem;color:var(--text-muted);min-width:240px">${recent}</td>
       </tr>`;
     }).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.25rem">No devotees absent in ${min}+ consecutive past events.</td></tr>`;
 
