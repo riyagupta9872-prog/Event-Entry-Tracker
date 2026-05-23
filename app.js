@@ -110,11 +110,15 @@ const App = (() => {
       document.getElementById('btn-login').textContent = 'Signing in...';
       await auth.signInWithEmailAndPassword(email, password);
     } catch (err) {
-      let msg = 'Login failed';
+      let msg;
       if (err.code === 'auth/user-not-found') msg = 'No account with this email';
       else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') msg = 'Incorrect password';
       else if (err.code === 'auth/invalid-email') msg = 'Invalid email';
       else if (err.code === 'auth/too-many-requests') msg = 'Too many attempts, try later';
+      else if (err.code === 'auth/network-request-failed') msg = 'Network error — check your internet connection';
+      else if (err.code === 'auth/user-disabled') msg = 'This account has been disabled';
+      else msg = `Login failed: ${err.message || err.code || 'Unknown error'}`;
+      console.error('[Firebase login error]', err);
       errEl.textContent = msg; errEl.classList.remove('hidden');
     } finally {
       document.getElementById('btn-login').disabled = false;
@@ -138,9 +142,14 @@ const App = (() => {
       const role = existingUsers.empty ? 'admin' : 'volunteer';
       await DB.setUserProfile(cred.user.uid, { name, email, role, createdAt: new Date().toISOString() });
     } catch (err) {
-      let msg = 'Registration failed';
+      let msg;
       if (err.code === 'auth/email-already-in-use') msg = 'Email already in use';
-      else if (err.code === 'auth/weak-password') msg = 'Password too weak';
+      else if (err.code === 'auth/weak-password') msg = 'Password too weak (min 6 characters)';
+      else if (err.code === 'auth/invalid-email') msg = 'Invalid email format';
+      else if (err.code === 'auth/network-request-failed') msg = 'Network error — check your internet connection';
+      else if (err.code === 'auth/operation-not-allowed') msg = 'Email/Password sign-up is disabled in Firebase Console';
+      else msg = `Registration failed: ${err.message || err.code || 'Unknown error'}`;
+      console.error('[Firebase register error]', err);
       errEl.textContent = msg; errEl.classList.remove('hidden');
     } finally {
       document.getElementById('btn-register').disabled = false;
@@ -154,7 +163,15 @@ const App = (() => {
     try {
       await auth.sendPasswordResetEmail(email);
       Helpers.toast('Password reset email sent!', 'success', 5000);
-    } catch { Helpers.toast('Could not send reset email', 'error'); }
+    } catch (err) {
+      console.error('[Firebase reset error]', err);
+      let msg = 'Could not send reset email';
+      if (err.code === 'auth/user-not-found') msg = 'No account with this email';
+      else if (err.code === 'auth/invalid-email') msg = 'Invalid email format';
+      else if (err.code === 'auth/network-request-failed') msg = 'Network error — check your internet connection';
+      else if (err.message) msg = `Reset failed: ${err.message}`;
+      Helpers.toast(msg, 'error', 5000);
+    }
   }
 
   async function enterApp() {
@@ -240,7 +257,7 @@ const App = (() => {
     Helpers.modal(`
       <h3 class="modal-title">Start of Shift</h3>
       <p style="color:var(--text-muted);font-size:.88rem;margin:0 0 1rem">
-        Confirm which festival and bus you are marking attendance for.
+        You must select your festival${buses.length ? ' and bus' : ''} before entering the app.
       </p>
       <label style="display:block;font-size:.88rem;font-weight:600">Festival / Event</label>
       <select id="ss-event" class="wi-input" style="width:100%">${evtOptions}</select>
@@ -250,15 +267,27 @@ const App = (() => {
       </div>
     `);
 
+    // Lock the modal: prevent overlay-click and ESC from dismissing it.
+    const overlay = document.getElementById('modal-overlay');
+    overlay.onclick = null; // wipe Helpers.modal's default close handler
+    const swallowOverlay = (e) => { if (e.target === overlay) e.stopPropagation(); };
+    overlay.addEventListener('click', swallowOverlay, true);
+    const swallowEsc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); } };
+    document.addEventListener('keydown', swallowEsc, true);
+
     return new Promise(resolve => {
       document.getElementById('ss-confirm').onclick = async () => {
         const newEid = document.getElementById('ss-event').value;
         const newBus = document.getElementById('ss-bus')?.value || '';
-        if (buses.length && !newBus) {
-          Helpers.toast('Please select a bus (or pick "— select a bus —" again if none applies)', 'warning');
-          // Allow continuing even with no bus selected — second confirm
+        if (!newEid) {
+          Helpers.toast('Please select a festival', 'error');
+          return;
         }
-        if (newEid && newEid !== DB.getCurrentEvent()) {
+        if (buses.length && !newBus) {
+          Helpers.toast('Please select your bus to continue', 'error');
+          return;
+        }
+        if (newEid !== DB.getCurrentEvent()) {
           DB.setCurrentEvent(newEid);
           allAttendees = [];
           attendanceInited = false;
@@ -271,6 +300,8 @@ const App = (() => {
         }
         setMyBus(newBus);
         _markSessionSetupDone();
+        overlay.removeEventListener('click', swallowOverlay, true);
+        document.removeEventListener('keydown', swallowEsc, true);
         Helpers.closeModal();
         resolve();
       };
@@ -482,7 +513,7 @@ const App = (() => {
   }
 
   // Pages volunteers are allowed to access
-  const VOLUNTEER_PAGES = ['attendance', 'walkin'];
+  const VOLUNTEER_PAGES = ['attendance', 'walkin', 'mybus'];
 
   // ===== NAVIGATION =====
   function navigate(page) {
@@ -506,7 +537,8 @@ const App = (() => {
       dashboard: 'Dashboard', import: 'Import Excel',
       attendance: 'Admission', walkin: 'Walk-ins',
       attendees: 'Attendees', reports: 'Reports',
-      settings: 'Settings', financial: 'Financial Year'
+      settings: 'Settings', financial: 'Financial Year',
+      mybus: 'My Bus'
     };
     document.getElementById('page-title').textContent = titles[page] || page;
     currentPage = page;
@@ -520,7 +552,102 @@ const App = (() => {
       case 'reports': initReports(); break;
       case 'settings': initSettings(); break;
       case 'financial': initFinancial(); break;
+      case 'mybus': initMyBus(); break;
     }
+  }
+
+  // ===== MY BUS PAGE (volunteer-facing report of their boarded bus) =====
+  async function initMyBus() {
+    const host = document.getElementById('mybus-content');
+    const myBus = getMyBus();
+    if (!myBus) {
+      host.innerHTML = `
+        <div class="card" style="text-align:center;padding:2rem">
+          <h3 class="card-title" style="margin:0 0 .5rem">No bus selected</h3>
+          <p style="color:var(--text-muted);margin:0 0 1rem">Pick the bus you are stationed at to see all devotees you and your team have admitted to it.</p>
+          <button class="btn-primary" onclick="App.showSessionSetupModal()">Select Bus</button>
+        </div>`;
+      return;
+    }
+    host.innerHTML = '<p style="color:var(--text-muted);padding:2rem;text-align:center">Loading…</p>';
+    try {
+      const all = await DB.getAll(DB.STORES.attendees);
+      const onBus = all.filter(a => (a.boardedBus || '') === myBus && a.attendance === 'present');
+      host.innerHTML = renderMyBus(myBus, onBus);
+    } catch (err) {
+      host.innerHTML = `<p style="color:var(--danger);padding:2rem">Error: ${err.message}</p>`;
+    }
+  }
+
+  function renderMyBus(busName, list) {
+    const total   = list.length;
+    const walkIns = list.filter(a => a.isWalkIn).length;
+    const regs    = total - walkIns;
+
+    // Dept-wise (uses team→dept resolver from Reports module; falls back to devotee.category)
+    const deptOrder = Reports.CATEGORY_ORDER;
+    const deptCounts = {};
+    list.forEach(a => {
+      let dept = Reports.getTeamDept(a.team, null);
+      if (!dept) dept = (a.category || 'Unassigned').trim() || 'Unassigned';
+      deptCounts[dept] = (deptCounts[dept] || 0) + 1;
+    });
+    const depts = [
+      ...deptOrder.filter(d => deptCounts[d]),
+      ...Object.keys(deptCounts).filter(d => !deptOrder.includes(d)).sort()
+    ];
+    const deptRows = depts.map(d =>
+      `<tr><td>${d}</td><td style="text-align:center;font-weight:700">${deptCounts[d]}</td></tr>`
+    ).join('') || `<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">No devotees admitted yet</td></tr>`;
+
+    const rowsHtml = list.length
+      ? list.map((a, i) => `
+          <tr>
+            <td style="text-align:center;color:var(--text-muted)">${i + 1}</td>
+            <td>${a.name || '-'} ${a.isWalkIn ? '<span class="badge walkin" style="font-size:.7rem">WI</span>' : ''}</td>
+            <td>${a.mobile || '-'}</td>
+            <td>${a.team || '-'}</td>
+            <td>${a.category || '-'}</td>
+            <td style="font-size:.78rem;color:var(--text-muted)">${Helpers.formatDateTime(a.entryTime)}</td>
+            <td style="font-size:.78rem;color:var(--text-muted)">${a.markedBy || '-'}</td>
+          </tr>`).join('')
+      : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.25rem">No devotees boarded yet</td></tr>`;
+
+    return `
+      <div class="card" style="margin-bottom:1rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+          <h3 class="card-title" style="margin:0">&#128652; ${busName}</h3>
+          <button class="btn-ghost" onclick="App.initMyBus()" style="font-size:.82rem">&#8634; Refresh</button>
+        </div>
+        <div class="report-counts-bar" style="margin-top:.75rem">
+          <div class="rc-item primary"><div class="rc-val">${total}</div><div class="rc-lbl">Total Boarded</div></div>
+          <div class="rc-item success"><div class="rc-val">${regs}</div><div class="rc-lbl">Registered</div></div>
+          <div class="rc-item accent"><div class="rc-val">${walkIns}</div><div class="rc-lbl">Walk-ins</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:1rem">
+        <h3 class="card-title" style="margin:0 0 .75rem">Department-wise (IGF / ICF / IYF / Balarama)</h3>
+        <div class="table-wrap">
+          <table class="report-table">
+            <thead><tr><th>Department</th><th style="text-align:center">Devotees</th></tr></thead>
+            <tbody>${deptRows}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title" style="margin:0 0 .75rem">All Devotees on this Bus</h3>
+        <div class="table-wrap">
+          <table class="report-table">
+            <thead><tr>
+              <th style="width:40px">#</th><th>Name</th><th>Mobile</th>
+              <th>Team</th><th>Category</th><th>Boarded At</th><th>Marked By</th>
+            </tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      </div>`;
   }
 
   // ===== DASHBOARD =====
@@ -2559,6 +2686,7 @@ const App = (() => {
     saveBusRoute, deleteBusRoute, toggleUserRole,
     showAddBusModal, deleteBusRouteFromDash,
     showEventPicker, _filterEvents, _pickEvent, showSessionSetupModal,
+    initMyBus,
     _selectMyBus, _saveBusCoordHead,
     openBusManageModal, saveBus, deleteBus,
     showCreateEventModal, createEvent,

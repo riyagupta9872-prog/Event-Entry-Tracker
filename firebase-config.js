@@ -62,7 +62,12 @@ window.addEventListener('unhandledrejection', (e) => {
   if (_isFirestoreAssertionError(msg)) _recoverFromFirestoreCorruption();
 });
 
-// Clear the recovery sentinel once Firestore returns a healthy response.
-firestore.collection('users').limit(1).get()
-  .then(() => sessionStorage.removeItem('prerna_fs_recovering'))
-  .catch(() => {});
+// Clear the recovery sentinel once Firestore returns a healthy authenticated
+// response. Must wait for auth — running this probe before sign-in violates
+// security rules and produces a misleading 400.
+auth.onAuthStateChanged((user) => {
+  if (!user) return;
+  firestore.collection('users').doc(user.uid).get()
+    .then(() => sessionStorage.removeItem('prerna_fs_recovering'))
+    .catch(() => {});
+});
