@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prerna-festival-v45';
+const CACHE_NAME = 'prerna-festival-v47';
 
 // Derive base URL from the service worker's own location
 // Works correctly on GitHub Pages subdirectory (e.g. /Event-Entry-Tracker/)

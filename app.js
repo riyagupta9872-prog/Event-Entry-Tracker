@@ -559,43 +559,126 @@ const App = (() => {
   // ===== MY BUS PAGE (volunteer-facing report of their boarded bus) =====
   async function initMyBus() {
     const host = document.getElementById('mybus-content');
-    const myBus = getMyBus();
-    if (!myBus) {
-      host.innerHTML = `
-        <div class="card" style="text-align:center;padding:2rem">
-          <h3 class="card-title" style="margin:0 0 .5rem">No bus selected</h3>
-          <p style="color:var(--text-muted);margin:0 0 1rem">Pick the bus you are stationed at to see all devotees you and your team have admitted to it.</p>
-          <button class="btn-primary" onclick="App.showSessionSetupModal()">Select Bus</button>
-        </div>`;
-      return;
-    }
+    const isAdmin = currentUser?.role === 'admin';
     host.innerHTML = '<p style="color:var(--text-muted);padding:2rem;text-align:center">Loading…</p>';
+
     try {
-      const all = await DB.getAll(DB.STORES.attendees);
-      const onBus = all.filter(a => (a.boardedBus || '') === myBus && a.attendance === 'present');
-      host.innerHTML = renderMyBus(myBus, onBus);
+      const [all, buses] = await Promise.all([
+        DB.getAll(DB.STORES.attendees),
+        DB.getAll(DB.STORES.buses).catch(() => [])
+      ]);
+      const present = all.filter(a => a.attendance === 'present');
+
+      if (isAdmin) {
+        // Admin: every bus's roster aggregated, regardless of which volunteer marked them.
+        host.innerHTML = renderAllBuses(present, buses);
+      } else {
+        const myBus = getMyBus();
+        if (!myBus) {
+          host.innerHTML = `
+            <div class="card" style="text-align:center;padding:2rem">
+              <h3 class="card-title" style="margin:0 0 .5rem">No bus selected</h3>
+              <p style="color:var(--text-muted);margin:0 0 1rem">Pick the bus you are stationed at to see every devotee admitted to it — across all volunteers marking attendance for the same bus.</p>
+              <button class="btn-primary" onclick="App.showSessionSetupModal()">Select Bus</button>
+            </div>`;
+          return;
+        }
+        const onBus = present.filter(a => (a.boardedBus || '') === myBus);
+        host.innerHTML = renderMyBus(myBus, onBus);
+      }
     } catch (err) {
       host.innerHTML = `<p style="color:var(--danger);padding:2rem">Error: ${err.message}</p>`;
     }
+  }
+
+  // Bus-wise department breakdown (IGF / ICF_Prji / ICF_Mtg / IYF / Balarama Team)
+  function _deptBreakdown(list) {
+    const deptOrder = Reports.CATEGORY_ORDER;
+    const counts = {};
+    list.forEach(a => {
+      let dept = Reports.getTeamDept(a.team, null);
+      if (!dept) dept = (a.category || 'Unassigned').trim() || 'Unassigned';
+      counts[dept] = (counts[dept] || 0) + 1;
+    });
+    const ordered = [
+      ...deptOrder.filter(d => counts[d]),
+      ...Object.keys(counts).filter(d => !deptOrder.includes(d)).sort()
+    ];
+    return { counts, ordered };
+  }
+
+  function _renderBusCard(busName, list, opts = {}) {
+    const total   = list.length;
+    const walkIns = list.filter(a => a.isWalkIn).length;
+    const regs    = total - walkIns;
+    const { counts: deptCounts, ordered: depts } = _deptBreakdown(list);
+
+    const deptChips = depts.length
+      ? depts.map(d => `<span class="dept-chip"><b>${deptCounts[d]}</b> ${d}</span>`).join('')
+      : '<span style="color:var(--text-muted);font-size:.85rem">No devotees yet</span>';
+
+    const rowsHtml = list.length
+      ? list.map((a, i) => `
+          <tr>
+            <td style="text-align:center;color:var(--text-muted)">${i + 1}</td>
+            <td>${a.name || '-'} ${a.isWalkIn ? '<span class="badge walkin" style="font-size:.7rem">WI</span>' : ''}</td>
+            <td>${a.mobile || '-'}</td>
+            <td>${a.team || '-'}</td>
+            <td>${a.category || '-'}</td>
+            <td style="font-size:.78rem;color:var(--text-muted)">${Helpers.formatDateTime(a.entryTime)}</td>
+            <td style="font-size:.78rem;color:var(--text-muted)">${a.markedBy || '-'}</td>
+          </tr>`).join('')
+      : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1rem">No devotees boarded yet</td></tr>`;
+
+    const tableId = `bus-tbl-${(busName || 'none').replace(/[^a-z0-9]/gi, '_')}`;
+    const collapsible = opts.collapsible !== false;
+    const expandedDefault = !!opts.expanded;
+    const display = expandedDefault ? '' : 'none';
+    const caret = expandedDefault ? '&#9662;' : '&#9656;';
+
+    const headerClick = collapsible
+      ? `onclick="App._toggleBusTable('${tableId}', this)" style="cursor:pointer"`
+      : '';
+
+    return `
+      <div class="card" style="margin-bottom:1rem">
+        <div ${headerClick} style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+          <h3 class="card-title" style="margin:0">
+            ${collapsible ? `<span class="bus-caret" style="font-size:.85rem;margin-right:.35rem">${caret}</span>` : ''}
+            &#128652; ${busName}
+          </h3>
+          <div style="display:flex;gap:.5rem;align-items:center">
+            <span style="font-size:.85rem;color:var(--text-muted)">${total} boarded · ${regs} reg · ${walkIns} walk-in</span>
+            ${opts.refreshBtn ? `<button class="btn-ghost" onclick="event.stopPropagation();App.initMyBus()" style="font-size:.82rem">&#8634;</button>` : ''}
+          </div>
+        </div>
+        <div class="bus-chips" style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem">${deptChips}</div>
+        <div id="${tableId}" class="table-wrap" style="margin-top:.75rem;display:${display}">
+          <table class="report-table">
+            <thead><tr>
+              <th style="width:40px">#</th><th>Name</th><th>Mobile</th>
+              <th>Team</th><th>Category</th><th>Boarded At</th><th>Marked By</th>
+            </tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function _toggleBusTable(id, headerEl) {
+    const t = document.getElementById(id);
+    if (!t) return;
+    const isHidden = t.style.display === 'none';
+    t.style.display = isHidden ? '' : 'none';
+    const caret = headerEl.querySelector('.bus-caret');
+    if (caret) caret.innerHTML = isHidden ? '&#9662;' : '&#9656;';
   }
 
   function renderMyBus(busName, list) {
     const total   = list.length;
     const walkIns = list.filter(a => a.isWalkIn).length;
     const regs    = total - walkIns;
-
-    // Dept-wise (uses team→dept resolver from Reports module; falls back to devotee.category)
-    const deptOrder = Reports.CATEGORY_ORDER;
-    const deptCounts = {};
-    list.forEach(a => {
-      let dept = Reports.getTeamDept(a.team, null);
-      if (!dept) dept = (a.category || 'Unassigned').trim() || 'Unassigned';
-      deptCounts[dept] = (deptCounts[dept] || 0) + 1;
-    });
-    const depts = [
-      ...deptOrder.filter(d => deptCounts[d]),
-      ...Object.keys(deptCounts).filter(d => !deptOrder.includes(d)).sort()
-    ];
+    const { counts: deptCounts, ordered: depts } = _deptBreakdown(list);
     const deptRows = depts.map(d =>
       `<tr><td>${d}</td><td style="text-align:center;font-weight:700">${deptCounts[d]}</td></tr>`
     ).join('') || `<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">No devotees admitted yet</td></tr>`;
@@ -619,6 +702,7 @@ const App = (() => {
           <h3 class="card-title" style="margin:0">&#128652; ${busName}</h3>
           <button class="btn-ghost" onclick="App.initMyBus()" style="font-size:.82rem">&#8634; Refresh</button>
         </div>
+        <p style="font-size:.78rem;color:var(--text-muted);margin:.4rem 0 0">Shows everyone admitted to this bus across all volunteers stationed here.</p>
         <div class="report-counts-bar" style="margin-top:.75rem">
           <div class="rc-item primary"><div class="rc-val">${total}</div><div class="rc-lbl">Total Boarded</div></div>
           <div class="rc-item success"><div class="rc-val">${regs}</div><div class="rc-lbl">Registered</div></div>
@@ -648,6 +732,77 @@ const App = (() => {
           </table>
         </div>
       </div>`;
+  }
+
+  function renderAllBuses(presentList, configuredBuses) {
+    // Group every present attendee by their boardedBus value (or "Not Boarded
+    // on a Bus" when blank). Also seed the result with every bus that admins
+    // configured in Settings, so empty buses are still visible.
+    const groups = new Map();
+    (configuredBuses || []).forEach(b => groups.set(b.name, []));
+    presentList.forEach(a => {
+      const key = (a.boardedBus || '').trim() || '— Not assigned to a bus —';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(a);
+    });
+
+    const totalBoarded = presentList.filter(a => (a.boardedBus || '').trim()).length;
+    const totalUnassigned = presentList.length - totalBoarded;
+
+    const sortedEntries = [...groups.entries()]
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+
+    const summary = `
+      <div class="card" style="margin-bottom:1rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+          <h3 class="card-title" style="margin:0">&#128652; All Buses (Admin View)</h3>
+          <button class="btn-ghost" onclick="App.initMyBus()" style="font-size:.82rem">&#8634; Refresh</button>
+        </div>
+        <p style="font-size:.8rem;color:var(--text-muted);margin:.4rem 0 0">Every bus aggregated across all volunteers. Tap any bus header to expand its devotee list.</p>
+        <div class="report-counts-bar" style="margin-top:.75rem">
+          <div class="rc-item primary"><div class="rc-val">${groups.size}</div><div class="rc-lbl">Buses</div></div>
+          <div class="rc-item success"><div class="rc-val">${totalBoarded}</div><div class="rc-lbl">Boarded</div></div>
+          <div class="rc-item accent"><div class="rc-val">${totalUnassigned}</div><div class="rc-lbl">No Bus Tag</div></div>
+        </div>
+      </div>`;
+
+    // Quick comparison table — one row per bus
+    const compareRows = sortedEntries.map(([name, list]) => {
+      const walkIns = list.filter(a => a.isWalkIn).length;
+      const { counts } = _deptBreakdown(list);
+      const deptStr = Object.entries(counts).sort((a,b)=>b[1]-a[1])
+        .map(([d,n]) => `${d}: ${n}`).join(' · ') || '—';
+      return `<tr>
+        <td><b>${name}</b></td>
+        <td style="text-align:center;font-weight:700">${list.length}</td>
+        <td style="text-align:center">${list.length - walkIns}</td>
+        <td style="text-align:center">${walkIns}</td>
+        <td style="font-size:.78rem;color:var(--text-muted)">${deptStr}</td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:1rem">No buses configured</td></tr>`;
+
+    const compareCard = `
+      <div class="card" style="margin-bottom:1rem">
+        <h3 class="card-title" style="margin:0 0 .75rem">Bus-wise Summary</h3>
+        <div class="table-wrap">
+          <table class="report-table">
+            <thead><tr>
+              <th>Bus</th>
+              <th style="text-align:center">Total</th>
+              <th style="text-align:center">Registered</th>
+              <th style="text-align:center">Walk-ins</th>
+              <th>Department Split</th>
+            </tr></thead>
+            <tbody>${compareRows}</tbody>
+          </table>
+        </div>
+      </div>`;
+
+    const busCards = sortedEntries
+      .map(([name, list]) => _renderBusCard(name, list, { collapsible: true, expanded: false }))
+      .join('');
+
+    return summary + compareCard + busCards;
   }
 
   // ===== DASHBOARD =====
@@ -1414,12 +1569,30 @@ const App = (() => {
       .catch(() => {});
   }
   function _mobileKey(m) { return (m || '').toString().replace(/\D/g, '').slice(-10); }
-  function getAbsenteeInfo(mobile) {
+  function _nameNorm(s) { return (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  // Map keys are composite (e.g. "m:9876543210|n:priyanka") since the absentee
+  // matrix dedupes by mobile + full name. Try the composite key first, then
+  // fall back to mobile-only and name-only scans so existing devotees still
+  // hit even if the spelling drifted slightly between events.
+  function getAbsenteeInfo(mobileOrParticipant, nameMaybe) {
     if (!_absenteeMap) return null;
-    const k = _mobileKey(mobile);
-    if (!k) return null;
-    const e = _absenteeMap.get(k);
-    return (e && e.consecutive >= 1) ? e : null;
+    const p = (typeof mobileOrParticipant === 'object' && mobileOrParticipant)
+      ? mobileOrParticipant
+      : { mobile: mobileOrParticipant, name: nameMaybe };
+    const mob10 = _mobileKey(p.mobile);
+    const nameN = _nameNorm(p.name);
+
+    let entry = null;
+    if (mob10 && nameN) entry = _absenteeMap.get(`m:${mob10}|n:${nameN}`);
+    if (!entry && mob10) entry = _absenteeMap.get(`m:${mob10}`);
+    if (!entry && mob10) {
+      for (const [k, v] of _absenteeMap) {
+        if (k.startsWith(`m:${mob10}`)) { entry = v; break; }
+      }
+    }
+    if (!entry && nameN) entry = _absenteeMap.get(`n:${nameN}`);
+
+    return (entry && entry.consecutive >= 1) ? entry : null;
   }
 
   // PRD Section 8: ONE-TAP ADMISSION
@@ -1433,7 +1606,7 @@ const App = (() => {
     el.innerHTML = results.map(a => {
       const ps = getPaymentStatus(a);
       const isPres = a.attendance === 'present';
-      const absInfo = getAbsenteeInfo(a.mobile);
+      const absInfo = getAbsenteeInfo(a);
       const absBadge = absInfo
         ? `<div class="att-payment-badge" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;margin-top:.2rem">&#9888; Absent in last ${absInfo.consecutive} event${absInfo.consecutive>1?'s':''}</div>`
         : '';
@@ -1480,7 +1653,7 @@ const App = (() => {
 
     // Cross-event repeat-absentee alert (skipped once the user confirms)
     if (!ackedAbsentee) {
-      const abs = getAbsenteeInfo(a.mobile);
+      const abs = getAbsenteeInfo(a);
       if (abs) {
         showAbsenteeWarning(a, abs);
         return;
@@ -2686,7 +2859,7 @@ const App = (() => {
     saveBusRoute, deleteBusRoute, toggleUserRole,
     showAddBusModal, deleteBusRouteFromDash,
     showEventPicker, _filterEvents, _pickEvent, showSessionSetupModal,
-    initMyBus,
+    initMyBus, _toggleBusTable,
     _selectMyBus, _saveBusCoordHead,
     openBusManageModal, saveBus, deleteBus,
     showCreateEventModal, createEvent,
