@@ -1419,6 +1419,9 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               <div class="walkin-panel-body">
                 <input type="hidden" id="pc-attendee-id" />
 
+                <!-- Past event history (injected by showPaymentCollect) -->
+                <div id="pc-history"></div>
+
                 <!-- Amount row -->
                 <div style="display:flex;gap:.75rem;margin-bottom:.75rem;align-items:flex-end">
                   <div style="flex:1">
@@ -1579,8 +1582,9 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                 <input type="text" id="preview-search" class="search-input" placeholder="Search imported data..." />
                 <select id="preview-filter" class="filter-select">
                   <option value="all">All Records</option>
-                  <option value="duplicates">Duplicates Only</option>
-                  <option value="clean">Clean Records</option>
+                  <option value="clean">Imported (New)</option>
+                  <option value="exists">Already in App</option>
+                  <option value="duplicates">Duplicates in File</option>
                 </select>
               </div>
               <div class="table-wrap" id="preview-table-wrap"></div>

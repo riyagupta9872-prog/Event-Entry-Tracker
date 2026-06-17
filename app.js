@@ -6,7 +6,9 @@ const App = (() => {
   let allAttendees = [];
   let _dashAttendees = []; // snapshot for pop-cards
   let liveUnsubscribe = null; // Firestore real-time listener
+  let _busesConfigured = false; // set by initMyBusPicker; used by doAdmit to warn
   const PAGE_SIZE = 100;
+  const normBus = s => (s || '').trim().toLowerCase(); // normalize bus names for matching
 
   // Return the department for a team name — delegates to Reports module
   function getCategoryForTeam(teamName) {
@@ -364,23 +366,43 @@ const App = (() => {
     const pills = document.getElementById('my-bus-pills');
     if (!bar || !pills) return;
 
-    if (!buses.length) { bar.classList.add('hidden'); return; }
+    if (!buses.length) { bar.classList.add('hidden'); _busesConfigured = false; return; }
 
+    _busesConfigured = true;
     bar.classList.remove('hidden');
     const active = getMyBus();
+
+    // Warn visually if buses exist but none is selected yet
+    const label = bar.querySelector('.my-bus-label');
+    if (!active) {
+      bar.style.background = '#fef3c7';
+      bar.style.borderBottom = '2px solid #fcd34d';
+      if (label) label.innerHTML = '&#9888; Select your bus:';
+    } else {
+      bar.style.background = '';
+      bar.style.borderBottom = '';
+      if (label) label.textContent = 'Your Bus:';
+    }
+
     pills.innerHTML = buses.map(b =>
-      `<button class="my-bus-pill ${b.name === active ? 'active' : ''}" onclick="App._selectMyBus('${b.name.replace(/'/g,"\\'")}', this)">${b.name}</button>`
+      `<button class="my-bus-pill ${normBus(b.name) === normBus(active) ? 'active' : ''}" onclick="App._selectMyBus('${b.name.replace(/'/g,"\\'")}', this)">${b.name}</button>`
     ).join('');
   }
 
   function _selectMyBus(name, btn) {
     const wasActive = btn.classList.contains('active');
     document.querySelectorAll('.my-bus-pill').forEach(p => p.classList.remove('active'));
+    const bar   = document.getElementById('my-bus-bar');
+    const label = bar?.querySelector('.my-bus-label');
     if (wasActive) {
       setMyBus('');
+      if (bar)   { bar.style.background = '#fef3c7'; bar.style.borderBottom = '2px solid #fcd34d'; }
+      if (label)   label.innerHTML = '&#9888; Select your bus:';
     } else {
       btn.classList.add('active');
       setMyBus(name);
+      if (bar)   { bar.style.background = ''; bar.style.borderBottom = ''; }
+      if (label)   label.textContent = 'Your Bus:';
     }
   }
 
@@ -583,7 +605,7 @@ const App = (() => {
             </div>`;
           return;
         }
-        const onBus = present.filter(a => (a.boardedBus || '') === myBus);
+        const onBus = present.filter(a => normBus(a.boardedBus) === normBus(myBus));
         host.innerHTML = renderMyBus(myBus, onBus);
       }
     } catch (err) {
@@ -808,7 +830,8 @@ const App = (() => {
   // ===== DASHBOARD =====
   async function initDashboard() {
     try {
-      const attendees  = await DB.getAll(DB.STORES.attendees);
+      // Use the live onSnapshot cache when available to avoid a redundant Firestore read
+      const attendees  = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
       const busRoutes  = await DB.getAll(DB.STORES.busRoutes);
       const present   = attendees.filter(a => a.attendance === 'present');
       const absent    = attendees.filter(a => a.attendance !== 'present');
@@ -865,12 +888,24 @@ const App = (() => {
         occCard.style.display = '';
         const busCoordHead  = await DB.getConfig('busCoordinatorHead') || '';
         const boardedCounts = {};
-        attendees.filter(a => a.attendance === 'present' && a.boardedBus).forEach(a => {
-          boardedCounts[a.boardedBus] = (boardedCounts[a.boardedBus] || 0) + 1;
+        let unTagged = 0;
+        attendees.filter(a => a.attendance === 'present').forEach(a => {
+          const k = normBus(a.boardedBus);
+          if (!k) { unTagged += 1; return; }
+          boardedCounts[k] = (boardedCounts[k] || 0) + 1;
         });
-        const tiles = buses.map(b => {
+
+        const configuredNames = new Set(buses.map(b => normBus(b.name)));
+        // Any boardedBus value that doesn't match a currently configured bus
+        // → these are usually previously-renamed/deleted buses. Surface them
+        // so the dashboard total matches My Bus and reality.
+        const orphanEntries = Object.entries(boardedCounts)
+          .filter(([name]) => !configuredNames.has(name))
+          .sort((a, b) => b[1] - a[1]);
+
+        const configuredTiles = buses.map(b => {
           const cap   = parseInt(b.capacity) || 0;
-          const count = boardedCounts[b.name] || 0;
+          const count = boardedCounts[normBus(b.name)] || 0;
           const pct   = cap ? Math.min(100, Math.round(count / cap * 100)) : 0;
           const full  = cap && count >= cap;
           return `<div class="bus-occ-tile">
@@ -882,7 +917,35 @@ const App = (() => {
             ${cap ? `<div class="bus-occ-bar-wrap"><div class="bus-occ-bar-fill${full ? ' full' : ''}" style="width:${pct}%"></div></div>` : ''}
           </div>`;
         }).join('');
-        occEl.innerHTML = `<div class="bus-occ-grid">${tiles}</div>` +
+
+        const orphanTiles = orphanEntries.map(([name, count]) => `
+          <div class="bus-occ-tile" style="border-color:#f59e0b;background:#fffbeb">
+            <div class="bus-occ-header">
+              <span class="bus-occ-name" style="color:#92400e">${name}</span>
+              <span class="bus-occ-count" style="color:#92400e">${count}</span>
+            </div>
+            <div class="bus-occ-coordinator" style="color:#92400e">&#9888; bus no longer configured</div>
+          </div>`).join('');
+
+        const untaggedTile = unTagged > 0 ? `
+          <div class="bus-occ-tile" style="border-color:#94a3b8;background:#f8fafc">
+            <div class="bus-occ-header">
+              <span class="bus-occ-name" style="color:#475569">— No bus tag —</span>
+              <span class="bus-occ-count" style="color:#475569">${unTagged}</span>
+            </div>
+            <div class="bus-occ-coordinator" style="color:#64748b">admitted without selecting a bus</div>
+          </div>` : '';
+
+        const orphanTotal = orphanEntries.reduce((s, [, n]) => s + n, 0);
+        const reconNote = (orphanTotal + unTagged > 0) ? `
+          <p style="font-size:.78rem;color:#92400e;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:.5rem .6rem;margin-top:.6rem">
+            &#9888; ${orphanTotal + unTagged} present devotee${orphanTotal + unTagged !== 1 ? 's' : ''} not in any currently-configured bus
+            ${orphanTotal ? ` — ${orphanTotal} tagged with a renamed/deleted bus` : ''}${unTagged ? `${orphanTotal ? ',' : ''} ${unTagged} admitted without a bus selected` : ''}.
+            Open <b>My Bus</b> to see the full list.
+          </p>` : '';
+
+        occEl.innerHTML = `<div class="bus-occ-grid">${configuredTiles}${orphanTiles}${untaggedTile}</div>` +
+          reconNote +
           (busCoordHead ? `<div class="bus-occ-head">&#128081; Bus Coordinator Head: <strong>${busCoordHead}</strong></div>` : '') +
           `<div style="text-align:right;margin-top:.5rem"><button class="btn-ghost" style="font-size:.78rem" onclick="App.openBusManageModal()">&#9881; Manage Buses</button></div>`;
       } else if (occCard) {
@@ -1010,6 +1073,7 @@ const App = (() => {
       return;
     }
 
+    const esc = Helpers.escapeHtml;
     const rows = list.map(a => {
       const ps = (a.paymentStatus || 'unpaid').toLowerCase();
       const psBadge = ps === 'paid' ? 'present' : ps === 'free' ? 'before' : 'unpaid';
@@ -1017,8 +1081,8 @@ const App = (() => {
       const attLabel = a.attendance === 'present' ? 'Present' : 'Absent';
       return `<div class="pop-list-row">
         <div class="pop-list-main">
-          <div class="pop-list-name">${a.name}${a.isWalkIn ? ' <span class="badge walkin">WI</span>' : ''}</div>
-          <div class="pop-list-meta">${a.mobile || ''}${a.team ? ' · ' + a.team : ''}${a.category ? ' · ' + a.category : ''}</div>
+          <div class="pop-list-name">${esc(a.name)}${a.isWalkIn ? ' <span class="badge walkin">WI</span>' : ''}</div>
+          <div class="pop-list-meta">${esc(a.mobile || '')}${a.team ? ' · ' + esc(a.team) : ''}${a.category ? ' · ' + esc(a.category) : ''}</div>
         </div>
         <div class="pop-list-badges">
           <span class="badge ${attBadge}">${attLabel}</span>
@@ -1313,11 +1377,36 @@ const App = (() => {
         return;
       }
 
+      // Step 1: Flag duplicates within this import batch (same mobile + similar name)
       const dupIds = Helpers.detectDuplicates(records);
       records.forEach((r, i) => { r.isDuplicate = dupIds.has(i); });
 
       const isReplace = document.getElementById('import-mode-replace')?.checked;
-      btn.textContent = isReplace ? 'Replacing data...' : `Uploading ${records.length} records...`;
+
+      // Step 2: Check each record against EXISTING Firestore records
+      // so re-importing the same file, or overlapping coordinator lists, never creates duplicates.
+      // Skip this check in Replace mode (user intentionally wiping the slate).
+      let existingInDb = [];
+      if (!isReplace) {
+        btn.textContent = 'Checking for existing records…';
+        const dbRecords = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+        records.forEach(r => {
+          const match = dbRecords.find(e => {
+            const sameMob = e.mobile && r.mobile && normalizeMobile(String(e.mobile)) === r.mobile;
+            return sameMob && Helpers.similarName(e.name, r.name);
+          });
+          if (match) {
+            r._existsInDb   = true;
+            r._dbMatchName  = match.name;
+          }
+        });
+        existingInDb = records.filter(r => r._existsInDb);
+      }
+
+      // Only write truly new records to Firestore
+      const toImport = records.filter(r => !r._existsInDb);
+
+      btn.textContent = isReplace ? 'Replacing data...' : `Uploading ${toImport.length} records...`;
 
       if (isReplace) {
         await DB.clearStore(DB.STORES.attendees);
@@ -1325,12 +1414,21 @@ const App = (() => {
         attendanceInited = false;
       }
 
-      await DB.bulkAdd(DB.STORES.attendees, records);
-      await DB.log('import', `${isReplace ? 'Replaced' : 'Imported'} ${records.length} records (${dupIds.size} dups)`, currentUser?.email);
+      if (toImport.length > 0) {
+        await DB.bulkAdd(DB.STORES.attendees, toImport);
+      }
+
+      const summary = [
+        `${toImport.length} imported`,
+        existingInDb.length ? `${existingInDb.length} skipped (already in app)` : '',
+        dupIds.size ? `${dupIds.size} duplicates within file flagged` : ''
+      ].filter(Boolean).join(' · ');
+
+      await DB.log('import', `${isReplace ? 'Replaced' : 'Imported'} ${toImport.length} records (${existingInDb.length} skipped existing, ${dupIds.size} in-file dups)`, currentUser?.email);
 
       document.getElementById('column-mapping-section').classList.add('hidden');
       showImportPreview(records, dupIds.size);
-      Helpers.toast(`✓ ${records.length} records imported${dupIds.size ? `, ${dupIds.size} duplicates flagged` : ''}`, 'success');
+      Helpers.toast(`✓ ${summary}`, 'success', 6000);
 
       // Detect teams not in the predefined list — load saved map then prompt
       checkAndSaveUnknownTeams(records);
@@ -1407,10 +1505,13 @@ const App = (() => {
   }
 
   function showImportPreview(records, dupCount) {
+    const existCount  = records.filter(r => r._existsInDb).length;
+    const importedCount = records.length - existCount;
     document.getElementById('import-stats-row').innerHTML = `
-      <span class="import-stat total">Total: ${records.length}</span>
-      <span class="import-stat clean">Clean: ${records.length - dupCount}</span>
-      <span class="import-stat dup">Duplicates: ${dupCount}</span>`;
+      <span class="import-stat total">In file: ${records.length}</span>
+      <span class="import-stat clean">Imported: ${importedCount}</span>
+      ${existCount ? `<span class="import-stat" style="background:#fef3c7;color:#92400e;border-color:#fcd34d">Already in app: ${existCount}</span>` : ''}
+      ${dupCount ? `<span class="import-stat dup">In-file dups: ${dupCount}</span>` : ''}`;
     const preview = document.getElementById('import-preview');
     preview.classList.remove('hidden');
     const searchInput = document.getElementById('preview-search');
@@ -1421,16 +1522,30 @@ const App = (() => {
       const f = filterSelect.value;
       if (q) filtered = filtered.filter(r => Helpers.searchFilter(r, q));
       if (f === 'duplicates') filtered = filtered.filter(r => r.isDuplicate);
-      if (f === 'clean') filtered = filtered.filter(r => !r.isDuplicate);
+      if (f === 'exists')     filtered = filtered.filter(r => r._existsInDb);
+      if (f === 'clean')      filtered = filtered.filter(r => !r.isDuplicate && !r._existsInDb);
       document.getElementById('preview-table-wrap').innerHTML = Helpers.buildTable(
         ['Name', 'Mobile', 'Team', 'Category', 'Payment', 'Mode', 'Status'],
-        filtered.slice(0, 200).map(r => ({
-          _class: r.isDuplicate ? 'duplicate-row' : '',
-          cells: [r.name, r.mobile, r.team || '-', r.category || '-',
-            `<span class="badge ${r.paymentStatus === 'paid' ? 'present' : r.paymentStatus === 'free' ? 'before' : 'unpaid'}">${r.paymentStatus}</span>`,
-            r.paymentMode || '-',
-            r.isDuplicate ? `<span class="badge dup">Dup</span>` : '<span class="badge present">OK</span>']
-        }))
+        filtered.slice(0, 300).map(r => {
+          let statusBadge, rowClass;
+          if (r._existsInDb) {
+            statusBadge = `<span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d">Already in app</span>`;
+            rowClass    = 'duplicate-row';
+          } else if (r.isDuplicate) {
+            statusBadge = `<span class="badge dup">Dup in file</span>`;
+            rowClass    = 'duplicate-row';
+          } else {
+            statusBadge = `<span class="badge present">Imported</span>`;
+            rowClass    = '';
+          }
+          return {
+            _class: rowClass,
+            cells: [r.name, r.mobile, r.team || '-', r.category || '-',
+              `<span class="badge ${r.paymentStatus === 'paid' ? 'present' : r.paymentStatus === 'free' ? 'before' : 'unpaid'}">${r.paymentStatus}</span>`,
+              r.paymentMode || '-',
+              statusBadge]
+          };
+        })
       );
     };
     searchInput.oninput = Helpers.debounce(render, 300);
@@ -1527,6 +1642,27 @@ const App = (() => {
   }
 
   // Render full attendance list with optional search + active tab filter
+  const ATT_RENDER_LIMIT = 500; // show up to 500 cards; beyond that search is required
+
+  // Relevance-sorted search: exact/prefix match beats contains beats mobile/ID match
+  function _relevanceSort(list, q) {
+    if (!q) return list;
+    const ql = q.toLowerCase();
+    const score = a => {
+      const nl = (a.name || '').toLowerCase();
+      if (nl === ql)              return 0; // exact name match
+      if (nl.startsWith(ql))     return 1; // name starts with query
+      if (nl.includes(ql))       return 2; // name contains query
+      if ((a.mobile || '').includes(q)) return 3; // mobile match
+      return 4;                             // attendeeId / other
+    };
+    return list.slice().sort((a, b) => {
+      const diff = score(a) - score(b);
+      if (diff !== 0) return diff;
+      return (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' });
+    });
+  }
+
   function renderAllAttendance(query) {
     let list = allAttendees.slice();
 
@@ -1535,14 +1671,26 @@ const App = (() => {
     else if (_attFilter === 'absent')  list = list.filter(a => a.attendance !== 'present');
     else if (_attFilter === 'present') list = list.filter(a => a.attendance === 'present');
 
-    // Apply search
-    if (query && query.trim()) list = list.filter(a => Helpers.searchFilter(a, query.trim()));
+    // Apply search with relevance sorting
+    const q = (query || '').trim();
+    if (q) {
+      list = list.filter(a => Helpers.searchFilter(a, q));
+      list = _relevanceSort(list, q);
+    }
 
-    const info = document.getElementById('att-list-info');
-    if (info) info.textContent = `${list.length} of ${allAttendees.length} shown`;
+    const hidden = Math.max(0, list.length - ATT_RENDER_LIMIT);
+    const info   = document.getElementById('att-list-info');
+    if (info) {
+      info.textContent = hidden > 0
+        ? `Showing ${ATT_RENDER_LIMIT} of ${list.length} — search by name or mobile to find the rest`
+        : `${list.length} of ${allAttendees.length} shown`;
+    }
 
-    renderAttendanceResults(list.slice(0, 100));
+    renderAttendanceResults(list.slice(0, ATT_RENDER_LIMIT));
   }
+
+  // Alias: re-render with the current search query after any admission/payment change
+  function searchAttendeesFromCache(q) { renderAllAttendance(q); }
 
   function getPaymentStatus(a) {
     if (a.attendance === 'present') return { label: 'Already Present', cls: 'status-already-present' };
@@ -1611,15 +1759,16 @@ const App = (() => {
         ? `<div class="att-payment-badge" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;margin-top:.2rem">&#9888; Absent in last ${absInfo.consecutive} event${absInfo.consecutive>1?'s':''}</div>`
         : '';
 
+      const esc = Helpers.escapeHtml;
       if (isPres) {
         // Already admitted — green tick, show who admitted, NO re-admit
         return `
           <div class="att-result-card status-already-present" onclick="App.showDetail('${a.id}')" data-id="${a.id}">
             <div class="att-check-mark">&#10003;</div>
             <div class="att-result-info">
-              <div class="att-name">${a.name}</div>
-              <div class="att-meta">${a.mobile || ''} · ${a.team || ''}</div>
-              <div class="att-payment-badge status-already-present">Admitted by ${a.markedBy || '?'} at ${Helpers.formatDateTime(a.entryTime)}</div>
+              <div class="att-name">${esc(a.name)}</div>
+              <div class="att-meta">${esc(a.mobile || '')} · ${esc(a.team || '')}</div>
+              <div class="att-payment-badge status-already-present">Admitted by ${esc(a.markedBy || '?')} at ${Helpers.formatDateTime(a.entryTime)}</div>
               ${absBadge}
             </div>
           </div>`;
@@ -1632,9 +1781,9 @@ const App = (() => {
       return `
         <div class="att-result-card ${ps.cls}" onclick="App.instantAdmit('${a.id}')" data-id="${a.id}">
           <div class="att-result-info">
-            <div class="att-name">${a.name} ${a.isWalkIn ? '<span class="badge walkin">WI</span>' : ''}</div>
-            <div class="att-meta">${a.mobile || ''} · ${a.team || ''} · ${a.attendeeId || ''}</div>
-            <div class="att-payment-badge ${ps.cls}">${ps.label}${a.paymentMode ? ' · ' + a.paymentMode : ''}${a.paymentAmount > 0 ? ' · ' + Helpers.currency(a.paymentAmount) : ''}</div>
+            <div class="att-name">${esc(a.name)} ${a.isWalkIn ? '<span class="badge walkin">WI</span>' : ''}</div>
+            <div class="att-meta">${esc(a.mobile || '')} · ${esc(a.team || '')} · ${esc(a.attendeeId || '')}</div>
+            <div class="att-payment-badge ${ps.cls}">${ps.label}${a.paymentMode ? ' · ' + esc(a.paymentMode) : ''}${a.paymentAmount > 0 ? ' · ' + Helpers.currency(a.paymentAmount) : ''}</div>
             ${absBadge}
           </div>
           <div class="att-admit-btn ${ps.cls}">${admitLabel}</div>
@@ -1643,21 +1792,13 @@ const App = (() => {
   }
 
   // INSTANT ADMIT — one tap, no modal for paid/free; payment collection for unpaid/partial
-  async function instantAdmit(id, ackedAbsentee) {
-    const a = await DB.getById(DB.STORES.attendees, id);
+  async function instantAdmit(id) {
+    // Use in-memory cache first (kept live by onSnapshot), fall back to Firestore only if missing
+    const a = allAttendees.find(x => x.id === id) || await DB.getById(DB.STORES.attendees, id);
     if (!a) return;
     if (a.attendance === 'present') {
       Helpers.toast(`Already admitted by ${a.markedBy}`, 'warning');
       return;
-    }
-
-    // Cross-event repeat-absentee alert (skipped once the user confirms)
-    if (!ackedAbsentee) {
-      const abs = getAbsenteeInfo(a);
-      if (abs) {
-        showAbsenteeWarning(a, abs);
-        return;
-      }
     }
 
     const ps = (a.paymentStatus || '').toLowerCase();
@@ -1672,36 +1813,8 @@ const App = (() => {
     await doAdmit(a);
   }
 
-  // Modal warning shown before admitting a devotee with a cross-event absence streak
-  function showAbsenteeWarning(a, abs) {
-    const absentList = abs.history.slice(0, abs.consecutive).map(h =>
-      `<li>${h.eventName}${h.date ? ' <span style="color:var(--text-muted);font-size:.8rem">· ' + Helpers.formatDate(h.date) + '</span>' : ''}</li>`
-    ).join('');
-    const lastAtt = abs.lastAttended
-      ? `${abs.lastAttended.eventName}${abs.lastAttended.date ? ' (' + Helpers.formatDate(abs.lastAttended.date) + ')' : ''}`
-      : 'Never attended any past event';
-
-    Helpers.modal(`
-      <h3 class="modal-title" style="color:#92400e">&#9888; Repeat Absentee Alert</h3>
-      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:.85rem;margin-bottom:.75rem">
-        <div style="font-weight:700;font-size:1.05rem">${a.name}</div>
-        <div style="color:var(--text-muted);font-size:.85rem">${a.mobile || ''} · ${a.team || ''}</div>
-        <div style="margin-top:.5rem;font-size:.95rem">
-          Was <b>absent in the last ${abs.consecutive} consecutive past event${abs.consecutive>1?'s':''}</b>.
-        </div>
-      </div>
-      <div style="font-size:.88rem;margin-bottom:.4rem"><b>Absent in:</b></div>
-      <ul style="margin:0 0 .75rem 1.2rem;padding:0;font-size:.88rem">${absentList}</ul>
-      <div style="font-size:.88rem;margin-bottom:1rem"><b>Last attended:</b> ${lastAtt}</div>
-      <div style="display:flex;gap:.5rem;justify-content:flex-end">
-        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-        <button class="btn-primary" onclick="Helpers.closeModal();App.instantAdmit('${a.id}', true)">Admit Anyway</button>
-      </div>
-    `);
-  }
-
   // Show bottom panel to collect payment info for unpaid attendees
-  function showPaymentCollect(a) {
+  async function showPaymentCollect(a) {
     const panel = document.getElementById('payment-collect-panel');
     document.getElementById('pc-name').textContent = a.name;
     document.getElementById('pc-attendee-id').value = a.id;
@@ -1711,8 +1824,54 @@ const App = (() => {
     document.getElementById('pc-screenshot-wrap').style.display = 'none';
     document.getElementById('pc-screenshot').value = '';
     document.getElementById('pc-screenshot-preview').innerHTML = '';
+
+    // Show past event history above the form
+    const histEl = document.getElementById('pc-history');
+    histEl.innerHTML = '';
     panel.classList.remove('hidden');
     document.getElementById('pc-amount').focus();
+
+    // Async: fetch history after showing panel — doesn't delay gate flow
+    try {
+      const absInfo = await Reports.getAbsenteeWarning(a);
+      if (absInfo && absInfo.history && absInfo.history.length) {
+        const last5 = absInfo.history.slice(0, 5);
+        const rows = last5.map(h => {
+          const ps = (h.paymentStatus || 'unpaid').toLowerCase();
+          const isPaid = ps === 'paid' || ps === 'free';
+          const attCell  = h.present
+            ? `<span style="color:#15803d;font-weight:700">✓ Present</span>`
+            : `<span style="color:#dc2626;font-weight:700">✗ Absent</span>`;
+          const payCell  = isPaid
+            ? `<span style="color:#15803d">${ps}${h.paymentAmount > 0 ? ' ₹' + h.paymentAmount : ''}</span>`
+            : `<span style="color:#dc2626;font-weight:600">unpaid${h.paymentAmount > 0 ? ' ₹' + h.paymentAmount : ''}</span>`;
+          return `<tr>
+            <td style="padding:.28rem .4rem;font-size:.8rem;color:#334155">${h.eventName}</td>
+            <td style="padding:.28rem .4rem;font-size:.8rem;white-space:nowrap">${attCell}</td>
+            <td style="padding:.28rem .4rem;font-size:.8rem;white-space:nowrap">${payCell}</td>
+          </tr>`;
+        }).join('');
+
+        const headerColor = absInfo.consecutive > 0 ? '#92400e' : '#166534';
+        const headerBg    = absInfo.consecutive > 0 ? '#fef3c7' : '#dcfce7';
+        const headerText  = absInfo.consecutive > 0
+          ? `⚠ Absent in last ${absInfo.consecutive} event${absInfo.consecutive > 1 ? 's' : ''}`
+          : `✓ Attended last event`;
+
+        histEl.innerHTML = `
+          <div style="border:1px solid #e2e8f0;border-radius:7px;margin-bottom:.75rem;overflow:hidden;font-size:.8rem">
+            <div style="background:${headerBg};color:${headerColor};font-weight:700;padding:.35rem .5rem;font-size:.8rem">${headerText} · Last ${last5.length} event${last5.length !== 1 ? 's' : ''}</div>
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="background:#f8fafc">
+                <th style="padding:.25rem .4rem;font-size:.75rem;font-weight:600;text-align:left;color:#64748b">Event</th>
+                <th style="padding:.25rem .4rem;font-size:.75rem;font-weight:600;text-align:left;color:#64748b">Attendance</th>
+                <th style="padding:.25rem .4rem;font-size:.75rem;font-weight:600;text-align:left;color:#64748b">Payment</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`;
+      }
+    } catch { /* absentee map not ready — skip silently */ }
   }
 
   // Actually perform the admission (shared by instant and payment-collect flow)
@@ -1721,7 +1880,11 @@ const App = (() => {
     a.entryTime  = new Date().toISOString();
     a.markedBy   = currentUser?.name || 'Unknown';
     const myBus  = getMyBus();
-    if (myBus) a.boardedBus = myBus;
+    if (myBus) {
+      a.boardedBus = myBus;
+    } else if (_busesConfigured) {
+      Helpers.toast('No bus selected — admitted without bus tag. Select your bus above.', 'warning', 3500);
+    }
 
     if (extraPayment && extraPayment.collected) {
       // Payment was collected at the gate — mark as PAID
@@ -1736,7 +1899,21 @@ const App = (() => {
 
     await DB.put(DB.STORES.attendees, a);
     await DB.log('checkin', `${a.name} checked in${extraPayment?.collected ? ' (paid at gate)' : ''}`, currentUser?.email);
-    Helpers.toast(`${a.name} admitted!`, 'success');
+
+    // Show admission toast — if absentee history exists, append a brief note for management
+    const absInfo = getAbsenteeInfo(a);
+    if (absInfo && absInfo.consecutive > 0) {
+      const unpaidPast = absInfo.history.filter(h => {
+        const ps = (h.paymentStatus || '').toLowerCase();
+        return !h.present || (ps !== 'paid' && ps !== 'free');
+      }).length;
+      const note = unpaidPast > 0
+        ? `⚠ Absent ${absInfo.consecutive} past event${absInfo.consecutive > 1 ? 's' : ''} · ${unpaidPast} with dues`
+        : `⚠ Absent ${absInfo.consecutive} past event${absInfo.consecutive > 1 ? 's' : ''}`;
+      Helpers.toast(`${a.name} admitted · ${note}`, 'warning', 5000);
+    } else {
+      Helpers.toast(`${a.name} admitted!`, 'success');
+    }
 
     // Update local cache unconditionally so counters + search are immediately accurate
     const idx = allAttendees.findIndex(x => x.id === a.id);
@@ -1789,25 +1966,41 @@ const App = (() => {
     const a = await DB.getById(DB.STORES.attendees, id);
     if (!a) return;
     const ps = getPaymentStatus(a);
+    const isAdmin = currentUser?.role === 'admin';
+
+    let busOptions = '';
+    if (isAdmin && a.attendance === 'present') {
+      const buses = await DB.getAll(DB.STORES.buses).catch(() => []);
+      if (buses.length) {
+        busOptions = `<select id="detail-bus-select" style="font-size:.88rem;padding:.25rem .5rem;border-radius:6px;border:1px solid var(--border);margin-left:.4rem">
+          <option value="">— none —</option>
+          ${buses.map(b => `<option value="${Helpers.escapeHtml(b.name)}" ${normBus(a.boardedBus) === normBus(b.name) ? 'selected' : ''}>${Helpers.escapeHtml(b.name)}</option>`).join('')}
+        </select>
+        <button class="btn-ghost" style="font-size:.8rem;padding:.2rem .6rem;margin-left:.3rem" onclick="App.saveBusFromDetail('${a.id}')">Save</button>`;
+      }
+    }
 
     Helpers.modal(`
       <div class="admit-confirm-card">
         <div class="admit-status-banner ${ps.cls}"><span class="admit-status-dot ${ps.cls}"></span>${ps.label}</div>
-        <h3 class="admit-name">${a.name}</h3>
+        <h3 class="admit-name">${Helpers.escapeHtml(a.name)}</h3>
         <div class="admit-details">
-          <div class="admit-row"><span>Mobile</span><span>${a.mobile || '-'}</span></div>
-          <div class="admit-row"><span>Team</span><span>${a.team || '-'}</span></div>
-          <div class="admit-row"><span>Category</span><span>${a.category || '-'}</span></div>
-          <div class="admit-row"><span>Reference</span><span>${a.reference || '-'}</span></div>
+          <div class="admit-row"><span>Mobile</span><span>${Helpers.escapeHtml(a.mobile || '-')}</span></div>
+          <div class="admit-row"><span>Team</span><span>${Helpers.escapeHtml(a.team || '-')}</span></div>
+          <div class="admit-row"><span>Category</span><span>${Helpers.escapeHtml(a.category || '-')}</span></div>
+          <div class="admit-row"><span>Reference</span><span>${Helpers.escapeHtml(a.reference || '-')}</span></div>
           <div class="admit-row"><span>Payment</span><span class="badge ${a.paymentStatus === 'paid' ? 'present' : a.paymentStatus === 'free' ? 'before' : 'unpaid'}">${a.paymentStatus || 'unpaid'}</span></div>
-          <div class="admit-row"><span>Mode</span><span>${a.paymentMode || '-'}</span></div>
+          <div class="admit-row"><span>Mode</span><span>${Helpers.escapeHtml(a.paymentMode || '-')}</span></div>
           <div class="admit-row"><span>Amount</span><span>${Helpers.currency(a.paymentAmount)}</span></div>
-          <div class="admit-row"><span>Remarks</span><span>${a.remarks || '-'}</span></div>
-          ${a.serviceStatus ? `<div class="admit-row"><span>Devotee</span><span>${a.serviceStatus}</span></div>` : ''}
-          ${a.activeStatus ? `<div class="admit-row"><span>Activity</span><span>${a.activeStatus}</span></div>` : ''}
+          <div class="admit-row"><span>Remarks</span><span>${Helpers.escapeHtml(a.remarks || '-')}</span></div>
+          ${a.serviceStatus ? `<div class="admit-row"><span>Devotee</span><span>${Helpers.escapeHtml(a.serviceStatus)}</span></div>` : ''}
+          ${a.activeStatus ? `<div class="admit-row"><span>Activity</span><span>${Helpers.escapeHtml(a.activeStatus)}</span></div>` : ''}
           ${a.attendance === 'present' ? `
-            <div class="admit-row"><span>Admitted by</span><span>${a.markedBy}</span></div>
+            <div class="admit-row"><span>Admitted by</span><span>${Helpers.escapeHtml(a.markedBy || '')}</span></div>
             <div class="admit-row"><span>Time</span><span>${Helpers.formatDateTime(a.entryTime)}</span></div>
+            <div class="admit-row"><span>Bus</span><span style="display:flex;align-items:center;flex-wrap:wrap;gap:.25rem">
+              ${busOptions || Helpers.escapeHtml(a.boardedBus || '—')}
+            </span></div>
           ` : ''}
         </div>
         <div class="admit-actions">
@@ -1819,6 +2012,18 @@ const App = (() => {
         </div>
       </div>
     `);
+  }
+
+  async function saveBusFromDetail(id) {
+    const sel = document.getElementById('detail-bus-select');
+    if (!sel) return;
+    const newBus = sel.value;
+    await DB.put(DB.STORES.attendees, id, { boardedBus: newBus, updatedAt: new Date().toISOString() });
+    const cached = allAttendees.find(x => x.id === id);
+    if (cached) cached.boardedBus = newBus;
+    await DB.log('busEdit', `Bus updated to "${newBus}" for ${id}`, currentUser?.email);
+    Helpers.closeModal();
+    Helpers.toast('Bus updated', 'success');
   }
 
   // PRD: Volunteer can update payment at gate
@@ -1882,8 +2087,9 @@ const App = (() => {
   }
 
   async function unmarkAttendance(id) {
-    const a = await DB.getById(DB.STORES.attendees, id);
+    const a = allAttendees.find(x => x.id === id) || await DB.getById(DB.STORES.attendees, id);
     if (!a) return;
+    if (!confirm(`Remove attendance for ${a.name}?\nThey will need to be re-admitted.`)) return;
     a.attendance = 'absent';
     a.entryTime  = null;
     a.markedBy   = null;
@@ -1971,7 +2177,11 @@ const App = (() => {
         if (!val) continue;
         const found = all.find(a => a.attendeeId === val || a.mobile === val || String(a.id) === val);
         if (found && found.attendance !== 'present') {
-          found.attendance = 'present'; found.entryTime = new Date().toISOString(); found.markedBy = currentUser?.name + ' (bulk)';
+          const myBusBulk = getMyBus();
+          found.attendance = 'present';
+          found.entryTime = new Date().toISOString();
+          found.markedBy = currentUser?.name + ' (bulk)';
+          if (myBusBulk) found.boardedBus = myBusBulk;
           await DB.put(DB.STORES.attendees, found); matched++;
         } else if (!found) notFound++;
       }
@@ -2002,16 +2212,30 @@ const App = (() => {
 
     if (!name || !mobile) { fb.className = 'scan-feedback error'; fb.textContent = 'Name and Mobile required'; fb.classList.remove('hidden'); return; }
 
+    // Check if mobile is already registered — prevent duplicate walk-in records
+    const normMob = mobile.replace(/\D/g, '').slice(-10);
+    const existing = allAttendees.find(a => !a.isWalkIn && a.mobile && a.mobile.toString().replace(/\D/g, '').slice(-10) === normMob);
+    if (existing) {
+      fb.className = 'scan-feedback error';
+      fb.textContent = `Already registered as "${existing.name}" — admit from Admission tab`;
+      fb.classList.remove('hidden');
+      return;
+    }
+
     const now = new Date();
     const paydate = now.toISOString().slice(0, 10);
     const eventDate = await DB.getConfig('eventDate');
+    const myBusAtWalkin = getMyBus();
     const record = {
       name, mobile, reference, paymentAmount: parseFloat(payment) || 0, paymentDate: paydate,
       paymentTiming: Helpers.paymentTiming(paydate, eventDate),
       paymentStatus: payStatus || 'unpaid', paymentMode: payMode || '', remarks,
       team: '', category, busRoute, attendeeId: Helpers.generateId('WI'),
       attendance: 'present', entryTime: now.toISOString(), markedBy: currentUser?.name || 'Unknown',
-      isWalkIn: true, isDuplicate: false, createdAt: now.toISOString()
+      isWalkIn: true, isDuplicate: false, createdAt: now.toISOString(),
+      // Tag with the volunteer's selected bus so the walk-in shows up in My
+      // Bus alongside everyone else admitted at that bus.
+      boardedBus: myBusAtWalkin || ''
     };
 
     await DB.add(DB.STORES.attendees, record);
@@ -2032,8 +2256,8 @@ const App = (() => {
   }
 
   async function renderWalkinList() {
-    const all = await DB.getAll(DB.STORES.attendees);
-    const walkins = all.filter(a => a.isWalkIn).reverse();
+    const all = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const walkins = all.filter(a => a.isWalkIn).slice().reverse();
     document.getElementById('walkin-list').innerHTML = walkins.length ? Helpers.buildTable(
       ['Name', 'Mobile', 'Reference', 'Payment', 'Mode', 'Entry'],
       walkins.map(a => ({ _class: 'walkin-row', cells: [a.name, a.mobile, a.reference || '-',
@@ -2043,37 +2267,55 @@ const App = (() => {
   }
 
   // ===== ATTENDEES =====
+  const ATTENDEES_LIMIT = 500;
   async function initAttendees() {
     const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
     attendeesPage = 1;
 
-    const teams = [...new Set(attendees.map(a => a.team).filter(Boolean))].sort();
-    document.getElementById('attendees-filter-team').innerHTML = '<option value="">All Teams</option>' + teams.map(t => `<option value="${t}">${t}</option>`).join('');
+    // Deduplicate team names case-insensitively; display canonical (most-frequent) spelling
+    const teamFreq = {};
+    attendees.forEach(a => {
+      const raw = (a.team || '').trim();
+      if (!raw) return;
+      const key = raw.toLowerCase();
+      if (!teamFreq[key]) teamFreq[key] = {};
+      teamFreq[key][raw] = (teamFreq[key][raw] || 0) + 1;
+    });
+    const canonicalTeams = Object.values(teamFreq).map(spellings =>
+      Object.entries(spellings).sort((a, b) => b[1] - a[1])[0][0]
+    ).sort();
+    document.getElementById('attendees-filter-team').innerHTML =
+      '<option value="">All Teams</option>' + canonicalTeams.map(t => `<option value="${t}">${t}</option>`).join('');
 
+    const normStr = s => (s || '').trim().toLowerCase();
     const search = document.getElementById('attendees-search');
     const teamSel = document.getElementById('attendees-filter-team');
     const catSel = document.getElementById('attendees-filter-cat');
     const attSel = document.getElementById('attendees-filter-att');
+    const esc = Helpers.escapeHtml;
 
     const renderFiltered = () => {
       let filtered = attendees;
       const q = search.value.toLowerCase();
       if (q) filtered = filtered.filter(a => Helpers.searchFilter(a, q));
-      if (teamSel.value) filtered = filtered.filter(a => a.team === teamSel.value);
-      if (catSel.value) filtered = filtered.filter(a => a.category === catSel.value);
-      if (attSel.value) filtered = filtered.filter(a => attSel.value === 'present' ? a.attendance === 'present' : a.attendance !== 'present');
+      if (teamSel.value) filtered = filtered.filter(a => normStr(a.team) === normStr(teamSel.value));
+      if (catSel.value)  filtered = filtered.filter(a => normStr(a.category) === normStr(catSel.value));
+      if (attSel.value)  filtered = filtered.filter(a => attSel.value === 'present' ? a.attendance === 'present' : a.attendance !== 'present');
 
       filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
-      document.getElementById('attendees-count').textContent = `${filtered.length} attendees`;
+      const hidden = Math.max(0, filtered.length - ATTENDEES_LIMIT);
+      document.getElementById('attendees-count').textContent = hidden > 0
+        ? `Showing ${ATTENDEES_LIMIT} of ${filtered.length} — search to narrow down`
+        : `${filtered.length} attendee${filtered.length !== 1 ? 's' : ''}`;
 
-      const rows = filtered.slice(0, PAGE_SIZE).map((a, i) => {
+      const rows = filtered.slice(0, ATTENDEES_LIMIT).map((a, i) => {
         const payBadge = a.paymentStatus === 'paid'
           ? `<span class="badge present">Paid</span>`
           : a.paymentStatus === 'free'
             ? `<span class="badge before">Free</span>`
             : `<span class="badge unpaid">Unpaid</span>`;
         const attVal  = a.attendance === 'present'
-          ? (a.isWalkIn ? 'Present (walk-in)' : 'Presnt')
+          ? (a.isWalkIn ? 'Present (walk-in)' : 'Present')
           : 'Absent';
         const attBadge = a.attendance === 'present'
           ? `<span class="badge present">${attVal}</span>`
@@ -2082,18 +2324,18 @@ const App = (() => {
         const nameTags = (a.isDuplicate && !a.dupResolved ? ' <span class="badge dup">dup</span>' : '') + (a.isWalkIn ? ' <span class="badge walkin">WI</span>' : '');
         return `<tr class="${rowCls}">
           <td class="att-col-sr">${i + 1}</td>
-          <td class="att-col-name att-sticky-name">${a.name}${nameTags}</td>
-          <td class="att-col-mobile">${a.mobile || '-'}</td>
-          <td class="att-col-cat">${a.category || '-'}</td>
-          <td class="att-col-ref">${a.reference || '-'}</td>
-          <td class="att-col-team">${a.team || '-'}</td>
-          <td class="att-col-pickup">${a.pickupLocation || '-'}</td>
+          <td class="att-col-name att-sticky-name">${esc(a.name)}${nameTags}</td>
+          <td class="att-col-mobile">${esc(a.mobile || '-')}</td>
+          <td class="att-col-cat">${esc(a.category || '-')}</td>
+          <td class="att-col-ref">${esc(a.reference || '-')}</td>
+          <td class="att-col-team">${esc(a.team || '-')}</td>
+          <td class="att-col-pickup">${esc(a.pickupLocation || '-')}</td>
           <td class="att-col-ps">${payBadge}</td>
-          <td class="att-col-remarks">${a.remarks || '-'}</td>
-          <td class="att-col-mode">${a.paymentMode || '-'}</td>
+          <td class="att-col-remarks">${esc(a.remarks || '-')}</td>
+          <td class="att-col-mode">${esc(a.paymentMode || '-')}</td>
           <td class="att-col-amt">${a.paymentAmount > 0 ? a.paymentAmount : '-'}</td>
           <td class="att-col-att">${attBadge}</td>
-          <td class="att-col-by">${a.markedBy || '-'}</td>
+          <td class="att-col-by">${esc(a.markedBy || '-')}</td>
           <td class="att-col-at">${a.entryTime ? new Date(a.entryTime).toLocaleString('en-IN') : '-'}</td>
           <td class="att-col-action">
             <button class="btn-small" onclick="App.showDetail('${a.id}')">View</button>
@@ -2833,6 +3075,7 @@ const App = (() => {
     const btn = document.getElementById('ocr-confirm-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Marking...'; }
 
+    const myBusOcr = getMyBus();
     let count = 0;
     for (const id of ids) {
       const a = allAttendees.find(x => x.id === id);
@@ -2840,6 +3083,7 @@ const App = (() => {
       a.attendance = 'present';
       a.entryTime  = new Date().toISOString();
       a.markedBy   = currentUser?.name || 'Unknown';
+      if (myBusOcr) a.boardedBus = myBusOcr;
       await DB.put(DB.STORES.attendees, a);
       const idx = allAttendees.findIndex(x => x.id === id);
       if (idx >= 0) allAttendees[idx] = { ...allAttendees[idx], ...a };
@@ -2874,6 +3118,7 @@ const App = (() => {
     showMyAccountModal,
     // OCR
     openOcrModal, confirmOcrMarks, _updateOcrConfirmBtn,
+    saveBusFromDetail,
     closeSidebarPublic: closeSidebar
   };
 })();

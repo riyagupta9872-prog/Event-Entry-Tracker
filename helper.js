@@ -196,10 +196,20 @@ const Helpers = (() => {
     };
   }
 
+  // Escape user-supplied text before inserting into innerHTML to prevent XSS
+  function escapeHtml(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   return {
     toast, modal, closeModal, currency, formatDate, formatDateTime,
     similarName, detectDuplicates, paymentTiming, generateId, qrData,
     debounce, downloadBlob, buildTable, paginate, searchFilter,
-    getFinancialYear, getFYRange
+    getFinancialYear, getFYRange, escapeHtml
   };
 })();

@@ -268,6 +268,7 @@ const Export = (() => {
   }
 
   // ── PUBLIC: Multi-sheet download grouped by a field (team/category/reference) ─
+  // Sheet 1: All Attendees (combined) → Sheet 2: Summary → Sheet 3+: one per group
   async function downloadFilteredByGroup(attendees, groupField, label) {
     if (!attendees || !attendees.length) {
       Helpers.toast('No records match this filter', 'warning');
@@ -287,22 +288,38 @@ const Export = (() => {
                  : groupField === 'boardedBus' ? 'Bus'
                  : 'Reference';
 
-    const groupMap = {};
+    // Normalize group keys (case-insensitive, trimmed) but display canonical name
+    const groupMap = {};   // normalizedKey → members[]
+    const dispMap  = {};   // normalizedKey → { displayName: count }
     attendees.forEach(a => {
-      const key = (a[groupField] || defVal).trim();
-      if (!groupMap[key]) groupMap[key] = [];
+      const raw  = ((a[groupField] || '').trim()) || defVal;
+      const key  = raw.toLowerCase();
+      if (!groupMap[key]) { groupMap[key] = []; dispMap[key] = {}; }
       groupMap[key].push(a);
+      dispMap[key][raw] = (dispMap[key][raw] || 0) + 1;
     });
 
-    const sorted = Object.entries(groupMap).sort((a, b) => b[1].length - a[1].length);
+    // Canonical display name = most frequent original spelling
+    const canonicalName = key => {
+      const entries = Object.entries(dispMap[key] || {}).sort((a, b) => b[1] - a[1]);
+      return entries.length ? entries[0][0] : key;
+    };
 
+    const sorted = Object.entries(groupMap)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([key, members]) => [canonicalName(key), members]);
+
+    // Sheet 1: combined "All Attendees"
+    addAttSheet(wb, safeSheetName('All Attendees', used), attendees);
+    // Sheet 2: summary (count per group)
     addSummarySheet(wb, safeSheetName(`${prefix} Summary`, used), sumLbl, sorted);
-    sorted.forEach(([key, members]) =>
-      addAttSheet(wb, safeSheetName(`${prefix} - ${key}`, used), members)
+    // Sheet 3+: one sheet per group
+    sorted.forEach(([displayName, members]) =>
+      addAttSheet(wb, safeSheetName(`${prefix} - ${displayName}`, used), members)
     );
 
     await saveWorkbook(wb, `Prerna_${label || prefix + 'wise'}_${slug}_${date}.xlsx`);
-    Helpers.toast(`Downloaded ${sorted.length} ${prefix.toLowerCase()} sheet${sorted.length !== 1 ? 's' : ''}!`, 'success');
+    Helpers.toast(`Downloaded: All + ${sorted.length} ${prefix.toLowerCase()} sheet${sorted.length !== 1 ? 's' : ''}!`, 'success');
   }
 
   // ── PUBLIC: Download any filtered list as single-sheet Excel ──────────────
@@ -366,23 +383,36 @@ const Export = (() => {
     const defVal = groupBy === 'team' ? 'Unassigned' : 'Unknown';
     const prefix = groupBy === 'team' ? 'Team' : 'Dept';
 
-    const groups = {};
+    const groups  = {};
+    const dispMap = {};
     allAtts.forEach(a => {
-      const key = (a[field] || defVal).trim();
-      if (!groups[key]) groups[key] = [];
+      const raw  = ((a[field] || '').trim()) || defVal;
+      const key  = raw.toLowerCase();
+      if (!groups[key])  { groups[key] = []; dispMap[key] = {}; }
       groups[key].push(a);
+      dispMap[key][raw] = (dispMap[key][raw] || 0) + 1;
     });
 
-    const sorted = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+    const canonicalName = key => {
+      const entries = Object.entries(dispMap[key] || {}).sort((a, b) => b[1] - a[1]);
+      return entries.length ? entries[0][0] : key;
+    };
+
+    const sorted = Object.entries(groups)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([key, members]) => [canonicalName(key), members]);
+
     const summaryLabel = groupBy === 'team' ? 'Team Name' : 'Category';
 
+    // Sheet 1: All combined
+    addAttSheet(wb, safeSheetName('All Attendees', used), allAtts);
     addSummarySheet(wb, safeSheetName(`${prefix} Summary`, used), summaryLabel, sorted);
-    sorted.forEach(([key, members]) =>
-      addAttSheet(wb, safeSheetName(`${prefix} - ${key}`, used), members)
+    sorted.forEach(([displayName, members]) =>
+      addAttSheet(wb, safeSheetName(`${prefix} - ${displayName}`, used), members)
     );
 
     await saveWorkbook(wb, `Prerna_${prefix}wise_${slug}_${date}.xlsx`);
-    Helpers.toast(`Downloaded ${sorted.length} ${groupBy === 'team' ? 'team' : 'category'} sheets!`, 'success');
+    Helpers.toast(`Downloaded: All + ${sorted.length} ${groupBy === 'team' ? 'team' : 'category'} sheets!`, 'success');
   }
 
   // ── PUBLIC: Export currently filtered/visible rows from Attendees page ─────

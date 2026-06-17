@@ -41,10 +41,22 @@ const Reports = (() => {
       totalExpense:   0
     };
 
-    const teams      = [...new Set(_attendees.map(a => a.team).filter(Boolean))].sort();
-    const categories = [...new Set(_attendees.map(a => a.category).filter(Boolean))].sort();
-    const references = [...new Set(_attendees.map(a => a.reference).filter(Boolean))].sort();
-    const buses      = [...new Set(_attendees.map(a => a.boardedBus).filter(Boolean))].sort();
+    // Deduplicate group values case-insensitively; display the most-common spelling
+    const dedupeGroup = (arr) => {
+      const freq = {};
+      arr.filter(Boolean).forEach(v => {
+        const k = v.trim().toLowerCase();
+        if (!freq[k]) freq[k] = {};
+        freq[k][v.trim()] = (freq[k][v.trim()] || 0) + 1;
+      });
+      return Object.values(freq)
+        .map(spellings => Object.entries(spellings).sort((a, b) => b[1] - a[1])[0][0])
+        .sort();
+    };
+    const teams      = dedupeGroup(_attendees.map(a => a.team));
+    const categories = dedupeGroup(_attendees.map(a => a.category));
+    const references = dedupeGroup(_attendees.map(a => a.reference));
+    const buses      = dedupeGroup(_attendees.map(a => a.boardedBus));
 
     const totalPay    = _attendees.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
     const totalBusCost = busRoutes.reduce((s, r) => {
@@ -62,15 +74,16 @@ const Reports = (() => {
   // ── Apply current filters to attendees array ──────────────────────────────
   function applyFilters(attendees) {
     let f = attendees;
+    const normStr = s => (s || '').trim().toLowerCase();
 
     if (_groupType === 'team' && _groupValue)
-      f = f.filter(a => (a.team || 'Unassigned') === _groupValue);
+      f = f.filter(a => normStr(a.team || 'Unassigned') === normStr(_groupValue));
     else if (_groupType === 'category' && _groupValue)
-      f = f.filter(a => (a.category || 'Unknown') === _groupValue);
+      f = f.filter(a => normStr(a.category || 'Unknown') === normStr(_groupValue));
     else if (_groupType === 'reference' && _groupValue)
-      f = f.filter(a => (a.reference || 'Unknown') === _groupValue);
+      f = f.filter(a => normStr(a.reference || 'Unknown') === normStr(_groupValue));
     else if (_groupType === 'bus' && _groupValue)
-      f = f.filter(a => (a.boardedBus || 'No Bus') === _groupValue);
+      f = f.filter(a => normStr(a.boardedBus || 'No Bus') === normStr(_groupValue));
 
     if (_payFilter === 'paid')
       f = f.filter(a => (a.paymentStatus || '').toLowerCase() === 'paid');
@@ -125,31 +138,41 @@ const Reports = (() => {
   function groupTable(attendees, groupType) {
     if (groupType === 'all') return '';
 
-    const field    = groupType === 'team' ? 'team'
-                   : groupType === 'category' ? 'category'
-                   : groupType === 'bus' ? 'boardedBus'
-                   : 'reference';
-    const defVal   = groupType === 'team' ? 'Unassigned'
-                   : groupType === 'bus' ? 'No Bus'
-                   : 'Unknown';
-    const label    = groupType === 'team' ? 'Team'
-                   : groupType === 'category' ? 'Category'
-                   : groupType === 'bus' ? 'Bus'
-                   : 'Reference';
+    const field  = groupType === 'team' ? 'team'
+                 : groupType === 'category' ? 'category'
+                 : groupType === 'bus' ? 'boardedBus'
+                 : 'reference';
+    const defVal = groupType === 'team' ? 'Unassigned'
+                 : groupType === 'bus' ? 'No Bus'
+                 : 'Unknown';
+    const label  = groupType === 'team' ? 'Team'
+                 : groupType === 'category' ? 'Category'
+                 : groupType === 'bus' ? 'Bus'
+                 : 'Reference';
 
-    const map = {};
+    // Normalize keys: trim + lowercase for grouping; track original spelling for display
+    const map     = {};  // normalizedKey → members[]
+    const dispMap = {};  // normalizedKey → { originalSpelling: count }
     attendees.forEach(a => {
-      const key = a[field] || defVal;
-      if (!map[key]) map[key] = [];
+      const raw  = ((a[field] || '').trim()) || defVal;
+      const key  = raw.toLowerCase();
+      if (!map[key])  { map[key] = []; dispMap[key] = {}; }
       map[key].push(a);
+      dispMap[key][raw] = (dispMap[key][raw] || 0) + 1;
     });
+
+    // Most-frequent original spelling wins as the display name
+    const canonical = key => {
+      const entries = Object.entries(dispMap[key] || {}).sort((a, b) => b[1] - a[1]);
+      return entries.length ? entries[0][0] : key;
+    };
 
     const rows = Object.entries(map)
       .sort((a, b) => b[1].length - a[1].length)
       .map(([key, members]) => {
         const s = stats(members);
         return `<tr>
-          <td>${key}</td>
+          <td>${canonical(key)}</td>
           <td>${s.total}</td>
           <td>${s.present}</td>
           <td>${s.absent}</td>
@@ -195,27 +218,41 @@ const Reports = (() => {
 
     // ── TABLE 1: Category-wise (devotee's own category) ───────────────────
     // "Har category ke kitne devotees aa rhe hai" → group by a.category
-    const devCatMap = {};
+    // Normalize: case-insensitive + trim; display canonical (most-frequent) spelling
+    const devCatMap   = {};  // normalizedKey → count
+    const catDispMap  = {};  // normalizedKey → { spelling: count }
     attendees.forEach(a => {
-      const cat = (a.category || 'Unknown').trim();
-      devCatMap[cat] = (devCatMap[cat] || 0) + 1;
+      const raw = (a.category || 'Unknown').trim();
+      const key = raw.toLowerCase();
+      devCatMap[key]  = (devCatMap[key] || 0) + 1;
+      if (!catDispMap[key]) catDispMap[key] = {};
+      catDispMap[key][raw] = (catDispMap[key][raw] || 0) + 1;
     });
-    const catOrder = [...CATEGORY_ORDER.filter(c => devCatMap[c]), ...Object.keys(devCatMap).filter(c => !CATEGORY_ORDER.includes(c)).sort()];
-    const catBodyRows = catOrder.map(cat =>
-      `<tr class="pre-data-row"><td>${cat}</td><td style="text-align:center;font-weight:700">${devCatMap[cat]}</td></tr>`
+    const catCanonical = key => {
+      const entries = Object.entries(catDispMap[key] || {}).sort((a, b) => b[1] - a[1]);
+      return entries.length ? entries[0][0] : key;
+    };
+    const catOrderKeys = [...CATEGORY_ORDER.map(c => c.toLowerCase()).filter(k => devCatMap[k]),
+                          ...Object.keys(devCatMap).filter(k => !CATEGORY_ORDER.map(c => c.toLowerCase()).includes(k)).sort()];
+    const catBodyRows = catOrderKeys.map(key =>
+      `<tr class="pre-data-row"><td>${catCanonical(key)}</td><td style="text-align:center;font-weight:700">${devCatMap[key]}</td></tr>`
     ).join('');
     const catGrand = attendees.length;
 
     // ── TABLE 2: Team-wise grouped by TEAM'S DEPARTMENT ───────────────────
     // Group by which department the TEAM belongs to (not devotee's category)
     // Count ALL devotees a team brought, regardless of their own category
-    const deptMap = {}; // dept → { teamName → members[] }
+    // Keys are normalized (lowercase trim) to merge "Anant" / "anant" / " Anant"
+    const deptMap = {}; // dept → { normalizedTeamKey → { display, members[] } }
     attendees.forEach(a => {
-      const team = (a.team || 'Other').trim();
-      const dept = getTeamDept(team, savedMap) || 'Unassigned';
+      const rawTeam  = (a.team || 'Other').trim();
+      const teamKey  = rawTeam.toLowerCase();
+      const dept     = getTeamDept(rawTeam, savedMap) || 'Unassigned';
       if (!deptMap[dept]) deptMap[dept] = {};
-      if (!deptMap[dept][team]) deptMap[dept][team] = [];
-      deptMap[dept][team].push(a);
+      if (!deptMap[dept][teamKey]) deptMap[dept][teamKey] = { display: rawTeam, members: [], _freq: {} };
+      deptMap[dept][teamKey].members.push(a);
+      // Track most common original spelling for display
+      deptMap[dept][teamKey]._freq[rawTeam] = (deptMap[dept][teamKey]._freq[rawTeam] || 0) + 1;
     });
 
     const allDepts = [...CATEGORY_ORDER.filter(d => deptMap[d]), ...Object.keys(deptMap).filter(d => !CATEGORY_ORDER.includes(d)).sort()];
@@ -225,20 +262,23 @@ const Reports = (() => {
 
     allDepts.forEach(dept => {
       const teamMap = deptMap[dept] || {};
-      const teams = Object.keys(teamMap).sort();
+      // Sort normalized keys; display using most-common original spelling
+      const teamKeys = Object.keys(teamMap).sort();
       let deptPaid = 0, deptUnpaid = 0, deptTotal = 0;
 
       teamBodyRows += `<tr class="pre-cat-hdr"><td colspan="4">${dept}</td></tr>`;
 
-      teams.forEach(team => {
-        const members = teamMap[team];
+      teamKeys.forEach(teamKey => {
+        const { members, _freq } = teamMap[teamKey];
+        // Pick most-frequent original spelling as display name
+        const teamDisplay = Object.entries(_freq || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || teamKey;
         const paid   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'paid').length;
         const free   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'free').length;
         const unpaid = members.length - paid - free;
         deptPaid += paid; deptUnpaid += unpaid; deptTotal += members.length;
 
         teamBodyRows += `<tr class="pre-data-row">
-          <td style="padding-left:1.25rem">${team}</td>
+          <td style="padding-left:1.25rem">${teamDisplay}</td>
           <td style="text-align:center;color:#15803d;font-weight:600">${paid}</td>
           <td style="text-align:center;color:#dc2626;font-weight:600">${unpaid}</td>
           <td style="text-align:center;font-weight:700">${members.length}</td>
@@ -441,17 +481,22 @@ const Reports = (() => {
       _updateView();
     });
 
-    // Download button — multi-sheet when a group type is active with no specific value
+    // Download button:
+    // • Specific group value selected (e.g. just "Team Anant") → single sheet
+    // • All other cases → "All Attendees" sheet + summary + per-team/category sheets
     document.getElementById('btn-rpt-excel').addEventListener('click', () => {
       const filtered = applyFilters(_attendees);
-      if (_groupType !== 'all' && !_groupValue) {
-        const field = _groupType === 'team' ? 'team'
-                    : _groupType === 'category' ? 'category'
-                    : _groupType === 'bus' ? 'boardedBus'
-                    : 'reference';
-        Export.downloadFilteredByGroup(filtered, field, buildLabel());
-      } else {
+      if (_groupType !== 'all' && _groupValue) {
+        // Drill-down to one specific group — single sheet is correct here
         Export.downloadFiltered(filtered, buildLabel());
+      } else {
+        // "All" view, or group-type selected but no specific value picked:
+        // always output All + sub-sheets so the Excel is complete and useful
+        const field = _groupType === 'category' ? 'category'
+                    : _groupType === 'bus'       ? 'boardedBus'
+                    : _groupType === 'reference' ? 'reference'
+                    : 'team'; // default to team breakdown
+        Export.downloadFilteredByGroup(filtered, field, buildLabel());
       }
     });
   }
@@ -537,11 +582,15 @@ const Reports = (() => {
       for (const p of participants) {
         const key = _devoteeKey(p);
         const existing = perDevoteeInEvent.get(key);
+        const ps = (p.paymentStatus || '').toLowerCase();
+        const amt = parseFloat(p.paymentAmount || 0);
         if (!existing) {
           perDevoteeInEvent.set(key, {
             name: p.name || '', mobile: _mobileKey(p.mobile),
             team: p.team || '', reference: p.reference || '',
-            present: p.attendance === 'present'
+            present: p.attendance === 'present',
+            paymentStatus: ps || 'unpaid',
+            paymentAmount: amt
           });
         } else {
           if (!existing.name && p.name) existing.name = p.name;
@@ -549,6 +598,9 @@ const Reports = (() => {
           if (!existing.team && p.team) existing.team = p.team;
           if (!existing.reference && p.reference) existing.reference = p.reference;
           if (p.attendance === 'present') existing.present = true;
+          // Accumulate payment: paid status wins; sum amounts
+          if (ps === 'paid' || ps === 'free') existing.paymentStatus = ps;
+          existing.paymentAmount = (existing.paymentAmount || 0) + amt;
         }
       }
       for (const [key, info] of perDevoteeInEvent) {
@@ -569,7 +621,9 @@ const Reports = (() => {
           eventId: evt.id,
           eventName: evt.name || 'Event',
           date: evt.date || evt.createdAt || '',
-          present: info.present
+          present: info.present,
+          paymentStatus: info.paymentStatus || 'unpaid',
+          paymentAmount: info.paymentAmount || 0
         });
       }
     }
