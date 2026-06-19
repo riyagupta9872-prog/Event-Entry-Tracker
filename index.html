@@ -46,7 +46,7 @@
   --radius-sm: 8px;
   --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
   --shadow-glow: 0 4px 12px rgba(22,163,74,0.1);
-  --sidebar-w: 260px;
+  --bottom-nav-h: 60px;
   --transition: 0.15s ease;
 }
 
@@ -58,6 +58,8 @@ body {
   background: var(--bg-deep);
   color: var(--text-primary);
   overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 input, select, button, textarea { font-family: var(--font-body); outline: none; }
 a { text-decoration: none; color: inherit; }
@@ -98,44 +100,61 @@ a { text-decoration: none; color: inherit; }
 #screen-login {
   display: flex; align-items: center; justify-content: center;
   position: relative; overflow: hidden;
+  min-height: 100vh;
 }
 .login-bg {
   position: absolute; inset: 0;
-  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 50%, #ecfdf5 100%);
+  background: linear-gradient(160deg, #e8f5e9 0%, #f0fdf4 35%, #ffffff 60%, #f0fdf4 100%);
+}
+.login-bg::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle at 20% 20%, rgba(22,163,74,0.08) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 80%, rgba(34,197,94,0.06) 0%, transparent 50%);
 }
 .login-card {
   position: relative; z-index: 1;
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 2.5rem;
-  width: 100%; max-width: 420px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(22,163,74,0.15);
+  border-radius: 24px;
+  padding: 2.5rem 2.25rem;
+  width: calc(100% - 2rem); max-width: 420px;
+  box-shadow: 0 8px 40px rgba(22,163,74,0.12), 0 2px 8px rgba(0,0,0,0.06);
+  animation: cardIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.login-logo { font-size: 3rem; text-align: center; }
+@keyframes cardIn { from { opacity: 0; transform: scale(0.94) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+.login-logo { font-size: 3.2rem; text-align: center; filter: drop-shadow(0 4px 8px rgba(22,163,74,0.25)); }
 .login-title {
   font-family: var(--font-display);
-  font-size: 1.75rem; text-align: center;
+  font-size: 1.85rem; text-align: center;
   color: var(--accent); font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   margin-top: 0.5rem;
+  text-shadow: 0 1px 2px rgba(22,163,74,0.1);
 }
 .login-subtitle {
   text-align: center; color: var(--text-secondary);
   font-size: 0.85rem; margin-bottom: 1.5rem;
+  letter-spacing: 0.02em;
 }
 .login-tabs {
-  display: flex; gap: 0; margin-bottom: 1.25rem;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  overflow: hidden;
+  display: flex; gap: 4px; margin-bottom: 1.25rem;
+  background: var(--bg-input); border-radius: 10px;
+  padding: 4px;
 }
 .login-tab {
   flex: 1; padding: 0.6rem; text-align: center;
   font-size: 0.85rem; font-weight: 500; cursor: pointer;
-  background: var(--bg-input); color: var(--text-secondary);
-  border: none; transition: all var(--transition);
+  background: transparent; color: var(--text-secondary);
+  border: none; border-radius: 8px;
+  transition: all 0.2s ease;
 }
-.login-tab.active { background: var(--accent); color: #fff; font-weight: 600; }
+.login-tab.active {
+  background: #fff; color: var(--accent); font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
 .login-form { display: flex; flex-direction: column; gap: 1rem; }
 .pw-wrap {
   position: relative; display: flex; align-items: center;
@@ -156,108 +175,144 @@ a { text-decoration: none; color: inherit; }
 .forgot-link:hover { color: #15803d; text-decoration: underline; }
 
 /* ===== APP LAYOUT ===== */
-#screen-app { display: flex; height: 100vh; }
+#screen-app { display: flex; flex-direction: column; height: 100vh; }
 
-/* ===== SIDEBAR ===== */
-#sidebar-overlay {
-  display: none;
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.45);
-  z-index: 99;
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-#sidebar-overlay.show { display: block; }
-#sidebar {
-  width: var(--sidebar-w);
-  background: var(--bg-card);
-  border-right: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  flex-shrink: 0;
-  transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
-  z-index: 100;
-}
-.sidebar-header {
-  padding: 1.25rem 1rem 1.25rem 1.25rem;
-  display: flex; align-items: center; gap: 0.75rem;
-  border-bottom: 1px solid var(--border);
-}
-.sidebar-logo { font-size: 1.5rem; }
-.sidebar-title {
-  font-family: var(--font-display);
-  color: var(--accent); font-weight: 700;
-  letter-spacing: 0.05em; font-size: 1.1rem; flex: 1;
-}
-.sidebar-close {
-  display: none;
-  background: none; border: none;
-  color: var(--text-muted); font-size: 1.2rem;
-  cursor: pointer; padding: 0.4rem;
-  border-radius: 6px;
-  line-height: 1;
-  transition: background var(--transition);
-}
-.sidebar-close:hover { background: var(--bg-input); color: var(--text-primary); }
-.sidebar-nav { flex: 1; padding: 0.75rem 0; overflow-y: auto; }
-.nav-item {
-  display: flex; align-items: center; gap: 0.75rem;
-  padding: 0.85rem 1.25rem;
-  color: var(--text-secondary);
-  cursor: pointer; border-radius: 0;
-  transition: all var(--transition);
-  border-left: 3px solid transparent;
-  font-size: 0.9rem;
-  -webkit-tap-highlight-color: transparent;
-}
-.nav-item:hover { background: var(--bg-card2); color: var(--text-primary); }
-.nav-item:active { background: var(--success-bg); }
-.nav-item.active { background: var(--success-bg); color: var(--accent); border-left-color: var(--accent); }
-.nav-icon { font-size: 1rem; width: 22px; text-align: center; flex-shrink: 0; }
-.sidebar-footer {
-  padding: 1rem 1.25rem;
-  border-top: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 0.75rem;
-}
-.user-badge { display: flex; align-items: center; gap: 0.75rem; }
+/* ===== USER AVATAR (top bar) ===== */
 .user-avatar {
-  width: 36px; height: 36px; border-radius: 50%;
+  width: 34px; height: 34px; border-radius: 50%;
   background: linear-gradient(135deg, #15803d, #22c55e);
   color: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 600; font-size: 0.9rem; flex-shrink: 0;
+  font-weight: 600; font-size: 0.85rem; flex-shrink: 0;
+  border: none; cursor: pointer;
+  transition: box-shadow var(--transition);
 }
-.user-name { font-size: 0.9rem; font-weight: 500; }
-.user-role { font-size: 0.75rem; color: var(--text-muted); }
+.user-avatar:hover { box-shadow: 0 0 0 3px var(--accent-glow); }
 .btn-logout {
-  width: 100%; padding: 0.5rem;
+  padding: 0.45rem 0.9rem;
   background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-secondary); cursor: pointer;
-  font-size: 0.85rem; transition: all var(--transition);
+  font-size: 0.82rem; transition: all var(--transition);
 }
 .btn-logout:hover { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+
+/* ===== BOTTOM NAV ===== */
+#bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: var(--bottom-nav-h);
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: stretch;
+  z-index: 200;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
+}
+.bnav-item {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 3px; padding: 0.3rem 0.25rem;
+  background: none; border: none; border-top: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer; font-family: var(--font-body);
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.2s ease, border-color 0.2s ease;
+  position: relative;
+}
+.bnav-item:hover { color: var(--text-secondary); }
+.bnav-item.active { color: var(--accent); border-top-color: var(--accent); }
+.bnav-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 26px;
+  border-radius: 8px;
+  transition: background 0.2s ease;
+}
+.bnav-item.active .bnav-icon { background: var(--accent-glow); }
+.bnav-icon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.bnav-label { font-size: 0.58rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+
+/* ===== GATE COUNT BAR ===== */
+.gate-count-bar {
+  display: flex; align-items: stretch;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.gate-count-bar::-webkit-scrollbar { display: none; }
+.gate-count-item {
+  flex: 1; min-width: 62px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 0.6rem 0.2rem; gap: 2px;
+  background: none; border: none; border-right: 1px solid var(--border);
+  cursor: pointer; color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+  position: relative;
+}
+.gate-count-item::after {
+  content: ''; position: absolute; bottom: 0; left: 15%; right: 15%; height: 2px;
+  background: transparent; border-radius: 2px 2px 0 0;
+  transition: background 0.15s ease;
+}
+.gate-count-item:last-child { border-right: none; }
+.gate-count-item:hover { background: var(--success-bg); }
+.gate-count-item:active { background: #d1fae5; transform: scale(0.97); }
+.gate-count-item .gc-num { font-size: 1.35rem; font-weight: 700; font-family: var(--font-mono); line-height: 1.1; }
+.gate-count-item .gc-lbl { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; }
+.gate-count-item.gc-present .gc-num { color: var(--success); }
+.gate-count-item.gc-present::after { background: var(--success); }
+.gate-count-item.gc-walkin .gc-num { color: var(--info); }
+.gate-count-item.gc-walkin::after { background: var(--info); }
+.gate-count-item.gc-collect .gc-num { color: var(--warning); }
+.gate-count-item.gc-collect::after { background: var(--warning); }
+.gate-count-item.gc-myhand .gc-num { color: #7c3aed; }
+.gate-count-item.gc-myhand::after { background: #7c3aed; }
+
+/* Gate page: bleed to edges so count bar is flush */
+.gate-page { margin: -1.25rem -1.25rem 0; }
+@media (max-width: 768px) { .gate-page { margin: -0.75rem -0.75rem 0; } }
+
+/* ===== GATE LOCK SCREEN ===== */
+.gate-lock-screen {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 3rem 2rem 2rem; text-align: center; min-height: 50vh;
+}
+.gate-lock-icon { font-size: 3rem; margin-bottom: 1rem; }
+.gate-lock-title { font-size: 1.2rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.4rem; }
+.gate-lock-date { font-size: 1rem; color: var(--accent); font-weight: 600; margin-bottom: 0.75rem; }
+.gate-lock-countdown {
+  font-size: 0.88rem; color: var(--text-secondary);
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 0.5rem 1.25rem;
+  margin-bottom: 1.5rem; font-family: var(--font-mono);
+}
 
 /* ===== MAIN CONTENT ===== */
 #main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 
 /* ===== TOP BAR ===== */
 #top-bar {
-  height: 60px;
+  height: 56px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 1rem;
-  padding: 0 1.5rem; flex-shrink: 0;
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0 1rem; flex-shrink: 0;
+}
+.topbar-logo { font-size: 1.25rem; flex-shrink: 0; }
+.topbar-title {
+  font-family: var(--font-display);
+  font-size: 1rem; color: var(--accent); font-weight: 700;
+  letter-spacing: 0.05em;
 }
 #page-title {
-  font-family: var(--font-display);
-  font-size: 1.1rem; color: var(--text-primary);
-  font-weight: 600; flex: 1;
+  font-size: 0.9rem; color: var(--text-secondary);
+  font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.menu-btn {
-  display: none; background: none; border: none;
-  color: var(--text-secondary); font-size: 1.25rem; cursor: pointer;
-}
-.top-bar-right { display: flex; align-items: center; gap: 0.75rem; }
+.top-bar-right { display: flex; align-items: center; gap: 0.5rem; }
 .event-select {
   padding: 0.4rem 0.6rem;
   background: var(--bg-input); border: 1px solid var(--border);
@@ -301,7 +356,7 @@ a { text-decoration: none; color: inherit; }
 }
 
 /* ===== CONTENT AREA ===== */
-#content-area { flex: 1; overflow-y: auto; padding: 1.5rem; background: var(--bg-main); }
+#content-area { flex: 1; overflow-y: auto; padding: 1.25rem; padding-bottom: calc(var(--bottom-nav-h) + 1.25rem); background: var(--bg-main); }
 
 /* ===== PAGES ===== */
 .page { animation: fadeIn 0.25s ease; }
@@ -708,62 +763,73 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .admit-search-wrap {
   display: flex; align-items: center; gap: 0;
   background: #fff; border: 2px solid var(--border);
-  border-radius: 50px; padding: 0.25rem 0.5rem;
-  margin-bottom: 0.75rem; transition: border-color 0.15s ease;
+  border-radius: 50px; padding: 0.2rem 0.4rem 0.2rem 0.6rem;
+  margin-bottom: 0.6rem; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 .admit-search-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-.admit-search-icon { flex-shrink: 0; margin: 0 0.25rem; }
+.admit-search-icon { flex-shrink: 0; margin: 0 0.25rem 0 0; }
 .admit-search-input {
   flex: 1; border: none; background: transparent;
-  font-size: 1rem; padding: 0.65rem 0.5rem;
+  font-size: 1rem; padding: 0.6rem 0.4rem;
   color: var(--text-primary); min-width: 0;
 }
 .admit-search-input::placeholder { color: var(--text-muted); }
 .admit-scan-btn {
-  width: 40px; height: 40px; border-radius: 50%;
+  width: 38px; height: 38px; border-radius: 50%;
   background: var(--bg-input); border: none;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; color: var(--text-secondary); flex-shrink: 0;
   transition: all 0.15s ease;
+  margin-left: 2px;
 }
+.admit-scan-btn:hover { background: #e8f5e9; color: var(--accent); }
 .admit-scan-btn.active { background: var(--accent); color: #fff; }
 
-.att-results { display: flex; flex-direction: column; gap: 0.4rem; }
+.att-results { display: flex; flex-direction: column; gap: 0.5rem; }
 .att-result-card {
   background: #fff;
   border: 1px solid var(--border);
-  border-left: 5px solid var(--border);
+  border-left: 4px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 0.75rem 0.85rem;
+  padding: 0.8rem 0.9rem;
   display: flex; align-items: center; gap: 0.75rem;
-  cursor: pointer; transition: transform 0.1s ease, box-shadow 0.1s ease;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
   -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
-.att-result-card:active { transform: scale(0.98); background: #f8faf8; }
+.att-result-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.att-result-card:active { transform: scale(0.98); background: #f8faf8; box-shadow: none; }
 .att-result-card.status-paid { border-left-color: #16a34a; }
-.att-result-card.status-unpaid { border-left-color: #d97706; }
+.att-result-card.status-unpaid { border-left-color: #d97706; background: #fffcf5; }
 .att-result-card.status-already-present { border-left-color: #dc2626; background: #fef2f2; }
 .att-status-indicator { display: none; }
 .att-result-info { flex: 1; min-width: 0; }
-.att-name { font-weight: 600; margin-bottom: 0.15rem; font-size: 0.95rem; color: #1a1a1a; }
-.att-meta { font-size: 0.75rem; color: var(--text-muted); }
+.att-name { font-weight: 700; margin-bottom: 0.18rem; font-size: 0.95rem; color: #1a1a1a; }
+.att-meta { font-size: 0.74rem; color: var(--text-muted); line-height: 1.4; }
 .att-payment-badge {
-  display: inline-block; font-size: 0.68rem; font-weight: 600;
-  padding: 0.1rem 0.4rem; border-radius: 4px; margin-top: 0.2rem;
+  display: inline-block; font-size: 0.66rem; font-weight: 700;
+  padding: 0.12rem 0.45rem; border-radius: 5px; margin-top: 0.22rem;
+  letter-spacing: 0.02em;
 }
 .att-payment-badge.status-paid { background: #dcfce7; color: #15803d; }
 .att-payment-badge.status-unpaid { background: #fef3c7; color: #92400e; }
 .att-payment-badge.status-already-present { background: #fee2e2; color: #dc2626; }
-.att-arrow { font-size: 1.3rem; color: #cbd5e1; flex-shrink: 0; }
+.att-arrow { font-size: 1.2rem; color: #cbd5e1; flex-shrink: 0; }
 
 /* One-tap admit button inside search result card */
 .att-admit-btn {
-  padding: 0.5rem 1rem; border-radius: var(--radius-sm);
-  font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em;
+  padding: 0.55rem 1rem; border-radius: 8px;
+  font-size: 0.73rem; font-weight: 700; letter-spacing: 0.04em;
   flex-shrink: 0; text-transform: uppercase;
   color: #fff; background: var(--accent);
+  border: none; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(22,163,74,0.3);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
-.att-admit-btn.status-unpaid { background: #d97706; }
+.att-admit-btn:active { transform: scale(0.95); box-shadow: none; }
+.att-admit-btn.status-unpaid { background: #d97706; box-shadow: 0 2px 6px rgba(217,119,6,0.3); }
 .att-admit-btn.status-paid { background: #16a34a; }
 
 /* Green check mark for already-admitted cards */
@@ -772,6 +838,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   background: #dcfce7; color: #16a34a;
   display: flex; align-items: center; justify-content: center;
   font-size: 1.2rem; font-weight: 700; flex-shrink: 0;
+  border: 2px solid #86efac;
 }
 
 /* QR scan compact */
@@ -783,10 +850,10 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
 /* FAB (walk-in) */
 .fab-walkin {
-  position: fixed; bottom: 1.5rem; right: 1.5rem;
-  width: 56px; height: 56px; border-radius: 50%;
+  position: fixed; bottom: calc(var(--bottom-nav-h) + 1rem); right: 1.25rem;
+  width: 52px; height: 52px; border-radius: 50%;
   background: var(--accent); color: #fff; border: none;
-  font-size: 2rem; font-weight: 300; line-height: 1;
+  font-size: 1.8rem; font-weight: 300; line-height: 1;
   box-shadow: 0 4px 16px rgba(22,163,74,0.35);
   cursor: pointer; z-index: 500;
   display: flex; align-items: center; justify-content: center;
@@ -816,7 +883,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   font-size: 1.25rem; cursor: pointer; color: var(--text-muted);
   display: flex; align-items: center; justify-content: center;
 }
-.walkin-panel-body { padding: 0.75rem 1.25rem 1.25rem; }
+.walkin-panel-body { padding: 0.75rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0)); }
 .walkin-compact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 .wi-input {
   padding: 0.6rem 0.75rem;
@@ -912,40 +979,65 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   transition: all var(--transition);
 }
 .rep-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-.report-table { width: 100%; }
-.report-table th { background: var(--success-bg); color: #15803d; }
+.report-table { width: 100%; border-collapse: collapse; }
+.report-table th { background: #166534; color: #fff; font-weight: 700; font-size: .82rem; letter-spacing: .03em; }
+.report-table th, .report-table td { border: 1px solid #d1fae5; }
 /* Pre-event report table rows */
-.pre-cat-hdr td { background: #166534; color: #fff; font-weight: 700; font-size: .82rem; text-align: center; letter-spacing: .04em; padding: .45rem .75rem; }
-.pre-subtotal td { background: #dcfce7; color: #14532d; font-weight: 700; font-size: .85rem; }
-.pre-grand-total td { background: #15803d; color: #fff; font-weight: 700; font-size: .9rem; }
-.pre-data-row:nth-child(even) td { background: #f0fdf4; }
-.pre-data-row:nth-child(odd) td { background: #fff; }
-.pre-rpt-table td, .pre-rpt-table th { padding: .35rem .6rem; font-size: .85rem; }
+.pre-cat-hdr td { background: #166534; color: #fff; font-weight: 700; font-size: .82rem; letter-spacing: .04em; padding: .45rem .75rem; border-color: #166534; }
+.pre-subtotal td { background: #f0fdf4; color: #14532d; font-weight: 700; font-size: .85rem; border-color: #bbf7d0; }
+.pre-grand-total td { background: #15803d; color: #fff; font-weight: 700; font-size: .9rem; border-color: #15803d; }
+.pre-data-row td { background: #fff; }
+.pre-data-row:hover td { background: #f0fdf4; }
+.pre-rpt-table td, .pre-rpt-table th { padding: .38rem .65rem; font-size: .85rem; }
+/* Dashboard registration summary – dept header rows white bg, green text */
+.rs-dept-hdr td { background: #fff !important; color: #166534 !important; font-weight: 700; font-size: .84rem; padding: .5rem .7rem; cursor: pointer; border-color: #d1fae5; }
+.rs-dept-hdr:hover td { background: #f0fdf4 !important; }
+/* Category chips row */
+.rs-cat-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .85rem; }
+.rs-cat-chip { display: inline-flex; align-items: center; gap: .3rem; border-radius: 20px; padding: .28rem .65rem; font-size: .81rem; font-weight: 600; border: 1px solid rgba(0,0,0,.07); }
+.rs-cat-chip .rs-chip-n { font-size: .97rem; font-weight: 800; }
 .report-dl-bar { display: flex; gap: 0.75rem; margin-bottom: 1rem; padding: 0.75rem 1rem; background: var(--bg-card2); border-radius: var(--radius-sm); flex-wrap: wrap; align-items: center; }
 .report-dl-bar span { font-size: 0.85rem; color: var(--text-secondary); flex: 1; }
 .total-row td { font-weight: 700; color: #15803d; border-top: 2px solid var(--border); }
 
 /* ── Dashboard counts ──────────────────────────────────────── */
-.dash-counts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
-.dash-count-col { padding: .75rem 1rem; background: var(--bg-card2); border-radius: var(--radius-sm); border: 1px solid var(--border); }
-.dash-count-clickable { cursor: pointer; transition: background var(--transition), box-shadow var(--transition); -webkit-tap-highlight-color: transparent; }
-.dash-count-clickable:hover { background: #e8f5e9; box-shadow: 0 2px 8px rgba(22,163,74,.12); }
-.dash-count-clickable:active { background: #d1fae5; }
-.dash-tap-hint { font-size: .6rem; text-transform: none; font-weight: 400; opacity: .6; margin-left: .3rem; }
-.dash-count-head { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: .4rem; }
-.dash-count-big { font-size: 2rem; font-weight: 700; color: var(--text-primary); line-height: 1.1; }
-.dash-count-sub { font-size: .75rem; color: var(--text-muted); margin-top: .25rem; }
+.dash-counts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
+.dash-count-col {
+  padding: .85rem .9rem; background: var(--bg-card);
+  border-radius: var(--radius); border: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  position: relative; overflow: hidden;
+}
+.dash-count-col::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--border); border-radius: 0;
+}
+.dash-count-col.color-total::before { background: linear-gradient(90deg, #15803d, #22c55e); }
+.dash-count-col.color-att::before { background: linear-gradient(90deg, #16a34a, #4ade80); }
+.dash-count-col.color-pay::before { background: linear-gradient(90deg, #d97706, #fbbf24); }
+.dash-count-col.color-collect::before { background: linear-gradient(90deg, #0284c7, #38bdf8); }
+.dash-count-clickable {
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.dash-count-clickable:hover { background: #f0fdf4; box-shadow: 0 4px 12px rgba(22,163,74,.1); transform: translateY(-1px); }
+.dash-count-clickable:active { background: #d1fae5; transform: scale(0.98); }
+.dash-tap-hint { font-size: .58rem; text-transform: none; font-weight: 400; opacity: .55; margin-left: .25rem; }
+.dash-count-head { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: .5rem; }
+.dash-count-big { font-size: 2rem; font-weight: 800; color: var(--text-primary); line-height: 1.05; font-family: var(--font-mono); }
+.dash-count-sub { font-size: .72rem; color: var(--text-muted); margin-top: .3rem; }
 .dash-count-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: .2rem; padding: .15rem .3rem; border-radius: 5px; }
-.dash-count-pct { font-size: .75rem; color: var(--text-muted); margin-top: .35rem; }
-.dc-label { font-size: .75rem; font-weight: 600; padding: .1rem .4rem; border-radius: 4px; }
+.dash-count-pct { font-size: .72rem; color: var(--text-muted); margin-top: .4rem; }
+.dc-label { font-size: .72rem; font-weight: 700; padding: .12rem .45rem; border-radius: 5px; }
 .dc-label.success { background: var(--success-bg); color: #15803d; }
 .dc-label.warning { background: #fef3c7; color: #92400e; }
 .dc-label.accent { background: #dcfce7; color: #15803d; }
 .dc-label.danger { background: #fee2e2; color: #b91c1c; }
 .dc-label.info { background: #dbeafe; color: #1d4ed8; }
 .dc-num { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
-.dash-progress { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
-.dash-progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .4s ease; }
+.dash-progress { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: .5rem; }
+.dash-progress-fill { height: 100%; background: linear-gradient(90deg, #15803d, #22c55e); border-radius: 3px; transition: width .5s cubic-bezier(0.34,1.56,0.64,1); }
 
 /* ── Pop-card list modal ──────────────────────────────────── */
 .pop-list-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: .75rem; border-bottom: 1px solid var(--border); padding-bottom: .6rem; }
@@ -1020,6 +1112,51 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .settings-menu-title { font-size: .95rem; font-weight: 600; color: var(--text-primary); margin-bottom: .18rem; }
 .settings-menu-desc { font-size: .78rem; color: var(--text-muted); }
 .settings-menu-arrow { font-size: 1.4rem; color: var(--text-muted); line-height: 1; }
+/* Setup inline sections */
+.setup-section { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; margin-bottom: .85rem; }
+.setup-section-title { font-size: .82rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); margin-bottom: .85rem; }
+.setup-collapsible-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .9rem 1.1rem; cursor: pointer; user-select: none;
+  border-radius: var(--radius); transition: background .15s;
+}
+.setup-collapsible-hdr:hover { background: #f0fdf4; }
+.setup-panel-chev { font-size: .72rem; color: var(--text-muted); transition: transform .2s; }
+.setup-panel-chev.open { transform: rotate(180deg); }
+.setup-collapsible-body { padding: 0 1.1rem 1rem; }
+.setup-danger-section { border-color: #fecaca; background: #fff5f5; }
+.setup-field-row { display: grid; gap: .55rem; margin-bottom: .65rem; }
+.setup-field-row.col2 { grid-template-columns: 1fr 1fr; }
+.setup-field-row.col3 { grid-template-columns: 1fr 1fr 1fr; }
+.setup-label { font-size: .72rem; font-weight: 600; color: var(--text-muted); margin-bottom: .18rem; text-transform: uppercase; letter-spacing: .03em; }
+.setup-actions { display: flex; gap: .55rem; flex-wrap: wrap; margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--border); }
+.setup-summary-row { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+.setup-stat-chip { display: inline-flex; align-items: center; gap: .25rem; padding: .3rem .65rem; border-radius: 20px; font-size: .78rem; font-weight: 600; }
+.setup-stat-chip.sc-green { background: #dcfce7; color: #15803d; }
+.setup-stat-chip.sc-blue { background: #dbeafe; color: #1d4ed8; }
+.setup-stat-chip.sc-purple { background: #ede9fe; color: #7c3aed; }
+.setup-stat-chip.sc-orange { background: #ffedd5; color: #c2410c; }
+.setup-area-card { border: none; border-left: 4px solid var(--accent); border-radius: 10px; overflow: hidden; margin-bottom: .9rem; box-shadow: 0 1px 6px rgba(0,0,0,0.08); background: #fff; }
+.setup-area-header { background: #f0fdf4; padding: .6rem .85rem; display: flex; align-items: center; gap: .5rem; cursor: pointer; user-select: none; transition: background .15s; }
+.setup-area-header:hover { background: #e4faea; }
+.setup-area-header .icon-btn { background: none; border: none; cursor: pointer; padding: .2rem .35rem; border-radius: 4px; font-size: .8rem; line-height: 1; transition: background .12s; }
+.setup-area-header .icon-btn:hover { background: rgba(0,0,0,0.06); }
+.setup-area-header .icon-btn.danger { color: var(--danger); }
+.setup-area-header .icon-btn.edit { color: var(--text-secondary); }
+.setup-area-chev { font-size: .75rem; color: var(--text-muted); transition: transform .2s; flex-shrink: 0; }
+.setup-area-chev.open { transform: rotate(180deg); }
+.setup-area-meta { padding: .35rem .85rem; display: flex; flex-wrap: wrap; gap: .3rem .85rem; font-size: .76rem; color: var(--text-muted); background: #fafafa; border-bottom: 1px solid #f1f5f9; }
+.setup-area-meta span { display: inline-flex; align-items: center; gap: .2rem; }
+.setup-area-body { border-top: 1px solid #e2e8f0; }
+.setup-bus-row { display: flex; align-items: center; gap: .5rem; padding: .45rem .85rem; border-top: 1px solid #f1f5f9; font-size: .82rem; background: #fff; transition: background .12s; }
+.setup-bus-row:first-child { border-top: none; }
+.setup-bus-row:hover { background: #f8fafc; }
+.bus-occ-badge { padding: .12rem .5rem; border-radius: 12px; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.bus-occ-badge.bok { background: #dcfce7; color: #15803d; }
+.bus-occ-badge.bnear { background: #fef3c7; color: #d97706; }
+.bus-occ-badge.bfull { background: #fee2e2; color: #dc2626; }
+.setup-add-area { border: 2px dashed #cbd5e1; border-radius: 10px; padding: 1rem; margin-top: .75rem; background: #f8fafc; }
+.setup-add-area-title { font-size: .88rem; font-weight: 700; color: var(--accent); margin-bottom: .7rem; }
 /* User rows in modal */
 .user-row { display: flex; align-items: center; gap: .65rem; padding: .65rem 0; border-bottom: 1px solid var(--border); }
 .user-row:last-child { border-bottom: none; }
@@ -1075,7 +1212,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
 /* ===== TOAST ===== */
 #toast-container {
-  position: fixed; bottom: 1.5rem; right: 1.5rem;
+  position: fixed; bottom: calc(var(--bottom-nav-h) + 0.75rem); right: 1rem;
   display: flex; flex-direction: column; gap: 0.5rem;
   z-index: 9999;
 }
@@ -1100,6 +1237,56 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   padding: 0.6rem 0.9rem; border-radius: var(--radius-sm);
   background: var(--danger-bg); color: var(--danger);
   border: 1px solid var(--danger); font-size: 0.85rem;
+}
+
+/* ── Registration Summary (dashboard) ───────────────────────── */
+.reg-cat-chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-bottom: .9rem; }
+.reg-cat-chip {
+  display: flex; align-items: center; gap: .35rem;
+  border-radius: 20px; padding: .3rem .7rem .3rem .6rem;
+  font-size: .82rem; font-weight: 500; border: 1px solid rgba(0,0,0,.06);
+}
+.reg-chip-label { opacity: .8; }
+.reg-chip-total { font-weight: 700; font-size: .95rem; }
+.reg-chip-breakdown { font-size: .72rem; opacity: .7; white-space: nowrap; }
+.reg-team-dept-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none; padding: .45rem .5rem;
+  background: var(--surface-hover); border-radius: 6px; margin-bottom: .3rem;
+  font-size: .83rem; font-weight: 600;
+}
+.reg-team-dept-hdr:hover { background: #e4faea; }
+.reg-team-dept-chev { font-size: .7rem; color: var(--text-muted); transition: transform .2s; }
+.reg-team-dept-chev.open { transform: rotate(180deg); }
+.reg-team-body { margin-bottom: .6rem; }
+.reg-team-row {
+  display: grid; grid-template-columns: 1fr auto auto auto;
+  gap: .35rem; align-items: center; padding: .28rem .5rem .28rem 1.25rem;
+  font-size: .82rem; border-bottom: 1px solid var(--border);
+}
+.reg-team-row:last-child { border-bottom: none; }
+.reg-team-row .rt-paid  { color: #15803d; font-weight: 600; text-align: right; min-width: 2.2rem; }
+.reg-team-row .rt-unpaid{ color: #dc2626; font-weight: 600; text-align: right; min-width: 2.2rem; }
+.reg-team-row .rt-total { font-weight: 700; text-align: right; min-width: 2.5rem; }
+.reg-team-subtotal {
+  display: grid; grid-template-columns: 1fr auto auto auto;
+  gap: .35rem; padding: .3rem .5rem .3rem .5rem;
+  font-size: .82rem; font-weight: 700; color: var(--text);
+  background: var(--surface-hover); border-radius: 0 0 5px 5px; margin-bottom: .75rem;
+}
+.reg-team-subtotal .rt-paid  { color: #15803d; text-align: right; min-width: 2.2rem; }
+.reg-team-subtotal .rt-unpaid{ color: #dc2626; text-align: right; min-width: 2.2rem; }
+.reg-team-subtotal .rt-total { text-align: right; min-width: 2.5rem; }
+.reg-col-hdr {
+  display: grid; grid-template-columns: 1fr auto auto auto;
+  gap: .35rem; padding: .2rem .5rem .2rem 1.25rem;
+  font-size: .75rem; font-weight: 600; color: var(--text-muted);
+  border-bottom: 1px solid var(--border); margin-bottom: .1rem;
+}
+.reg-col-hdr span:not(:first-child) { text-align: right; min-width: 2.2rem; }
+@media (max-width: 480px) {
+  .reg-cat-chips { gap: .35rem; }
+  .reg-cat-chip { font-size: .77rem; padding: .25rem .55rem .25rem .5rem; }
 }
 
 /* ── Event Day Collections ───────────────────────────────────── */
@@ -1142,15 +1329,6 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
-  #sidebar {
-    position: fixed; top: 0; bottom: 0; left: 0;
-    transform: translateX(-110%);
-    box-shadow: 4px 0 24px rgba(0,0,0,.18);
-  }
-  #sidebar.open { transform: translateX(0); }
-  #sidebar-overlay.show { display: block; }
-  .sidebar-close { display: flex; align-items: center; justify-content: center; }
-  .menu-btn { display: block; }
   .dashboard-grid { grid-template-columns: 1fr; }
   .dash-counts-grid { grid-template-columns: repeat(2, 1fr); }
   .settings-event-grid { grid-template-columns: 1fr 1fr; }
@@ -1160,10 +1338,75 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   .s-two-col { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .mapping-grid { grid-template-columns: 1fr; }
-  #content-area { padding: 0.75rem; }
+  #content-area { padding: 0.75rem; padding-bottom: calc(var(--bottom-nav-h) + 0.75rem); }
   .modal-box { margin: 0.75rem; padding: 1.25rem; }
   .walkin-compact-grid { grid-template-columns: 1fr; }
-  .event-select { max-width: 120px; }
+  .event-select { max-width: 130px; }
+
+  /* Top bar: hide PRERNA title + page title; bottom nav provides navigation context */
+  .topbar-title { display: none; }
+  #page-title { display: none; }
+  .btn-logout { padding: 0.3rem 0.5rem; font-size: 0.75rem; }
+
+  /* Cards: tighter padding on mobile */
+  .card { padding: 1rem; }
+
+  /* Setup forms: col3 → 2 columns on tablet */
+  .setup-field-row.col3 { grid-template-columns: 1fr 1fr; }
+
+  /* Touch targets: 44px minimum per Apple/Google HIG */
+  .wi-input { min-height: 44px; font-size: 1rem; }
+  .input-group input, .input-group select, .input-group textarea { min-height: 44px; font-size: 1rem; }
+  .filter-select { min-height: 44px; }
+  .btn-primary, .btn-secondary, .btn-ghost { min-height: 44px; }
+  .att-admit-btn { min-height: 44px; padding: 0.65rem 1rem; }
+
+  /* Stacked action rows on mobile */
+  .form-actions { flex-direction: column; }
+  .import-mode-opt { min-width: 100%; }
+
+  /* Quick actions 2-col on tablet */
+  .quick-actions { grid-template-columns: 1fr 1fr; }
+}
+
+/* Modal as bottom sheet on mobile — easier to reach with thumbs */
+@media (max-width: 640px) {
+  .modal-overlay { align-items: flex-end; }
+  .modal-box {
+    margin: 0;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 20px 20px 0 0;
+    padding: 1.5rem 1rem calc(1.5rem + env(safe-area-inset-bottom, 0));
+    max-height: 92vh;
+  }
+}
+
+/* Small phone (≤480px) — single-column everything tight */
+@media (max-width: 480px) {
+  /* Setup fields: fully single-column */
+  .setup-field-row.col2,
+  .setup-field-row.col3 { grid-template-columns: 1fr; }
+
+  /* Settings event grid: stay 2-col but shrink */
+  .settings-event-grid { grid-template-columns: 1fr 1fr; }
+
+  /* Report counts: 2×3 instead of 3×2 */
+  .report-counts-bar { grid-template-columns: repeat(2, 1fr); }
+
+  /* Dash counts: slightly smaller numbers */
+  .dash-count-big { font-size: 1.6rem; }
+
+  /* Toast: full-width so it never overflows */
+  #toast-container { right: 0.5rem; left: 0.5rem; }
+  .toast { min-width: unset; width: 100%; }
+
+  /* Modal action buttons: stack */
+  .modal-actions { flex-direction: column-reverse; gap: 0.5rem; }
+  .modal-actions button { width: 100%; }
+
+  /* Stat cards */
+  .stat-value { font-size: 1.25rem; }
 }
 
 /* ===== SCROLLBAR ===== */
@@ -1245,79 +1488,70 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
     <!-- Main App -->
     <div id="screen-app" class="screen hidden">
-      <!-- Sidebar overlay (mobile) -->
-      <div id="sidebar-overlay"></div>
-      <!-- Sidebar -->
-      <aside id="sidebar">
-        <div class="sidebar-header">
-          <span class="sidebar-logo">🪷</span>
-          <span class="sidebar-title">PRERNA</span>
-          <button id="btn-sidebar-close" class="sidebar-close">&#10005;</button>
-        </div>
-        <nav class="sidebar-nav">
-          <a class="nav-item" data-page="attendance">
-            <span class="nav-icon">&#10003;</span> Admission
-          </a>
-          <a class="nav-item admin-only" data-page="dashboard">
-            <span class="nav-icon">&#9632;</span> Dashboard
-          </a>
-          <a class="nav-item admin-only" data-page="import">
-            <span class="nav-icon">&#128229;</span> Import Excel
-          </a>
-          <a class="nav-item" data-page="walkin">
-            <span class="nav-icon">&#128694;</span> Walk-ins
-          </a>
-          <a class="nav-item" data-page="mybus">
-            <span class="nav-icon">&#128652;</span> My Bus
-          </a>
-          <a class="nav-item admin-only" data-page="attendees">
-            <span class="nav-icon">&#128101;</span> Attendees
-          </a>
-          <a class="nav-item admin-only" data-page="reports">
-            <span class="nav-icon">&#128202;</span> Reports
-          </a>
-          <a class="nav-item admin-only" data-page="financial">
-            <span class="nav-icon">&#128176;</span> Financial Year
-          </a>
-          <a class="nav-item admin-only" data-page="settings">
-            <span class="nav-icon">&#9881;</span> Settings
-          </a>
-        </nav>
-        <div class="sidebar-footer">
-          <div class="user-badge" id="sidebar-user-btn" style="flex:1;border-radius:var(--radius-sm);transition:background .15s">
-            <span class="user-avatar" id="sidebar-avatar">A</span>
-            <div style="flex:1;min-width:0">
-              <div class="user-name" id="sidebar-username">Admin</div>
-              <div class="user-role" id="sidebar-role">Administrator</div>
-            </div>
-            <span id="sidebar-edit-icon" style="font-size:.85rem;opacity:.45;margin-left:.25rem;display:none">&#9998;</span>
-          </div>
-          <button class="btn-logout" id="btn-logout">Sign Out</button>
-        </div>
-      </aside>
 
       <!-- Main Content -->
       <div id="main-content">
         <header id="top-bar">
-          <button id="btn-menu" class="menu-btn">&#9776;</button>
-          <h2 id="page-title">Admission</h2>
+          <span class="topbar-logo">🪷</span>
+          <span class="topbar-title">PRERNA</span>
+          <span id="page-title" style="margin-left:.25rem"></span>
           <div class="top-bar-right">
             <button id="event-selector-btn" class="event-select" onclick="App.showEventPicker()" title="Switch event">—</button>
-            <button class="btn-new-event admin-only" onclick="App.showCreateEventModal()">+ Event</button>
-            <span id="sync-status" class="sync-status online">Online</span>
+            <span id="sync-status" class="sync-status online">●</span>
             <span id="offline-badge" class="offline-badge hidden">Queued</span>
+            <button class="user-avatar admin-only" id="topbar-user-avatar" title="Account" onclick="App.showMyAccountModal()">A</button>
+            <button class="btn-logout" id="btn-logout">Sign Out</button>
           </div>
         </header>
 
         <main id="content-area">
 
           <!-- ATTENDANCE PAGE (main admission screen) -->
-          <div id="page-attendance" class="page">
-            <div class="admit-counter-bar">
-              <div class="admit-counter-item"><span id="admit-count-present">0</span><small>In</small></div>
-              <div class="admit-counter-divider"></div>
-              <div class="admit-counter-item"><span id="admit-count-total">0</span><small>Total</small></div>
+          <div id="page-attendance" class="page gate-page">
+
+            <!-- Gate lock screen: shown before event date -->
+            <div id="gate-lock-screen" class="gate-lock-screen hidden">
+              <div class="gate-lock-icon">🔒</div>
+              <h2 class="gate-lock-title">Gate Opens On Event Day</h2>
+              <div id="gate-lock-date" class="gate-lock-date"></div>
+              <div id="gate-lock-countdown" class="gate-lock-countdown">—</div>
+              <button class="btn-ghost admin-only" onclick="App._gateAdminUnlock()" style="font-size:.82rem">Admin Preview ›</button>
             </div>
+
+            <!-- Bus selection screen: shown when no bus selected and gate is open -->
+            <div id="gate-bus-screen" class="gate-lock-screen hidden">
+              <div class="gate-lock-icon">🚌</div>
+              <h2 class="gate-lock-title">Select Your Bus</h2>
+              <p style="color:var(--text-muted);font-size:.88rem;margin:.5rem 0 1.25rem">Which bus are you stationed at?<br>Every admission you make will be tagged to this bus.</p>
+              <div id="gate-bus-options" style="display:flex;flex-direction:column;gap:.5rem;width:100%;max-width:320px"></div>
+            </div>
+
+            <!-- Gate content: hidden when locked or no bus selected -->
+            <div id="gate-content">
+              <!-- 6-count sticky bar -->
+              <div class="gate-count-bar">
+                <button class="gate-count-item" onclick="App._gateShowList('overall')">
+                  <span class="gc-num" id="gc-overall">0</span><span class="gc-lbl">Overall</span>
+                </button>
+                <button class="gate-count-item" onclick="App._gateShowList('mybus')">
+                  <span class="gc-num" id="gc-mybus">—</span><span class="gc-lbl">Own Bus</span>
+                </button>
+                <button class="gate-count-item gc-present" onclick="App._gateShowList('present')">
+                  <span class="gc-num" id="gc-present">0</span><span class="gc-lbl">Present</span>
+                </button>
+                <button class="gate-count-item gc-walkin" onclick="App._gateShowList('walkin')">
+                  <span class="gc-num" id="gc-walkin">0</span><span class="gc-lbl">Walk-in</span>
+                </button>
+                <button class="gate-count-item gc-collect" onclick="App._gateShowList('collection')">
+                  <span class="gc-num" id="gc-collection">₹0</span><span class="gc-lbl">Collection</span>
+                </button>
+                <button class="gate-count-item gc-myhand" onclick="App._gateShowList('myhand')">
+                  <span class="gc-num" id="gc-myhand">₹0</span><span class="gc-lbl">My Hand</span>
+                </button>
+              </div>
+
+            <!-- Inner gate content (padded) -->
+            <div style="padding:.75rem">
 
             <!-- My Bus selector (shown when buses are configured) -->
             <div id="my-bus-bar" class="my-bus-bar hidden">
@@ -1354,6 +1588,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               <button class="att-tab" data-filter="unpaid">Unpaid</button>
               <button class="att-tab" data-filter="absent">Absent</button>
               <button class="att-tab" data-filter="present">Present</button>
+              <button class="att-tab" data-filter="walkin">Walk-in</button>
             </div>
 
             <div id="att-list-info" style="font-size:.78rem;color:var(--text-muted);padding:.2rem .25rem .4rem;"></div>
@@ -1371,13 +1606,13 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               </div>
             </div>
 
-            <button class="fab-walkin" id="btn-fab-walkin" title="Add Walk-in">+</button>
+            <button class="fab-walkin" id="btn-fab-walkin" title="Add Walk-in" onclick="App._openWalkin()">+</button>
 
             <!-- Walk-in slide-up panel -->
             <div id="walkin-panel" class="walkin-panel hidden">
               <div class="walkin-panel-header">
                 <h3>New Walk-in</h3>
-                <button class="walkin-panel-close" id="btn-close-walkin">&times;</button>
+                <button class="walkin-panel-close" id="btn-close-walkin" onclick="document.getElementById('walkin-panel').classList.add('hidden')">&times;</button>
               </div>
               <div class="walkin-panel-body">
                 <div class="walkin-compact-grid">
@@ -1385,11 +1620,6 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                   <input type="tel" id="wi-mobile" placeholder="Mobile *" class="wi-input" />
                   <input type="text" id="wi-reference" placeholder="Reference" class="wi-input" />
                   <input type="number" id="wi-payment" placeholder="Amount" min="0" class="wi-input" />
-                  <select id="wi-paystatus" class="wi-input">
-                    <option value="unpaid">Unpaid</option>
-                    <option value="paid">Paid</option>
-                    <option value="free">Free</option>
-                  </select>
                   <select id="wi-paymode" class="wi-input">
                     <option value="">Payment Mode</option>
                     <option value="cash">Cash</option>
@@ -1402,7 +1632,6 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                     <option value="ICF_MTG">ICF_MTG</option>
                     <option value="ICF_PRJI">ICF_PRJI</option>
                   </select>
-                  <input type="text" id="wi-busroute" placeholder="Bus Route" class="wi-input" />
                   <input type="text" id="wi-remarks" placeholder="Remarks (who paid, when)" class="wi-input" style="grid-column:1/-1" />
                 </div>
                 <button class="btn-primary full-width" id="btn-add-walkin" style="margin-top:.75rem">Add & Mark Present</button>
@@ -1414,7 +1643,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
             <div id="payment-collect-panel" class="walkin-panel hidden">
               <div class="walkin-panel-header">
                 <h3>Collect Payment — <span id="pc-name"></span></h3>
-                <button class="walkin-panel-close" id="btn-pc-cancel">&times;</button>
+                <button class="walkin-panel-close" id="btn-pc-cancel" onclick="document.getElementById('payment-collect-panel').classList.add('hidden')">&times;</button>
               </div>
               <div class="walkin-panel-body">
                 <input type="hidden" id="pc-attendee-id" />
@@ -1462,13 +1691,15 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                 </div>
               </div>
             </div>
+            </div><!-- /inner gate content -->
+            </div><!-- /gate-content -->
           </div>
 
           <!-- DASHBOARD PAGE -->
           <div id="page-dashboard" class="page hidden">
 
             <!-- Counts: Total / Attendance / Payment / Collected -->
-            <div class="card" style="margin-bottom:1rem">
+            <div class="card" id="dash-counts-card" style="margin-bottom:1rem">
               <h3 class="card-title">Counts</h3>
               <div id="dash-counts">
                 <div class="dash-counts-grid">
@@ -1480,25 +1711,31 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               </div>
             </div>
 
-            <!-- Bus Occupancy (live, visible to all) -->
+            <!-- Registration Summary -->
+            <div class="card" style="margin-bottom:1rem">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
+                <h3 class="card-title" style="margin:0">Registration Summary</h3>
+                <div style="display:flex;gap:.45rem">
+                  <button class="btn-secondary" style="font-size:.8rem;padding:.38rem .85rem" onclick="App.showFullReport()">&#8595; Full Report</button>
+                  <button class="btn-secondary" style="font-size:.8rem;padding:.38rem .85rem;color:#25d366;border-color:#25d366" onclick="App.shareRegReportAsImage()" title="Share as image">&#128240; Share</button>
+                </div>
+              </div>
+              <div id="dash-reg-summary"><p style="color:var(--text-muted);font-size:.85rem">Loading…</p></div>
+            </div>
+
+            <!-- Profit / Loss (admin) -->
+            <div class="card admin-only" id="dash-pl-card" style="margin-bottom:1rem">
+              <h3 class="card-title">Profit / Loss</h3>
+              <div id="dash-pl"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
+            </div>
+
+            <!-- Bus Occupancy (live, only shown on event day) -->
             <div class="card" id="dash-bus-occ-card" style="margin-bottom:1rem;display:none">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
                 <h3 class="card-title" style="margin:0">Bus Occupancy</h3>
                 <span><span class="live-dot"></span>&nbsp;<span style="font-size:.75rem;color:var(--text-muted)">Live</span></span>
               </div>
               <div id="dash-bus-occupancy"></div>
-            </div>
-
-            <!-- Buses (financial — admin only) -->
-            <div class="card admin-only" style="margin-bottom:1rem">
-              <h3 class="card-title">Buses</h3>
-              <div id="dash-buses"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
-            </div>
-
-            <!-- Profit / Loss -->
-            <div class="card admin-only" style="margin-bottom:1rem">
-              <h3 class="card-title">Profit / Loss</h3>
-              <div id="dash-pl"><p style="color:var(--text-muted);font-size:.85rem">Loading...</p></div>
             </div>
 
             <!-- Event Day Collections (cashier reconciliation) -->
@@ -1518,6 +1755,9 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
           <!-- IMPORT PAGE -->
           <div id="page-import" class="page hidden admin-page">
+            <div style="margin-bottom:.75rem">
+              <button class="btn-ghost" onclick="App.navigate('settings')" style="font-size:.82rem;padding:.35rem .75rem">&#8592; Setup</button>
+            </div>
             <div class="card">
               <h3 class="card-title">Upload Participant Sheet</h3>
               <p class="card-sub">Download the template, fill your data, and upload. Row 1 has headers — start data from Row 2.</p>
@@ -1567,6 +1807,13 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                 Amount / Fees &middot; Category / Type
               </div>
               <div id="column-mapping-grid" class="mapping-grid"></div>
+              <div id="import-area-row" style="margin:.85rem 0 .5rem;display:none">
+                <label style="font-size:.88rem;font-weight:600;display:block;margin-bottom:.35rem">&#127758; Is this a zone-specific list?</label>
+                <select id="import-area-select" class="wi-input" style="width:100%">
+                  <option value="">— No (applies to all areas) —</option>
+                </select>
+                <p style="font-size:.77rem;color:var(--text-muted);margin:.3rem 0 0">Select if the whole file belongs to one area. If your Excel has an <strong>Area / Zone</strong> column, map it above — per-row area takes priority over this selection.</p>
+              </div>
               <div class="mapping-actions">
                 <button class="btn-primary" id="btn-confirm-import">Confirm Import</button>
                 <button class="btn-ghost" id="btn-cancel-import">Cancel</button>
@@ -1601,6 +1848,9 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
           <!-- ATTENDEES PAGE -->
           <div id="page-attendees" class="page hidden admin-page">
+            <div style="margin-bottom:.75rem">
+              <button class="btn-ghost" onclick="App.navigate('settings')" style="font-size:.82rem;padding:.35rem .75rem">&#8592; Setup</button>
+            </div>
             <div class="card">
               <div class="table-controls">
                 <input type="text" id="attendees-search" class="search-input" placeholder="Search attendees..." />
@@ -1644,67 +1894,89 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
           <!-- REPORTS PAGE -->
           <div id="page-reports" class="page hidden admin-page">
+            <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+              <button class="rep-tab active" id="rep-subtab-reports" onclick="App._reportSubTab('reports')">Reports</button>
+              <button class="rep-tab" id="rep-subtab-financial" onclick="App._reportSubTab('financial')">Financial Year</button>
+            </div>
             <div id="report-content" class="report-content"></div>
           </div>
 
           <!-- FINANCIAL YEAR PAGE -->
           <div id="page-financial" class="page hidden admin-page">
-            <p style="color:var(--text-muted);padding:2rem;text-align:center">Select Financial Year to view...</p>
+            <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+              <button class="rep-tab" onclick="App._reportSubTab('reports')">Reports</button>
+              <button class="rep-tab active" onclick="App._reportSubTab('financial')">Financial Year</button>
+            </div>
+            <div id="page-financial-content"></div>
           </div>
 
           <!-- SETTINGS PAGE -->
           <div id="page-settings" class="page hidden admin-page">
-            <div class="settings-menu">
 
-              <div class="settings-menu-item" id="smenu-event">
-                <span class="s-icon">&#128197;</span>
-                <div class="settings-menu-info">
-                  <div class="settings-menu-title">Event Configuration</div>
-                  <div class="settings-menu-desc">Name, date, charge per person, budget</div>
-                </div>
-                <span class="settings-menu-arrow">&#8250;</span>
-              </div>
-
-              <div class="settings-menu-item" id="smenu-users">
-                <span class="s-icon">&#128101;</span>
-                <div class="settings-menu-info">
-                  <div class="settings-menu-title">Team &amp; Access</div>
-                  <div class="settings-menu-desc">Manage roles and permissions</div>
-                </div>
-                <span class="settings-menu-arrow">&#8250;</span>
-              </div>
-
-              <div class="settings-menu-item" id="smenu-buses">
-                <span class="s-icon">&#128652;</span>
-                <div class="settings-menu-info">
-                  <div class="settings-menu-title">Bus Routes (Financial)</div>
-                  <div class="settings-menu-desc">Routes, cost per bus, P&amp;L tracking</div>
-                </div>
-                <span class="settings-menu-arrow">&#8250;</span>
-              </div>
-
-              <div class="settings-menu-item" id="smenu-bus-manage">
-                <span class="s-icon">&#128661;</span>
-                <div class="settings-menu-info">
-                  <div class="settings-menu-title">Bus Management</div>
-                  <div class="settings-menu-desc">Live boarding — Bus 1, Bus 2, coordinator names</div>
-                </div>
-                <span class="settings-menu-arrow">&#8250;</span>
-              </div>
-
-              <div class="settings-menu-item danger" id="smenu-danger">
-                <span class="s-icon" style="background:#fee2e2">&#9888;</span>
-                <div class="settings-menu-info">
-                  <div class="settings-menu-title" style="color:var(--danger)">Danger Zone</div>
-                  <div class="settings-menu-desc">Clear data, delete event — irreversible actions</div>
-                </div>
-                <span class="settings-menu-arrow" style="color:var(--danger)">&#8250;</span>
-              </div>
-
+            <!-- Event -->
+            <div class="setup-section">
+              <div class="setup-section-title">&#128197; Event</div>
+              <div id="setup-event-content"></div>
             </div>
+
+            <!-- Areas & Buses -->
+            <div class="setup-section">
+              <div class="setup-section-title">&#127758; Areas &amp; Buses</div>
+              <div id="setup-areas-content"></div>
+            </div>
+
+            <!-- Team & Access -->
+            <div class="setup-section" style="padding:0">
+              <div class="setup-collapsible-hdr" onclick="App._toggleSetupPanel('setup-team-content','setup-team-chev')">
+                <span class="setup-section-title" style="margin:0">&#128100; Team &amp; Access</span>
+                <span id="setup-team-chev" class="setup-panel-chev">&#9660;</span>
+              </div>
+              <div id="setup-team-content" class="setup-collapsible-body hidden"></div>
+            </div>
+
+            <!-- Data -->
+            <div class="setup-section">
+              <div class="setup-section-title">&#128229; Data</div>
+              <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+                <button class="btn-secondary" onclick="App.navigate('import')">&#8679; Import Excel</button>
+                <button class="btn-secondary" onclick="App.navigate('attendees')">&#128101; View Attendees</button>
+              </div>
+            </div>
+
+            <!-- Danger Zone -->
+            <div class="setup-section setup-danger-section">
+              <div class="setup-section-title" style="color:var(--danger)">&#9888; Danger Zone</div>
+              <div id="setup-danger-content"></div>
+            </div>
+
           </div>
 
         </main>
+
+        <!-- Bottom Navigation -->
+        <nav id="bottom-nav">
+          <button class="bnav-item" data-tab="home" onclick="App.switchTab('home')">
+            <span class="bnav-icon"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+            <span class="bnav-label">Home</span>
+          </button>
+          <button class="bnav-item" data-tab="gate" onclick="App.switchTab('gate')">
+            <span class="bnav-icon"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
+            <span class="bnav-label">Gate</span>
+          </button>
+          <button class="bnav-item" data-tab="mybus" onclick="App.switchTab('mybus')">
+            <span class="bnav-icon"><svg viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 4v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></span>
+            <span class="bnav-label">My Bus</span>
+          </button>
+          <button class="bnav-item admin-only" data-tab="setup" onclick="App.switchTab('setup')">
+            <span class="bnav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+            <span class="bnav-label">Setup</span>
+          </button>
+          <button class="bnav-item admin-only" data-tab="reports" onclick="App.switchTab('reports')">
+            <span class="bnav-icon"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+            <span class="bnav-label">Reports</span>
+          </button>
+        </nav>
+
       </div>
     </div>
   </div>
@@ -1719,6 +1991,38 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   <!-- Toast -->
   <div id="toast-container"></div>
 
+  <!-- Startup error diagnostics: catches any JS error before/during init and shows it on splash -->
+  <script>
+    (function() {
+      function showSplashError(msg) {
+        var splash = document.getElementById('splash');
+        if (!splash) return;
+        var existing = document.getElementById('splash-error-box');
+        if (existing) { existing.innerHTML += '<br>' + msg; return; }
+        var box = document.createElement('div');
+        box.id = 'splash-error-box';
+        box.style.cssText = 'margin-top:1.5rem;padding:.75rem 1rem;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;color:#991b1b;font-size:.78rem;max-width:320px;text-align:left;word-break:break-all;';
+        box.innerHTML = '<b>App Error (share this with developer):</b><br>' + msg;
+        splash.querySelector('.splash-inner').appendChild(box);
+      }
+      window.onerror = function(msg, src, line, col, err) {
+        showSplashError((err ? err.message : msg) + ' @ ' + (src || '?').split('/').pop() + ':' + line);
+        return false;
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled rejection';
+        showSplashError('Promise: ' + msg);
+      });
+      // Timeout fallback: if splash still visible after 12s, show a hint
+      setTimeout(function() {
+        var splash = document.getElementById('splash');
+        if (splash && splash.style.display !== 'none') {
+          showSplashError('Timeout: Firebase may not have loaded. Check internet connection or try refreshing.');
+        }
+      }, 12000);
+    })();
+  </script>
+
   <!-- External Scripts -->
   <!-- Tesseract.js: browser-based OCR for attendance sheet scanning (no API key needed) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -1726,6 +2030,8 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <!-- ExcelJS: used for styled Excel export (SheetJS CE does not support cell styling) -->
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <!-- html2canvas: screenshot DOM elements for WhatsApp image share -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
   <!-- Firebase SDK (compat for no-build static site) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>

@@ -53,12 +53,15 @@ const Helpers = (() => {
   // Fuzzy name match
   function similarName(a, b) {
     if (!a || !b) return false;
-    const normalize = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Trim first, then lowercase, then strip all non-alphanumeric (handles spaces, special chars, Unicode punctuation)
+    const normalize = s => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const na = normalize(a), nb = normalize(b);
+    if (!na || !nb) return false;
     if (na === nb) return true;
     const dist = levenshtein(na, nb);
     const maxLen = Math.max(na.length, nb.length);
-    return maxLen > 0 && (dist / maxLen) < 0.3;
+    // 0.35 threshold: catches 1-char typos in names as short as 3 chars ("raj"/"rai")
+    return maxLen > 0 && (dist / maxLen) < 0.35;
   }
 
   function levenshtein(a, b) {
@@ -76,13 +79,19 @@ const Helpers = (() => {
     return dp[m][n];
   }
 
-  // Detect duplicates
+  // Normalize mobile to last 10 digits (strips country code, spaces, dashes)
+  function normMobile(val) {
+    const digits = String(val || '').replace(/\D/g, '');
+    return digits.length > 10 ? digits.slice(-10) : digits;
+  }
+
+  // Detect duplicates — same mobile (last-10) + similar name
   function detectDuplicates(records) {
     const duplicateIds = new Set();
     const mobileGroups = {};
     records.forEach((r, i) => {
-      const mob = (r.mobile || '').replace(/\D/g, '');
-      if (mob.length >= 10) {
+      const mob = normMobile(r.mobile);
+      if (mob.length === 10) {
         if (!mobileGroups[mob]) mobileGroups[mob] = [];
         mobileGroups[mob].push(i);
       }
@@ -120,7 +129,7 @@ const Helpers = (() => {
 
   // Generate QR data
   function qrData(attendee) {
-    return JSON.stringify({ id: attendee.id, aid: attendee.attendeeId, name: attendee.name });
+    return JSON.stringify({ id: attendee.id, name: attendee.name });
   }
 
   // Debounce
@@ -165,8 +174,7 @@ const Helpers = (() => {
     const q = query.toLowerCase();
     return (
       (item.name || '').toLowerCase().includes(q) ||
-      (item.mobile || '').includes(q) ||
-      (item.attendeeId || '').toLowerCase().includes(q)
+      (item.mobile || '').includes(q)
     );
   }
 
@@ -208,7 +216,7 @@ const Helpers = (() => {
 
   return {
     toast, modal, closeModal, currency, formatDate, formatDateTime,
-    similarName, detectDuplicates, paymentTiming, generateId, qrData,
+    similarName, normMobile, detectDuplicates, paymentTiming, qrData,
     debounce, downloadBlob, buildTable, paginate, searchFilter,
     getFinancialYear, getFYRange, escapeHtml
   };

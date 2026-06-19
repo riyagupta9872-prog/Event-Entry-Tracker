@@ -1245,7 +1245,7 @@ const Reports = (() => {
     };
   }
 
-  return { reportData, renderReports, initReportFilters, reportSummary, renderPreEventReports,
+  return { reportData, renderReports, initReportFilters, reportSummary, renderPreEventReports, initPreEventReports,
            computeRepeatAbsenteeMap, getAbsenteeWarning, clearAbsenteeCache, showAbsenteeDetail,
            CATEGORY_ORDER, CATEGORY_TEAMS, getTeamDept };
 })();

@@ -1,11 +1,11 @@
-const CACHE_NAME = 'prerna-festival-v55';
+const CACHE_NAME = 'prerna-festival-v113';
 
 // Derive base URL from the service worker's own location
 // Works correctly on GitHub Pages subdirectory (e.g. /Event-Entry-Tracker/)
 const BASE = self.location.href.replace(/\/sw\.js.*$/, '/');
 
-const ASSETS = [
-  BASE,
+// Core app files (must succeed — if any fail, skip install gracefully)
+const CORE_ASSETS = [
   BASE + 'index.html',
   BASE + 'firebase-config.js',
   BASE + 'db.js',
@@ -14,11 +14,16 @@ const ASSETS = [
   BASE + 'export.js',
   BASE + 'app.js',
   BASE + 'manifest.json',
+];
+
+// CDN assets (optional — cache failures are silently ignored)
+const CDN_ASSETS = [
   'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap',
   'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
   'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js'
@@ -26,7 +31,20 @@ const ASSETS = [
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).catch(() => {})
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Cache core app files — best effort (don't block install)
+      await Promise.all(
+        CORE_ASSETS.map(url =>
+          cache.add(url).catch(() => { /* skip unavailable core asset */ })
+        )
+      );
+      // Cache CDN files individually — silently skip any that fail
+      await Promise.all(
+        CDN_ASSETS.map(url =>
+          cache.add(url).catch(() => { /* CDN unavailable — will fetch fresh on use */ })
+        )
+      );
+    }).catch(() => { /* cache.open itself failed — proceed without cache */ })
   );
   self.skipWaiting();
 });

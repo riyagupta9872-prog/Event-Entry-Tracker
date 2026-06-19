@@ -7,23 +7,26 @@ const App = (() => {
   let _dashAttendees = []; // snapshot for pop-cards
   let liveUnsubscribe = null; // Firestore real-time listener
   let _busesConfigured = false; // set by initMyBusPicker; used by doAdmit to warn
+  let _dashStaticCache = null; // { eid, ts, areaCfgBuses, areaCfgAreas, evtDoc } — 30s TTL
   const PAGE_SIZE = 100;
   const normBus = s => (s || '').trim().toLowerCase(); // normalize bus names for matching
+
+  // Debounced page refresh called from onSnapshot — batches rapid Firestore updates
+  const _debouncedPageRefresh = Helpers.debounce(() => {
+    if (currentPage === 'attendance' || currentPage === 'walkin') {
+      renderAllAttendance(document.getElementById('att-search')?.value);
+    }
+    if (currentPage === 'dashboard') initDashboard();
+  }, 200);
 
   // Return the department for a team name — delegates to Reports module
   function getCategoryForTeam(teamName) {
     return Reports.getTeamDept(teamName, null);
   }
 
-  // Module-level sidebar helpers (needed by enterApp and nav items alike)
-  function closeSidebar() {
-    document.getElementById('sidebar').classList.remove('open');
-    document.getElementById('sidebar-overlay').classList.remove('show');
-  }
-  function openSidebar() {
-    document.getElementById('sidebar').classList.add('open');
-    document.getElementById('sidebar-overlay').classList.add('show');
-  }
+  // Sidebar stubs — sidebar removed; kept so any legacy calls don't throw
+  function closeSidebar() {}
+  function openSidebar() {}
 
   // ===== INIT =====
   async function init() {
@@ -71,21 +74,7 @@ const App = (() => {
     document.getElementById('tab-login').addEventListener('click', () => switchLoginTab('login'));
     document.getElementById('tab-register').addEventListener('click', () => switchLoginTab('register'));
 
-    // Sidebar
-    document.getElementById('btn-menu').addEventListener('click', () => {
-      document.getElementById('sidebar').classList.contains('open') ? closeSidebar() : openSidebar();
-    });
-    document.getElementById('btn-sidebar-close').addEventListener('click', closeSidebar);
-    document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
     document.getElementById('modal-overlay').addEventListener('click', e => { if (e.target.id === 'modal-overlay') Helpers.closeModal(); });
-
-    // Nav
-    document.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', () => {
-        navigate(item.dataset.page);
-        closeSidebar();
-      });
-    });
 
     updateNetworkStatus();
     window.addEventListener('online', updateNetworkStatus);
@@ -177,27 +166,16 @@ const App = (() => {
   }
 
   async function enterApp() {
-    document.getElementById('sidebar-username').textContent = currentUser.name;
-    document.getElementById('sidebar-avatar').textContent = currentUser.name[0].toUpperCase();
-
     const isAdmin = currentUser.role === 'admin';
-    document.getElementById('sidebar-role').textContent = isAdmin ? 'Tap to edit profile' : 'Volunteer';
 
-    // Make sidebar profile card clickable for admins
-    const userBtn = document.getElementById('sidebar-user-btn');
-    const editIcon = document.getElementById('sidebar-edit-icon');
-    if (isAdmin) {
-      editIcon.style.display = '';
-      userBtn.style.cursor = 'pointer';
-      userBtn.onclick = () => { closeSidebar(); showMyAccountModal(); };
-      userBtn.onmouseenter = () => { userBtn.style.background = 'var(--bg-card2)'; };
-      userBtn.onmouseleave = () => { userBtn.style.background = ''; };
-    } else {
-      editIcon.style.display = 'none';
-      userBtn.style.cursor = 'default';
-      userBtn.onclick = null;
+    // Top bar user avatar
+    const avatarBtn = document.getElementById('topbar-user-avatar');
+    if (avatarBtn) {
+      avatarBtn.textContent = currentUser.name[0].toUpperCase();
+      avatarBtn.title = `${currentUser.name} (${isAdmin ? 'Admin' : 'Volunteer'})`;
     }
 
+    // Show/hide admin-only elements
     document.querySelectorAll('.admin-only, .admin-page').forEach(el => {
       el.style.display = isAdmin ? '' : 'none';
     });
@@ -206,108 +184,339 @@ const App = (() => {
     document.getElementById('screen-app').classList.remove('hidden');
 
     await loadEventSelector();
-    await ensureSessionSetup();
-    navigate('attendance');
+    switchTab('home');
   }
 
-  // ===== LOGIN-TIME SESSION SETUP (event + bus) =====
-  // Asked once per browser session (clearing on logout). User must pick which
-  // festival they are checking in for and which bus they are stationed at;
-  // both selections feed into the admission flow's bus tagging.
+  // ===== LOGIN-TIME SESSION SETUP (event + area + bus) =====
+  // Stored in localStorage so it persists across refreshes (not re-asked every visit).
+  // Only re-shown when:
+  //   1. First login ever (no event stored)
+  //   2. A new "current event" was set by admin since last visit
+  //   3. Volunteer has no area stored for the current event (new requirement)
+  function _getSetupKey() { return `prerna_setup_v2_${DB.getCurrentEvent() || ''}`; }
   function _sessionSetupDone() {
-    return sessionStorage.getItem('prerna_session_setup_done') === '1';
+    const isAdmin = currentUser?.role === 'admin';
+    const eid = DB.getCurrentEvent();
+    if (!eid) return false;
+    if (isAdmin) return localStorage.getItem(`prerna_setup_admin_${eid}`) === '1';
+    // Volunteers need both a valid event AND an area stored (if areas configured — checked async)
+    return localStorage.getItem(`prerna_setup_vol_${eid}`) === '1';
   }
   function _markSessionSetupDone() {
-    sessionStorage.setItem('prerna_session_setup_done', '1');
+    const eid = DB.getCurrentEvent();
+    const isAdmin = currentUser?.role === 'admin';
+    if (isAdmin) localStorage.setItem(`prerna_setup_admin_${eid}`, '1');
+    else         localStorage.setItem(`prerna_setup_vol_${eid}`, '1');
   }
   function _clearSessionSetup() {
-    sessionStorage.removeItem('prerna_session_setup_done');
+    // Clear all setup flags on logout so next person is asked fresh
+    const eid = DB.getCurrentEvent();
+    if (eid) {
+      localStorage.removeItem(`prerna_setup_admin_${eid}`);
+      localStorage.removeItem(`prerna_setup_vol_${eid}`);
+    }
   }
 
   async function ensureSessionSetup() {
-    if (_sessionSetupDone()) return;
-    if (!_cachedEvents || _cachedEvents.length === 0) {
-      _markSessionSetupDone();
-      return;
+    if (!_cachedEvents || _cachedEvents.length === 0) return;
+
+    // Check if the admin has marked a "current event" that differs from what's stored
+    const currentMarked = _cachedEvents.find(e => e.isCurrentEvent);
+    if (currentMarked && currentMarked.id !== DB.getCurrentEvent()) {
+      // New current event — reset this event's setup flag so volunteers are prompted
+      const old = DB.getCurrentEvent();
+      DB.setCurrentEvent(currentMarked.id);
+      if (old) localStorage.removeItem(`prerna_setup_vol_${old}`);
     }
+
+    if (_sessionSetupDone()) return;
     await showSessionSetupModal();
   }
 
-  async function showSessionSetupModal() {
-    let buses = [];
-    try { buses = await DB.getAll(DB.STORES.buses); } catch { buses = []; }
+  // ── SESSION SETUP WIZARD ────────────────────────────────────────────────
+  // Step 1: Financial Year → Step 2: Event → Step 3: Area (volunteers only)
+  // Bus selection is deferred to Gate tab entry.
+  let _ssWizard = { fy: null, eventId: null, area: null, areas: [], bus: null, buses: [], resolve: null };
 
-    const activeEid = DB.getCurrentEvent();
-    const myBus = getMyBus();
+  function _ssInjectStyles() {
+    if (document.getElementById('ss-wizard-style')) return;
+    const s = document.createElement('style');
+    s.id = 'ss-wizard-style';
+    s.textContent = `
+      .ss-wizard-header{margin-bottom:1rem}
+      .ss-step-label{font-size:.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.25rem}
+      .ss-wizard-title{font-size:1.1rem;font-weight:700;color:var(--text);margin:0 0 .2rem}
+      .ss-wizard-sub{font-size:.82rem;color:var(--text-muted);margin:0}
+      .ss-cards{display:flex;flex-direction:column;gap:.5rem;margin-top:.85rem}
+      .ss-card{width:100%;text-align:left;padding:.75rem 1rem;border:1.5px solid var(--border);border-radius:10px;background:var(--bg-card);cursor:pointer;transition:.15s;-webkit-tap-highlight-color:transparent}
+      .ss-card:active,.ss-card:hover{border-color:var(--accent);background:#f0fdf4}
+      .ss-card-selected{border-color:var(--accent)!important;background:#f0fdf4!important;}
+      .ss-card-title{font-weight:600;font-size:.95rem;color:var(--text)}
+      .ss-card-sub{font-size:.78rem;color:var(--text-muted);margin-top:.15rem}
+      .ss-area-grid{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem}
+      .ss-area-pill{padding:.5rem 1rem;border-radius:20px;border:1.5px solid var(--border);background:var(--bg-card2);font-size:.88rem;cursor:pointer;transition:.15s;-webkit-tap-highlight-color:transparent}
+      .ss-area-pill.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    `;
+    document.head.appendChild(s);
+  }
 
-    const evtOptions = _cachedEvents.map(e =>
-      `<option value="${e.id}" ${e.id === activeEid ? 'selected' : ''}>${e.name}${e.date ? ' — ' + Helpers.formatDate(e.date) : ''}</option>`
-    ).join('');
-
-    const busOptions = buses.length
-      ? '<option value="">— select a bus —</option>' + buses.map(b =>
-          `<option value="${b.name.replace(/"/g,'&quot;')}" ${b.name === myBus ? 'selected' : ''}>${b.name}${b.coordinator ? ' · ' + b.coordinator : ''}</option>`
-        ).join('')
-      : '';
-
-    const busBlock = buses.length
-      ? `<label style="display:block;margin-top:.85rem;font-size:.88rem;font-weight:600">Your Bus</label>
-         <select id="ss-bus" class="wi-input" style="width:100%">${busOptions}</select>
-         <p style="font-size:.78rem;color:var(--text-muted);margin:.4rem 0 0">All devotees you admit will be tagged to this bus.</p>`
-      : `<p style="margin-top:.85rem;padding:.6rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:.85rem;color:#92400e">No buses configured yet. Add buses from Settings to enable bus tagging.</p>`;
-
-    Helpers.modal(`
-      <h3 class="modal-title">Start of Shift</h3>
-      <p style="color:var(--text-muted);font-size:.88rem;margin:0 0 1rem">
-        You must select your festival${buses.length ? ' and bus' : ''} before entering the app.
-      </p>
-      <label style="display:block;font-size:.88rem;font-weight:600">Festival / Event</label>
-      <select id="ss-event" class="wi-input" style="width:100%">${evtOptions}</select>
-      ${busBlock}
-      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1.25rem">
-        <button class="btn-primary" id="ss-confirm">Continue</button>
-      </div>
-    `);
-
-    // Lock the modal: prevent overlay-click and ESC from dismissing it.
-    const overlay = document.getElementById('modal-overlay');
-    overlay.onclick = null; // wipe Helpers.modal's default close handler
-    const swallowOverlay = (e) => { if (e.target === overlay) e.stopPropagation(); };
+  function _ssLockModal(overlay) {
+    overlay.onclick = null;
+    const swallowOverlay = e => { if (e.target === overlay) e.stopPropagation(); };
+    const swallowEsc = e => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); } };
     overlay.addEventListener('click', swallowOverlay, true);
-    const swallowEsc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); } };
     document.addEventListener('keydown', swallowEsc, true);
+    return () => {
+      overlay.removeEventListener('click', swallowOverlay, true);
+      document.removeEventListener('keydown', swallowEsc, true);
+    };
+  }
+
+  async function showSessionSetupModal() {
+    _ssInjectStyles();
+    let areas = [], buses = [];
+    try {
+      const raw = await DB.getConfig('areas');
+      areas = raw ? JSON.parse(raw).map(a => typeof a === 'string' ? a : a.name).filter(Boolean) : [];
+    } catch { areas = []; }
+    try { buses = await DB.getAll(DB.STORES.buses); } catch { buses = []; }
+    _ssWizard.areas = areas;
+    _ssWizard.buses = buses;
+    _ssWizard.fy = null; _ssWizard.eventId = null;
+    _ssWizard.area = getMyArea(); _ssWizard.bus = getMyBus();
+
+    const overlay = document.getElementById('modal-overlay');
+    const cleanup = _ssLockModal(overlay);
 
     return new Promise(resolve => {
-      document.getElementById('ss-confirm').onclick = async () => {
-        const newEid = document.getElementById('ss-event').value;
-        const newBus = document.getElementById('ss-bus')?.value || '';
-        if (!newEid) {
-          Helpers.toast('Please select a festival', 'error');
-          return;
-        }
-        if (buses.length && !newBus) {
-          Helpers.toast('Please select your bus to continue', 'error');
-          return;
-        }
-        if (newEid !== DB.getCurrentEvent()) {
-          DB.setCurrentEvent(newEid);
-          allAttendees = [];
-          attendanceInited = false;
-          _absenteeMap = null;
-          Reports.clearAbsenteeCache();
-          const active = _cachedEvents.find(e => e.id === newEid);
-          const btn = document.getElementById('event-selector-btn');
-          if (btn && active) btn.textContent = active.name;
-          startLiveSync();
-        }
-        setMyBus(newBus);
-        _markSessionSetupDone();
-        overlay.removeEventListener('click', swallowOverlay, true);
-        document.removeEventListener('keydown', swallowEsc, true);
-        Helpers.closeModal();
-        resolve();
-      };
+      _ssWizard.resolve = () => { cleanup(); resolve(); };
+      _ssRenderStep1();
     });
+  }
+
+  function _ssRenderStep1() {
+    // Always show event confirmation so user can verify or change
+    // Pre-select the current event if one exists
+    const currentEvent = _cachedEvents.find(e => e.isCurrentEvent) || null;
+    const allEvents    = [..._cachedEvents].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    if (currentEvent) {
+      // Pre-select it in wizard state, but still show the screen for manual confirmation
+      _ssWizard.fy      = currentEvent.financialYear || 'Other';
+      _ssWizard.eventId = currentEvent.id;
+    }
+
+    const esc = Helpers.escapeHtml;
+    const cards = allEvents.map(e => {
+      const isSel = e.id === _ssWizard.eventId;
+      return `<button class="ss-card${isSel ? ' ss-card-selected' : ''}" onclick="App._ssPickEvent('${esc(e.id)}')">
+        <div class="ss-card-title">${esc(e.name)}${e.isCurrentEvent ? ' ⭐' : ''}</div>
+        <div class="ss-card-sub">${e.date ? Helpers.formatDate(e.date) : ''}${isSel ? ' · selected' : ''}</div>
+      </button>`;
+    }).join('');
+
+    Helpers.modal(`
+      <div class="ss-wizard-header">
+        <div class="ss-step-label">Gate Entry Setup</div>
+        <h3 class="ss-wizard-title">Confirm Event</h3>
+        <p class="ss-wizard-sub">Current event is pre-selected. Tap another to change.</p>
+      </div>
+      <div class="ss-cards">${cards}</div>
+      ${_ssWizard.eventId ? `<button class="btn-primary" style="width:100%;margin-top:1rem"
+        onclick="App._ssConfirmEvent()">Continue ›</button>` : ''}
+    `);
+  }
+
+  function _ssPickFY(fy) {
+    // kept for legacy; no longer called from new flow
+    _ssWizard.fy = fy;
+  }
+
+  function _ssPickEvent(eventId) {
+    _ssWizard.eventId = eventId;
+    const e = _cachedEvents.find(ev => ev.id === eventId);
+    if (e) _ssWizard.fy = e.financialYear || 'Other';
+    // Update card highlights and show/ensure Continue button
+    document.querySelectorAll('.ss-card').forEach(c => c.classList.remove('ss-card-selected'));
+    const clicked = [...document.querySelectorAll('.ss-card')].find(c =>
+      c.querySelector('.ss-card-title')?.textContent.startsWith(e?.name || '')
+    );
+    if (clicked) clicked.classList.add('ss-card-selected');
+    // Ensure Continue button exists
+    let cont = document.getElementById('ss-event-continue');
+    if (!cont) {
+      cont = document.createElement('button');
+      cont.id = 'ss-event-continue';
+      cont.className = 'btn-primary';
+      cont.style.cssText = 'width:100%;margin-top:1rem';
+      cont.textContent = 'Continue ›';
+      cont.onclick = () => App._ssConfirmEvent();
+      document.getElementById('modal-content')?.appendChild(cont);
+    }
+    cont.disabled = false;
+  }
+
+  async function _ssConfirmEvent() {
+    if (!_ssWizard.eventId) { Helpers.toast('Please select an event', 'error'); return; }
+    const isAdmin = currentUser?.role === 'admin';
+    const areas   = _ssWizard.areas;
+    if (!isAdmin && areas.length > 0) {
+      _ssRenderStep3(); // volunteer → area → bus
+    } else {
+      await _ssRenderBusStep(); // admin → bus
+    }
+  }
+
+  function _ssRenderStep3() {
+    const areas = _ssWizard.areas;
+    const current = _ssWizard.area || '';
+    const pills = areas.map(a => `
+      <button class="ss-area-pill${normBus(a) === normBus(current) ? ' active' : ''}"
+        onclick="App._ssPickArea(this, '${Helpers.escapeHtml(a)}')">${Helpers.escapeHtml(a)}</button>
+    `).join('');
+    Helpers.modal(`
+      <div class="ss-wizard-header">
+        <div class="ss-step-label">Step 3 of 3</div>
+        <h3 class="ss-wizard-title">Select Your Area</h3>
+        <p class="ss-wizard-sub">Only attendees from your area will appear in the Gate list.</p>
+      </div>
+      <div class="ss-area-grid">${pills}</div>
+      <button class="btn-primary" id="ss-area-confirm" style="width:100%;margin-top:1.25rem" onclick="App._ssConfirmArea()"
+        ${current ? '' : 'disabled'}>Continue ›</button>
+    `);
+  }
+
+  function _ssPickArea(btn, area) {
+    _ssWizard.area = area;
+    document.querySelectorAll('.ss-area-pill').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    const confirmBtn = document.getElementById('ss-area-confirm');
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
+
+  async function _ssConfirmArea() {
+    if (!_ssWizard.area) { Helpers.toast('Please select your area', 'error'); return; }
+    await _ssRenderBusStep();
+  }
+
+  async function _ssRenderBusStep() {
+    const allBuses = _ssWizard.buses;
+    const areaName = _ssWizard.area;
+    const isAdmin  = currentUser?.role === 'admin';
+    // Show only buses for the selected area; if no areas, show all
+    const visible = areaName
+      ? allBuses.filter(b => normBus(b.area) === normBus(areaName))
+      : allBuses;
+    if (!visible.length) { await _ssFinish(); return; } // no buses configured — skip
+    const current = _ssWizard.bus || '';
+    const pills = visible.map(b => `
+      <button class="ss-area-pill${normBus(b.name) === normBus(current) ? ' active' : ''}"
+        onclick="App._ssPickBus(this,'${Helpers.escapeHtml(b.name)}')">${Helpers.escapeHtml(b.name)}</button>
+    `).join('');
+    Helpers.modal(`
+      <div class="ss-wizard-header">
+        <div class="ss-step-label">Last Step</div>
+        <h3 class="ss-wizard-title">Select Your Bus</h3>
+        <p class="ss-wizard-sub">${isAdmin
+          ? 'Select if you are doing bus seva. Skip if you are just checking reports.'
+          : 'Pre-selected in Gate &amp; My Bus for this session.'}</p>
+      </div>
+      <div class="ss-area-grid">${pills}</div>
+      <button class="btn-primary" id="ss-bus-confirm" style="width:100%;margin-top:1.25rem"
+        onclick="App._ssConfirmBus()"${current ? '' : ' disabled'}>Let's Go ›</button>
+      ${isAdmin ? `<button class="btn-ghost" style="width:100%;margin-top:.5rem;color:var(--text-muted)"
+        onclick="App._ssSkipBus()">Skip — entering without bus seva</button>` : ''}
+    `);
+  }
+
+  function _ssPickBus(btn, busName) {
+    _ssWizard.bus = busName;
+    document.querySelectorAll('.ss-area-pill').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    const confirmBtn = document.getElementById('ss-bus-confirm');
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
+
+  async function _ssConfirmBus() {
+    if (!_ssWizard.bus) { Helpers.toast('Please select your bus', 'error'); return; }
+    await _ssFinish();
+  }
+
+  async function _ssSkipBus() {
+    _ssWizard.bus = null;
+    localStorage.removeItem(_myBusKey()); // clear any previously saved bus
+    await _ssFinish();
+  }
+
+  async function _ssFinish() {
+    const newEid = _ssWizard.eventId || DB.getCurrentEvent();
+    if (!newEid) { Helpers.toast('No event selected', 'error'); return; }
+    if (newEid !== DB.getCurrentEvent()) {
+      DB.setCurrentEvent(newEid);
+      allAttendees = []; attendanceInited = false;
+      _absenteeMap = null; Reports.clearAbsenteeCache();
+      const active = _cachedEvents.find(e => e.id === newEid);
+      const btn = document.getElementById('event-selector-btn');
+      if (btn && active) btn.textContent = active.name + (active.isCurrentEvent ? ' ★' : '');
+    }
+    if (_ssWizard.area !== null) setMyArea(_ssWizard.area);
+    if (_ssWizard.bus) setMyBus(_ssWizard.bus);
+    startLiveSync();
+    _markSessionSetupDone();
+    Helpers.closeModal();
+    _ssWizard.resolve?.();
+  }
+
+  // Legacy stubs — no longer used by wizard but kept for any lingering onclick refs
+  async function _ssOnEventChange(newEid) {
+    try {
+      const [newBuses, areasRaw] = await Promise.all([
+        DB.getAll(DB.STORES.buses).catch(() => []),
+        DB.getConfig('areas').catch(() => null)
+      ]);
+      const newAreasRaw = areasRaw ? JSON.parse(areasRaw) : [];
+      // Areas may be objects {id,name,...} or legacy strings — always extract name
+      const newAreaNames = newAreasRaw.map(a => typeof a === 'string' ? a : a.name);
+      DB.setCurrentEvent(prevEid); // restore until confirmed
+
+      // Re-render area pills
+      const areaWrap = document.getElementById('ss-area-pills');
+      if (areaWrap && newAreaNames.length) {
+        areaWrap.innerHTML = newAreaNames.map(name => `
+          <button type="button" class="ss-area-pill"
+            data-area="${Helpers.escapeHtml(name)}"
+            onclick="document.querySelectorAll('.ss-area-pill').forEach(p=>p.classList.remove('active'));this.classList.add('active');document.getElementById('ss-area-val').value=this.dataset.area;App._ssAreaSelected(this.dataset.area)">
+            ${Helpers.escapeHtml(name)}
+          </button>`).join('');
+        const areaVal = document.getElementById('ss-area-val');
+        if (areaVal) areaVal.value = '';
+      }
+      // Re-render bus dropdown (show all buses for new event; filters when area is tapped)
+      const busSel = document.getElementById('ss-bus');
+      if (busSel) {
+        busSel.innerHTML = newBuses.length
+          ? '<option value="">— select a bus —</option>' + newBuses.map(b =>
+              `<option value="${Helpers.escapeHtml(b.name)}">${Helpers.escapeHtml(b.name)}${b.coordinator ? ' · ' + b.coordinator : ''}</option>`
+            ).join('')
+          : '<option value="">No buses configured</option>';
+      }
+    } catch { DB.setCurrentEvent(prevEid); }
+  }
+
+  // Re-renders the bus dropdown in session setup modal when volunteer picks an area
+  function _ssAreaSelected(areaName) {
+    const busSel = document.getElementById('ss-bus');
+    if (!busSel) return;
+    // We can't access the modal's bus closure, so re-fetch from cached attendees proxy:
+    // Instead rely on global buses list via a re-fetch. Since buses are few, this is fast.
+    DB.getAll(DB.STORES.buses).then(allBuses => {
+      const pool = areaName ? _busesForArea(allBuses, areaName) : allBuses;
+      busSel.innerHTML = pool.length
+        ? '<option value="">— select a bus —</option>' + pool.map(b =>
+            `<option value="${Helpers.escapeHtml(b.name)}">${Helpers.escapeHtml(b.name)}${b.coordinator ? ' · ' + b.coordinator : ''}</option>`
+          ).join('')
+        : '<option value="">No buses for this area yet</option>';
+    }).catch(() => {});
   }
 
   function handleLogout() {
@@ -321,21 +530,27 @@ const App = (() => {
   }
 
   // ===== REAL-TIME SYNC (Firestore onSnapshot) =====
+  // Volunteers see only their area (+ records with no area tag for backward compat).
+  // Admins see everything.
   function startLiveSync() {
     stopLiveSync();
     try {
       const eid = DB.getCurrentEvent();
       if (!eid) return;
       const col = firestore.collection('events').doc(eid).collection('participants');
+      const myArea = getMyArea();
+      const isAdmin = currentUser?.role === 'admin';
+
+      // Always fetch all participants, filter client-side for volunteers.
+      // Firestore 'in' with null crashes — client filter is simpler and equally fast.
       liveUnsubscribe = col.onSnapshot(snap => {
-        allAttendees = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-          .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
-        updateAdmitCountersFromCache();
-        // Re-render the attendance list whenever data changes
-        if (currentPage === 'attendance') {
-          const q = document.getElementById('att-search')?.value;
-          renderAllAttendance(q);
+        let docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        if (!isAdmin && myArea) {
+          docs = docs.filter(a => !a.area || a.area === '' || normBus(a.area) === normBus(myArea));
         }
+        allAttendees = docs.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+        updateAdmitCountersFromCache();
+        _debouncedPageRefresh();
       });
     } catch {}
   }
@@ -346,10 +561,60 @@ const App = (() => {
 
   function updateAdmitCountersFromCache() {
     const present = allAttendees.filter(a => a.attendance === 'present');
-    const el1 = document.getElementById('admit-count-present');
-    const el2 = document.getElementById('admit-count-total');
-    if (el1) el1.textContent = present.length;
-    if (el2) el2.textContent = allAttendees.length;
+    const myBus  = getMyBus();
+    const myName = currentUser?.name || '';
+
+    // Gate 6-count bar
+    const gcOverall  = document.getElementById('gc-overall');
+    const gcMyBus    = document.getElementById('gc-mybus');
+    const gcPresent  = document.getElementById('gc-present');
+    const gcWalkin   = document.getElementById('gc-walkin');
+    const gcCollect  = document.getElementById('gc-collection');
+    const gcMyHand   = document.getElementById('gc-myhand');
+
+    if (gcOverall)  gcOverall.textContent  = present.length;
+    if (gcMyBus)    gcMyBus.textContent    = myBus ? present.filter(a => normBus(a.boardedBus) === normBus(myBus)).length : '—';
+    if (gcPresent)  gcPresent.textContent  = present.filter(a => !a.isWalkIn).length;
+    if (gcWalkin)   gcWalkin.textContent   = present.filter(a => !!a.isWalkIn).length;
+
+    const gateColl   = allAttendees.filter(a => a.paidAtEvent || (a.isWalkIn && parseFloat(a.paymentAmount || 0) > 0));
+    const totalColl  = gateColl.reduce((s, a) => s + (parseFloat(a.paymentAmount) || 0), 0);
+    const myColl     = gateColl.filter(a => (a.collectedBy || a.markedBy) === myName).reduce((s, a) => s + (parseFloat(a.paymentAmount) || 0), 0);
+    if (gcCollect)  gcCollect.textContent  = totalColl > 0 ? '₹' + totalColl.toLocaleString('en-IN') : '₹0';
+    if (gcMyHand)   gcMyHand.textContent   = myColl > 0   ? '₹' + myColl.toLocaleString('en-IN')   : '₹0';
+  }
+
+  // ===== AREA (zone) selection — stored per event in localStorage =====
+  let _myBusAreaFilter = ''; // admin My Bus page filter — '' means all areas
+
+  function _myAreaKey() { return `prerna_my_area_${DB.getCurrentEvent() || 'default'}`; }
+  function getMyArea()  { return localStorage.getItem(_myAreaKey()) || ''; }
+  function setMyArea(name) {
+    if (name) localStorage.setItem(_myAreaKey(), name);
+    else       localStorage.removeItem(_myAreaKey());
+  }
+
+  async function _loadAreas() {
+    try {
+      const raw = await DB.getConfig('areas');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      // Migrate old format (plain strings) to full objects
+      return parsed.map((a, i) => typeof a === 'string'
+        ? { id: `a${Date.now()}${i}`, name: a, perPersonCharge: 0, busCount: 0, perBusCost: 0, coordinator: '', capacity: 0 }
+        : a
+      );
+    } catch { return []; }
+  }
+
+  async function _saveAreas(areas) {
+    await DB.setConfig('areas', JSON.stringify(areas));
+    _dashStaticCache = null;
+  }
+
+  function _busesForArea(allBuses, areaName) {
+    if (!areaName) return allBuses;
+    return allBuses.filter(b => normBus(b.area) === normBus(areaName));
   }
 
   // ===== MY BUS (admission-page bus selector) =====
@@ -369,6 +634,7 @@ const App = (() => {
     if (!buses.length) { bar.classList.add('hidden'); _busesConfigured = false; return; }
 
     _busesConfigured = true;
+    window._cachedBusesForPicker = buses; // used by _promptSelectBusThenAdmit
     bar.classList.remove('hidden');
     const active = getMyBus();
 
@@ -384,7 +650,12 @@ const App = (() => {
       if (label) label.textContent = 'Your Bus:';
     }
 
-    pills.innerHTML = buses.map(b =>
+    // Volunteers only see buses in their area; admins see all
+    const myArea = getMyArea();
+    const isAdmin = currentUser?.role === 'admin';
+    const visibleBuses = (!isAdmin && myArea) ? _busesForArea(buses, myArea) : buses;
+
+    pills.innerHTML = visibleBuses.map(b =>
       `<button class="my-bus-pill ${normBus(b.name) === normBus(active) ? 'active' : ''}" onclick="App._selectMyBus('${b.name.replace(/'/g,"\\'")}', this)">${b.name}</button>`
     ).join('');
   }
@@ -431,61 +702,58 @@ const App = (() => {
     }
 
     const active = events.find(e => e.id === DB.getCurrentEvent()) || events[0];
-    if (btn) btn.textContent = active.name;
+    if (btn) btn.textContent = active.name + (active.isCurrentEvent ? ' ★' : '');
 
     startLiveSync();
   }
 
-  function showEventPicker() {
+  function _buildEventPickerList(eventsToShow) {
     const activeId = DB.getCurrentEvent();
-    let filtered = _cachedEvents;
+    if (!eventsToShow.length) return '<li class="event-picker-empty">No events found</li>';
 
-    const renderList = (query) => {
-      const q = (query || '').toLowerCase().trim();
-      filtered = q ? _cachedEvents.filter(e => e.name.toLowerCase().includes(q) || (e.date && e.date.includes(q))) : _cachedEvents;
-      const list = document.getElementById('evt-picker-list');
-      if (!list) return;
-      if (filtered.length === 0) {
-        list.innerHTML = '<li class="event-picker-empty">No events found</li>';
-        return;
-      }
-      list.innerHTML = filtered.map(e => `
+    // Sort: current-event first, then by date desc
+    const sorted = eventsToShow.slice().sort((a, b) => {
+      if (a.isCurrentEvent && !b.isCurrentEvent) return -1;
+      if (!a.isCurrentEvent && b.isCurrentEvent) return 1;
+      return (b.date || '').localeCompare(a.date || '');
+    });
+
+    // Group by FY
+    const fyGroups = {};
+    sorted.forEach(e => {
+      const fy = e.financialYear || 'Other';
+      if (!fyGroups[fy]) fyGroups[fy] = [];
+      fyGroups[fy].push(e);
+    });
+
+    return Object.entries(fyGroups).map(([fy, evts]) => {
+      const rows = evts.map(e => `
         <li class="event-picker-item ${e.id === activeId ? 'active' : ''}" onclick="App._pickEvent('${e.id}')">
-          <span>${e.name}</span>
+          <span>${Helpers.escapeHtml(e.name)}${e.isCurrentEvent ? ' <span style="font-size:.72rem;background:#16a34a;color:#fff;border-radius:4px;padding:1px 5px;vertical-align:middle">Current</span>' : ''}</span>
           ${e.date ? `<span class="evt-date">${Helpers.formatDate(e.date)}</span>` : ''}
         </li>`).join('');
-    };
+      return `<li style="padding:.35rem .75rem;font-size:.75rem;font-weight:700;color:var(--text-muted);background:var(--bg-card2);letter-spacing:.06em;pointer-events:none">FY ${fy}</li>${rows}`;
+    }).join('');
+  }
 
+  function showEventPicker() {
+    const isAdmin = currentUser?.role === 'admin';
     Helpers.modal(`
       <h3 class="modal-title">Choose Event</h3>
       <input id="evt-picker-search" class="event-picker-search" type="text" placeholder="Search events…" oninput="App._filterEvents(this.value)" />
-      <ul id="evt-picker-list" class="event-picker-list"></ul>
+      <ul id="evt-picker-list" class="event-picker-list">${_buildEventPickerList(_cachedEvents)}</ul>
+      ${isAdmin ? `<div style="padding:.6rem .75rem 0;border-top:1px solid var(--border);margin-top:.5rem">
+        <button class="btn-secondary" style="width:100%;font-size:.85rem" onclick="App.showCreateEventModal()">+ Create New Event</button>
+      </div>` : ''}
     `);
-
-    renderList('');
-
-    // Focus search after modal renders
-    setTimeout(() => {
-      const inp = document.getElementById('evt-picker-search');
-      if (inp) inp.focus();
-    }, 50);
+    setTimeout(() => { const inp = document.getElementById('evt-picker-search'); if (inp) inp.focus(); }, 50);
   }
 
   function _filterEvents(query) {
-    const activeId = DB.getCurrentEvent();
     const q = (query || '').toLowerCase().trim();
     const filtered = q ? _cachedEvents.filter(e => e.name.toLowerCase().includes(q) || (e.date && e.date.includes(q))) : _cachedEvents;
     const list = document.getElementById('evt-picker-list');
-    if (!list) return;
-    if (filtered.length === 0) {
-      list.innerHTML = '<li class="event-picker-empty">No events found</li>';
-      return;
-    }
-    list.innerHTML = filtered.map(e => `
-      <li class="event-picker-item ${e.id === activeId ? 'active' : ''}" onclick="App._pickEvent('${e.id}')">
-        <span>${e.name}</span>
-        ${e.date ? `<span class="evt-date">${Helpers.formatDate(e.date)}</span>` : ''}
-      </li>`).join('');
+    if (list) list.innerHTML = _buildEventPickerList(filtered);
   }
 
   function _pickEvent(id) {
@@ -495,10 +763,11 @@ const App = (() => {
     allAttendees = [];
     attendanceInited = false;
     _absenteeMap = null;
+    _dashStaticCache = null;
     Reports.clearAbsenteeCache();
     const active = _cachedEvents.find(e => e.id === id);
     const btn = document.getElementById('event-selector-btn');
-    if (btn && active) btn.textContent = active.name;
+    if (btn && active) btn.textContent = active.name + (active.isCurrentEvent ? ' ★' : '');
     startLiveSync();
     navigate(currentPage);
   }
@@ -535,11 +804,18 @@ const App = (() => {
   }
 
   // Pages volunteers are allowed to access
-  const VOLUNTEER_PAGES = ['attendance', 'walkin', 'mybus'];
+  const VOLUNTEER_PAGES = ['attendance', 'walkin', 'mybus', 'dashboard'];
+
+  // Page → bottom nav tab mapping
+  const PAGE_TO_TAB = {
+    dashboard: 'home', attendance: 'gate', walkin: 'gate',
+    mybus: 'mybus', settings: 'setup', import: 'setup', attendees: 'setup',
+    reports: 'reports', financial: 'reports'
+  };
 
   // ===== NAVIGATION =====
   function navigate(page) {
-    // Permission guard — volunteers can only access admission and walk-in
+    // Permission guard — volunteers can only access their pages
     if (currentUser?.role !== 'admin' && !VOLUNTEER_PAGES.includes(page)) {
       Helpers.toast('Access restricted. Contact your admin.', 'error');
       page = 'attendance';
@@ -551,24 +827,30 @@ const App = (() => {
     const pageEl = document.getElementById(`page-${page}`);
     if (pageEl) pageEl.classList.remove('hidden');
 
-    document.querySelectorAll('.nav-item').forEach(n => {
-      n.classList.toggle('active', n.dataset.page === page);
+    // Sync bottom nav active state
+    const activeTab = PAGE_TO_TAB[page] || 'home';
+    document.querySelectorAll('.bnav-item').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === activeTab);
     });
 
     const titles = {
-      dashboard: 'Dashboard', import: 'Import Excel',
-      attendance: 'Admission', walkin: 'Walk-ins',
-      attendees: 'Attendees', reports: 'Reports',
-      settings: 'Settings', financial: 'Financial Year',
-      mybus: 'My Bus'
+      dashboard: '', import: '/ Import',
+      attendance: '', walkin: '/ Walk-ins',
+      attendees: '/ Attendees', reports: '',
+      settings: '', financial: '/ Financial',
+      mybus: ''
     };
-    document.getElementById('page-title').textContent = titles[page] || page;
+    const titleEl = document.getElementById('page-title');
+    if (titleEl) titleEl.textContent = titles[page] !== undefined ? titles[page] : '';
     currentPage = page;
 
     switch (page) {
       case 'dashboard': initDashboard(); break;
       case 'import': initImport(); break;
-      case 'attendance': initAttendance(); initMyBusPicker(); break;
+      case 'attendance':
+        startLiveSync(); // start data stream immediately; setup runs in parallel
+        ensureSessionSetup().then(() => { initAttendance(); initMyBusPicker(); });
+        break;
       case 'walkin': initWalkin(); break;
       case 'attendees': initAttendees(); break;
       case 'reports': initReports(); break;
@@ -578,39 +860,289 @@ const App = (() => {
     }
   }
 
-  // ===== MY BUS PAGE (volunteer-facing report of their boarded bus) =====
+  // ===== TAB SWITCHING =====
+  let _gateUnlocked = false;
+  let _walkinSubmitting = false;
+
+  function switchTab(tab) {
+    const tabPageMap = {
+      home: 'dashboard',
+      gate: 'attendance',
+      mybus: 'mybus',
+      setup: 'settings',
+      reports: 'reports'
+    };
+    navigate(tabPageMap[tab] || 'dashboard');
+  }
+
+  function checkGateLock() {
+    const eid = DB.getCurrentEvent();
+    const event = (_cachedEvents || []).find(e => e.id === eid);
+    const eventDate = event?.date; // 'YYYY-MM-DD'
+    const today = new Date().toISOString().slice(0, 10);
+
+    const lockScreen = document.getElementById('gate-lock-screen');
+    const gateContent = document.getElementById('gate-content');
+    if (!lockScreen || !gateContent) return;
+
+    const isLocked = !_gateUnlocked && eventDate && today < eventDate;
+
+    lockScreen.classList.toggle('hidden', !isLocked);
+    gateContent.classList.toggle('hidden', !!isLocked);
+
+    if (isLocked) {
+      const dateEl = document.getElementById('gate-lock-date');
+      if (dateEl) dateEl.textContent = Helpers.formatDate(eventDate);
+      const countEl = document.getElementById('gate-lock-countdown');
+      if (countEl) {
+        const diff = Math.ceil((new Date(eventDate + 'T00:00:00') - new Date()) / (1000 * 60 * 60 * 24));
+        countEl.textContent = diff > 0 ? `${diff} day${diff !== 1 ? 's' : ''} to go` : 'Opens today!';
+      }
+    }
+  }
+
+  // Bus required screen — shown on Gate tab when gate is open but no bus selected
+  async function checkBusRequired() {
+    const busScreen   = document.getElementById('gate-bus-screen');
+    const gateContent = document.getElementById('gate-content');
+    if (!busScreen || !gateContent) return false;
+
+    const myBus = getMyBus();
+    if (myBus) {
+      busScreen.classList.add('hidden');
+      gateContent.classList.remove('hidden');
+      return false; // not blocked
+    }
+
+    // Show bus selection screen, hide gate content
+    busScreen.classList.remove('hidden');
+    gateContent.classList.add('hidden');
+
+    let buses = [];
+    try { buses = await DB.getAll(DB.STORES.buses); } catch {}
+    const myArea = getMyArea();
+    const pool = myArea ? _busesForArea(buses, myArea) : buses;
+    const optionsEl = document.getElementById('gate-bus-options');
+    if (optionsEl) {
+      if (pool.length) {
+        optionsEl.innerHTML = pool.map(b => `
+          <button onclick="App._gateBusPick('${Helpers.escapeHtml(b.name)}')"
+            style="width:100%;padding:.75rem 1rem;border:1.5px solid var(--border);border-radius:10px;background:var(--bg-card);font-size:.95rem;font-weight:600;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent">
+            🚌 ${Helpers.escapeHtml(b.name)}${b.coordinator ? `<span style="font-size:.78rem;color:var(--text-muted);font-weight:400;display:block">${Helpers.escapeHtml(b.coordinator)}</span>` : ''}
+          </button>`).join('');
+      } else {
+        optionsEl.innerHTML = `<p style="color:var(--text-muted);font-size:.85rem">No buses configured. Ask admin to add buses in Setup.</p>`;
+      }
+    }
+    return true; // blocked
+  }
+
+  function _gateBusPick(busName) {
+    setMyBus(busName);
+    const busScreen   = document.getElementById('gate-bus-screen');
+    const gateContent = document.getElementById('gate-content');
+    if (busScreen)   busScreen.classList.add('hidden');
+    if (gateContent) gateContent.classList.remove('hidden');
+    initMyBusPicker();
+    updateAdmitCountersFromCache();
+    Helpers.toast(`Bus set: ${busName}`, 'success');
+  }
+
+  // Reports sub-tab switcher (Reports vs Financial Year)
+  function _reportSubTab(which) {
+    navigate(which === 'financial' ? 'financial' : 'reports');
+  }
+
+
+  // ===== GATE LOCK HELPERS =====
+  function _gateAdminUnlock() {
+    _gateUnlocked = true;
+    checkGateLock();
+  }
+
+  function _gateShowList(filter) {
+    const myBus  = getMyBus();
+    const myName = currentUser?.name || '';
+    const present = allAttendees.filter(a => a.attendance === 'present');
+
+    let list, title;
+    switch (filter) {
+      case 'overall':    list = present;                                              title = 'All Present';        break;
+      case 'mybus':      list = myBus ? present.filter(a => normBus(a.boardedBus) === normBus(myBus)) : [];  title = `My Bus — ${myBus || 'None'}`;  break;
+      case 'present':    list = present.filter(a => !a.isWalkIn);                    title = 'Registered Present'; break;
+      case 'walkin':     list = present.filter(a => !!a.isWalkIn);                   title = 'Walk-in Present';    break;
+      case 'collection': list = allAttendees.filter(a => a.paidAtEvent || (a.isWalkIn && parseFloat(a.paymentAmount || 0) > 0)); title = 'Gate Collections'; break;
+      case 'myhand':     list = allAttendees.filter(a => (a.paidAtEvent || (a.isWalkIn && parseFloat(a.paymentAmount || 0) > 0)) && (a.collectedBy || a.markedBy) === myName); title = 'My Collections'; break;
+      default: return;
+    }
+
+    if (!list.length) { Helpers.toast(`No entries for "${title}"`, 'info'); return; }
+
+    const esc = Helpers.escapeHtml;
+    const isMoney = (filter === 'collection' || filter === 'myhand');
+    const rows = list.map(a => {
+      const ps = (a.paymentStatus || 'unpaid').toLowerCase();
+      const psBadge = ps === 'paid' ? 'present' : ps === 'free' ? 'before' : 'unpaid';
+      return `<div class="pop-list-row">
+        <div class="pop-list-main">
+          <div class="pop-list-name">${esc(a.name)}${a.isWalkIn ? ' <span class="badge walkin">WI</span>' : ''}</div>
+          <div class="pop-list-meta">${esc(a.mobile || '')}${a.boardedBus ? ' · ' + esc(a.boardedBus) : ''}${a.area ? ' · ' + esc(a.area) : ''}</div>
+        </div>
+        <div class="pop-list-badges">
+          ${isMoney
+            ? `<span class="badge present">₹${(parseFloat(a.paymentAmount)||0).toLocaleString('en-IN')}</span>`
+            : `<span class="badge ${psBadge}">${ps}</span>`}
+        </div>
+      </div>`;
+    }).join('');
+
+    Helpers.modal(`
+      <div class="pop-list-header">
+        <div class="pop-list-title">${title}</div>
+        <div class="pop-list-count">${list.length} record${list.length !== 1 ? 's' : ''}</div>
+      </div>
+      <div class="pop-list-body">${rows}</div>
+      <div style="margin-top:1rem;text-align:right">
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Close</button>
+      </div>
+    `);
+  }
+
+  // ===== MY BUS PAGE =====
   async function initMyBus() {
-    const host = document.getElementById('mybus-content');
+    const host    = document.getElementById('mybus-content');
     const isAdmin = currentUser?.role === 'admin';
     host.innerHTML = '<p style="color:var(--text-muted);padding:2rem;text-align:center">Loading…</p>';
 
     try {
-      const [all, buses] = await Promise.all([
+      const [all, buses, areas] = await Promise.all([
         DB.getAll(DB.STORES.attendees),
-        DB.getAll(DB.STORES.buses).catch(() => [])
+        DB.getAll(DB.STORES.buses).catch(() => []),
+        _loadAreas()
       ]);
       const present = all.filter(a => a.attendance === 'present');
+      const esc = Helpers.escapeHtml;
+      let html = '';
 
       if (isAdmin) {
-        // Admin: every bus's roster aggregated, regardless of which volunteer marked them.
-        host.innerHTML = renderAllBuses(present, buses);
+        // ── ADMIN: all buses, area-grouped, each expanded ──────────────────────
+        const configuredNorms = new Set(buses.map(b => normBus(b.name)));
+
+        // Refresh button header
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem">
+          <p style="margin:0;font-size:.82rem;color:var(--text-muted)">Bus-wise attendance record · all areas</p>
+          <button class="btn-ghost" onclick="App.initMyBus()" style="font-size:.82rem">&#8634; Refresh</button>
+        </div>`;
+
+        if (areas.length) {
+          areas.forEach(area => {
+            const areaBuses = buses.filter(b => normBus(b.area) === normBus(area.name));
+            const aPresent  = present.filter(a => normBus(a.area) === normBus(area.name)).length;
+            const aReg      = all.filter(a => normBus(a.area) === normBus(area.name)).length;
+            html += `<div style="margin-bottom:.4rem;padding:.45rem .75rem;background:var(--bg-card2);border-radius:8px;display:flex;align-items:center;gap:.75rem;border:1px solid var(--border)">
+              <span>&#128205;</span>
+              <span style="font-weight:700;font-size:.92rem">${esc(area.name)}</span>
+              <span style="font-size:.8rem;color:var(--text-muted)">${aReg} reg · <strong style="color:var(--accent)">${aPresent} present</strong></span>
+            </div>`;
+            if (areaBuses.length) {
+              areaBuses.forEach(b => {
+                const onB = present.filter(a => normBus(a.boardedBus) === normBus(b.name));
+                html += _renderBusCard(b.name, onB, { collapsible: true, expanded: false });
+              });
+            } else {
+              html += `<p style="font-size:.82rem;color:var(--text-muted);padding:.25rem .75rem .75rem">No buses configured for this area</p>`;
+            }
+          });
+        }
+
+        // Buses with no area
+        const unassigned = buses.filter(b => !b.area || !b.area.trim());
+        if (unassigned.length) {
+          html += `<div style="padding:.4rem .75rem;background:#fef3c7;border-radius:8px;border:1px solid #fcd34d;font-size:.82rem;color:#92400e;margin-bottom:.4rem">&#9888; Buses not assigned to any area</div>`;
+          unassigned.forEach(b => {
+            const onB = present.filter(a => normBus(a.boardedBus) === normBus(b.name));
+            html += _renderBusCard(b.name, onB, { collapsible: true, expanded: false });
+          });
+        }
+
+        // Ghost buses — boarded but not in configured list
+        const allBoardedNorms = [...new Set(present.filter(a => a.boardedBus).map(a => normBus(a.boardedBus)))];
+        allBoardedNorms.filter(n => !configuredNorms.has(n)).forEach(n => {
+          const onB = present.filter(a => normBus(a.boardedBus) === n);
+          html += _renderBusCard(onB[0]?.boardedBus || n, onB, { collapsible: true, expanded: true });
+        });
+
+        if (!buses.length && !allBoardedNorms.length) {
+          html += '<p style="color:var(--text-muted);padding:2rem;text-align:center">No buses configured yet.</p>';
+        }
+
+        // Warn if records have corrupt area ("[object Object]") from a past import bug
+        const brokenCount = all.filter(a => a.area === '[object Object]').length;
+        if (brokenCount > 0) {
+          const areaOptions = areas.map(a => {
+            const n = typeof a === 'string' ? a : (a.name || '');
+            return `<option value="${Helpers.escapeHtml(n)}">${Helpers.escapeHtml(n)}</option>`;
+          }).join('');
+          html += `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:.85rem 1rem;margin-top:1rem">
+            <div style="font-weight:700;color:#92400e;margin-bottom:.4rem">&#9888; ${brokenCount} records have a corrupt area tag</div>
+            <div style="font-size:.82rem;color:#78350f;margin-bottom:.65rem">These were imported before a bug fix — their area shows as "[object Object]". Reassign them to the correct area below.</div>
+            <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+              <select id="repair-area-sel" style="flex:1;min-width:150px;padding:.35rem .5rem;border-radius:6px;border:1px solid #fcd34d">
+                <option value="">— Select area —</option>${areaOptions}
+              </select>
+              <button class="btn-primary" style="flex-shrink:0" onclick="App._repairBrokenArea()">Fix ${brokenCount} records</button>
+            </div>
+          </div>`;
+        }
+
       } else {
-        const myBus = getMyBus();
-        if (!myBus) {
-          host.innerHTML = `
-            <div class="card" style="text-align:center;padding:2rem">
+        // ── VOLUNTEER: only their assigned seva bus ─────────────────────────────
+        const myBus  = getMyBus();
+        const myArea = getMyArea();
+
+        if (myBus) {
+          const onBus = present.filter(a => normBus(a.boardedBus) === normBus(myBus));
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+            ${myArea ? `<span style="font-size:.82rem;color:var(--text-muted)">&#128205; ${esc(myArea)}</span>` : '<span></span>'}
+            <button class="btn-ghost" onclick="App.initMyBus()" style="font-size:.82rem">&#8634; Refresh</button>
+          </div>`;
+          html += renderMyBus(myBus, onBus);
+        } else {
+          html += `
+            <div class="card" style="text-align:center;padding:2rem;margin-bottom:1rem">
               <h3 class="card-title" style="margin:0 0 .5rem">No bus selected</h3>
-              <p style="color:var(--text-muted);margin:0 0 1rem">Pick the bus you are stationed at to see every devotee admitted to it — across all volunteers marking attendance for the same bus.</p>
+              <p style="color:var(--text-muted);margin:0 0 1rem">Select the bus you are on seva for to see its record.</p>
               <button class="btn-primary" onclick="App.showSessionSetupModal()">Select Bus</button>
             </div>`;
-          return;
         }
-        const onBus = present.filter(a => normBus(a.boardedBus) === normBus(myBus));
-        host.innerHTML = renderMyBus(myBus, onBus);
       }
+
+      host.innerHTML = html;
     } catch (err) {
       host.innerHTML = `<p style="color:var(--danger);padding:2rem">Error: ${err.message}</p>`;
     }
+  }
+
+  function _myBusFilterArea(areaName) {
+    _myBusAreaFilter = areaName;
+    initMyBus();
+  }
+
+  async function _repairBrokenArea() {
+    const areaName = document.getElementById('repair-area-sel')?.value;
+    if (!areaName) { Helpers.toast('Select an area first', 'error'); return; }
+    const all = await DB.getAll(DB.STORES.attendees);
+    const broken = all.filter(a => a.area === '[object Object]');
+    if (!broken.length) { Helpers.toast('No broken records found', 'info'); return; }
+    Helpers.toast(`Fixing ${broken.length} records…`, 'info');
+    const BATCH = 400;
+    for (let i = 0; i < broken.length; i += BATCH) {
+      const slice = broken.slice(i, i + BATCH);
+      await Promise.all(slice.map(a => DB.put(DB.STORES.attendees, { ...a, area: areaName })));
+    }
+    allAttendees = allAttendees.map(a => a.area === '[object Object]' ? { ...a, area: areaName } : a);
+    Helpers.toast(`Fixed ${broken.length} records → ${areaName}`, 'success');
+    initMyBus();
   }
 
   // Bus-wise department breakdown (IGF / ICF_Prji / ICF_Mtg / IYF / Balarama Team)
@@ -828,11 +1360,26 @@ const App = (() => {
   }
 
   // ===== DASHBOARD =====
+  // Cache buses/areas/event doc — these rarely change during an event; 30s TTL
+  async function _getDashStaticData() {
+    const eid = DB.getCurrentEvent();
+    const now = Date.now();
+    if (_dashStaticCache?.eid === eid && (now - (_dashStaticCache.ts || 0)) < 30000) {
+      return _dashStaticCache;
+    }
+    const [areaCfgBuses, areaCfgAreas, evtDoc] = await Promise.all([
+      DB.getAll(DB.STORES.buses).catch(() => []),
+      _loadAreas().catch(() => []),
+      DB.getEvent(eid).catch(() => null)
+    ]);
+    _dashStaticCache = { eid, ts: now, areaCfgBuses, areaCfgAreas, evtDoc };
+    return _dashStaticCache;
+  }
+
   async function initDashboard() {
     try {
-      // Use the live onSnapshot cache when available to avoid a redundant Firestore read
       const attendees  = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
-      const busRoutes  = await DB.getAll(DB.STORES.busRoutes);
+      const { areaCfgBuses, areaCfgAreas, evtDoc } = await _getDashStaticData();
       const present   = attendees.filter(a => a.attendance === 'present');
       const absent    = attendees.filter(a => a.attendance !== 'present');
       const paid      = attendees.filter(a => (a.paymentStatus || '').toLowerCase() === 'paid');
@@ -840,10 +1387,30 @@ const App = (() => {
       const free      = attendees.filter(a => (a.paymentStatus || '').toLowerCase() === 'free');
       const walkins   = attendees.filter(a => a.isWalkIn);
       const dups      = attendees.filter(a => a.isDuplicate && !a.dupResolved);
-      const totalPay  = attendees.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
-      const totalBusCost = busRoutes.reduce((s, r) => s + parseInt(r.busCount || 1) * parseFloat(r.cost || 0), 0);
+      // Walk-ins collected at gate — classify as gate regardless of paidAtEvent flag
+      const gatePayList  = attendees.filter(a => a.paidAtEvent || (a.isWalkIn && parseFloat(a.paymentAmount || 0) > 0));
+      const gatePay      = gatePayList.reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+      const prePay       = attendees.filter(a => !a.isWalkIn && !a.paidAtEvent).reduce((s, a) => s + parseFloat(a.paymentAmount || 0), 0);
+      const totalPay     = prePay + gatePay;
+      // Bus cost = sum over areas of (buses_in_area × area.perBusCost)
+      const totalBusCost = areaCfgAreas.reduce((sum, area) => {
+        const n = areaCfgBuses.filter(b => normBus(b.area) === normBus(area.name)).length;
+        return sum + n * (parseFloat(area.perBusCost) || 0);
+      }, 0);
       const profitLoss   = totalPay - totalBusCost;
       const plClass      = profitLoss >= 0 ? 'success' : 'danger';
+      // Is today the event day?
+      const eventDateStr = evtDoc?.date || '';
+      const todayStr     = new Date().toISOString().slice(0, 10);
+      const isEventDay   = !!eventDateStr && eventDateStr === todayStr;
+      const isAfterEvent = !!eventDateStr && eventDateStr < todayStr;
+
+      // After event: move P&L card to the very top of the dashboard
+      const dashPage  = document.getElementById('page-dashboard');
+      const plCardEl  = document.getElementById('dash-pl-card');
+      if (dashPage && plCardEl) {
+        if (isAfterEvent) dashPage.prepend(plCardEl);
+      }
 
       // ── Attendance + Payment counts ──────────────────────────────────────
       const pct = attendees.length ? Math.round(present.length / attendees.length * 100) : 0;
@@ -853,29 +1420,29 @@ const App = (() => {
 
       document.getElementById('dash-counts').innerHTML = `
         <div class="dash-counts-grid">
-          <div class="dash-count-col dash-count-clickable" onclick="App.showCountList('all','All Registered')">
-            <div class="dash-count-head">Total <span class="dash-tap-hint">tap to view</span></div>
+          <div class="dash-count-col color-total dash-count-clickable" onclick="App.showCountList('all','All Registered')">
+            <div class="dash-count-head">Total <span class="dash-tap-hint">tap</span></div>
             <div class="dash-count-big">${attendees.length}</div>
-            <div class="dash-count-sub">${walkins.length} walk-in&nbsp;&nbsp;${dups.length > 0 ? `<span style="color:var(--danger)">${dups.length} dup</span>` : ''}</div>
+            <div class="dash-count-sub">${walkins.length} walk-in${dups.length > 0 ? `&nbsp;·&nbsp;<span style="color:var(--danger)">${dups.length} dup</span>` : ''}</div>
           </div>
-          <div class="dash-count-col">
+          <div class="dash-count-col color-att">
             <div class="dash-count-head">Attendance</div>
             <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('present','Present')"><span class="dc-label success">Present</span><span class="dc-num">${present.length}</span></div>
             <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('absent','Absent')"><span class="dc-label warning">Absent</span><span class="dc-num">${absent.length}</span></div>
             <div class="dash-count-pct">${pct}% attended</div>
-            <div class="dash-progress" style="margin-top:.4rem">
+            <div class="dash-progress">
               <div class="dash-progress-fill" style="width:${pct}%"></div>
             </div>
           </div>
-          <div class="dash-count-col">
+          <div class="dash-count-col color-pay">
             <div class="dash-count-head">Payment</div>
             <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('paid','Paid')"><span class="dc-label accent">Paid</span><span class="dc-num">${paid.length}</span></div>
             <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('unpaid','Unpaid')"><span class="dc-label danger">Unpaid</span><span class="dc-num">${unpaid.length}</span></div>
             <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('free','Free')"><span class="dc-label info">Free</span><span class="dc-num">${free.length}</span></div>
           </div>
-          <div class="dash-count-col dash-count-clickable" onclick="App.showCountList('walkin','Walk-ins')">
+          <div class="dash-count-col color-collect dash-count-clickable" onclick="App.showCountList('walkin','Walk-ins')">
             <div class="dash-count-head">Collected <span class="dash-tap-hint">walk-ins</span></div>
-            <div class="dash-count-big" style="color:var(--accent)">${Helpers.currency(totalPay)}</div>
+            <div class="dash-count-big" style="color:var(--info)">${Helpers.currency(totalPay)}</div>
             <div class="dash-count-sub">${walkins.length} walk-in</div>
           </div>
         </div>`;
@@ -883,8 +1450,10 @@ const App = (() => {
       // ── Bus Occupancy (live count per bus, visible to all) ───────────────
       const occCard = document.getElementById('dash-bus-occ-card');
       const occEl   = document.getElementById('dash-bus-occupancy');
-      const buses   = await DB.getAll(DB.STORES.buses);
-      if (occCard && occEl && buses.length) {
+      const buses   = areaCfgBuses;
+      // Bus occupancy only shown on event day
+      if (occCard) occCard.style.display = 'none';
+      if (occCard && occEl && buses.length && isEventDay) {
         occCard.style.display = '';
         const busCoordHead  = await DB.getConfig('busCoordinatorHead') || '';
         const boardedCounts = {};
@@ -946,50 +1515,17 @@ const App = (() => {
 
         occEl.innerHTML = `<div class="bus-occ-grid">${configuredTiles}${orphanTiles}${untaggedTile}</div>` +
           reconNote +
-          (busCoordHead ? `<div class="bus-occ-head">&#128081; Bus Coordinator Head: <strong>${busCoordHead}</strong></div>` : '') +
-          `<div style="text-align:right;margin-top:.5rem"><button class="btn-ghost" style="font-size:.78rem" onclick="App.openBusManageModal()">&#9881; Manage Buses</button></div>`;
-      } else if (occCard) {
-        occCard.style.display = buses.length === 0 ? '' : 'none';
-        if (occEl && buses.length === 0) {
-          occEl.innerHTML = `<p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">No buses configured yet.</p>
-            <button class="btn-secondary" style="font-size:.85rem" onclick="App.openBusManageModal()">+ Configure Buses</button>`;
-          occCard.style.display = '';
-        }
+          (busCoordHead ? `<div class="bus-occ-head">&#128081; Bus Coordinator Head: <strong>${busCoordHead}</strong></div>` : '');
       }
-
-      // ── Bus Routes (financial P&L) ───────────────────────────────────────
-      const busRows = busRoutes.map(r => {
-        const count    = parseInt(r.busCount || 1);
-        const cost     = parseFloat(r.cost || 0);
-        const subtotal = count * cost;
-        return `<tr>
-          <td>${r.name || '—'}</td>
-          <td style="text-align:center">${count}</td>
-          <td style="text-align:right">${Helpers.currency(cost)}</td>
-          <td style="text-align:right;font-weight:600">${Helpers.currency(subtotal)}</td>
-          <td style="text-align:center">
-            <button class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" onclick="App.deleteBusRouteFromDash('${r.id}')">✕</button>
-          </td>
-        </tr>`;
-      }).join('');
-
-      document.getElementById('dash-buses').innerHTML = `
-        <table class="report-table" style="margin-bottom:.5rem">
-          <thead><tr><th>Bus / Route</th><th>No. of Buses</th><th>Cost/Bus</th><th>Subtotal</th><th></th></tr></thead>
-          <tbody>${busRows || '<tr><td colspan="5" style="color:var(--text-muted);text-align:center">No buses configured</td></tr>'}</tbody>
-          <tfoot><tr style="font-weight:700;background:var(--surface-hover)">
-            <td colspan="3">Total Bus Cost</td>
-            <td style="text-align:right">${Helpers.currency(totalBusCost)}</td><td></td>
-          </tfoot>
-        </table>
-        <button class="btn-ghost" style="font-size:.85rem" onclick="App.showAddBusModal()">+ Add Bus</button>`;
 
       // ── P&L ──────────────────────────────────────────────────────────────
       document.getElementById('dash-pl').innerHTML = `
         <table class="report-table" style="max-width:420px">
-          <tr><td>Total Collection</td><td style="text-align:right;color:var(--accent);font-weight:600">${Helpers.currency(totalPay)}</td></tr>
+          ${prePay > 0 ? `<tr style="color:var(--text-muted)"><td style="padding-left:.25rem">↳ Pre-event (imported)</td><td style="text-align:right">${Helpers.currency(prePay)}</td></tr>` : ''}
+          ${gatePay > 0 ? `<tr style="color:var(--text-muted)"><td style="padding-left:.25rem">↳ At gate</td><td style="text-align:right">${Helpers.currency(gatePay)}</td></tr>` : ''}
+          <tr style="border-top:2px solid var(--border)"><td><strong>Total Collection</strong></td><td style="text-align:right;color:var(--accent);font-weight:600">${Helpers.currency(totalPay)}</td></tr>
           <tr><td>Bus Expense</td><td style="text-align:right">${Helpers.currency(totalBusCost)}</td></tr>
-          <tr style="font-weight:700;font-size:1.05rem">
+          <tr style="font-weight:700;font-size:1.05rem;border-top:2px solid var(--border)">
             <td>${profitLoss >= 0 ? 'Profit' : 'Loss'}</td>
             <td style="text-align:right;color:var(--${plClass})">${Helpers.currency(Math.abs(profitLoss))}</td>
           </tr>
@@ -998,9 +1534,9 @@ const App = (() => {
       // ── Event Day Collections (cashier reconciliation) ──────────────────
       const edcEl = document.getElementById('dash-edc');
       if (edcEl) {
-        const gatePaid = attendees.filter(a => a.paidAtEvent);
+        const gatePaid = gatePayList;
         const edcBadge = document.getElementById('dash-edc-badge');
-        if (edcBadge) edcBadge.textContent = gatePaid.length ? `${gatePaid.length} person${gatePaid.length !== 1 ? 's' : ''} · ${Helpers.currency(gatePaid.reduce((s,a) => s + parseFloat(a.paymentAmount || 0), 0))}` : '';
+        if (edcBadge) edcBadge.textContent = gatePaid.length ? `${gatePaid.length} person${gatePaid.length !== 1 ? 's' : ''} · ${Helpers.currency(gatePay)}` : '';
 
         if (!gatePaid.length) {
           edcEl.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">No event-day collections yet</p>';
@@ -1008,7 +1544,7 @@ const App = (() => {
           // Group by collector (volunteer who collected)
           const byCollector = {};
           gatePaid.forEach(a => {
-            const who = a.collectedBy || 'Unknown';
+            const who = a.collectedBy || a.markedBy || 'Unknown';
             if (!byCollector[who]) byCollector[who] = [];
             byCollector[who].push(a);
           });
@@ -1051,6 +1587,159 @@ const App = (() => {
         }
       }
 
+
+      // ── Registration Summary ──────────────────────────────────────────────
+      const regSummaryEl = document.getElementById('dash-reg-summary');
+      if (regSummaryEl && attendees.length) {
+        const rawTcMap = await DB.getConfig('teamCategoryMap');
+        const tcMap = rawTcMap ? JSON.parse(rawTcMap) : {};
+        const CAT_ORDER = Reports.CATEGORY_ORDER;
+        const esc = Helpers.escapeHtml;
+
+        // ── 1. Category-wise: devotee's OWN category field ──────────────────
+        const catBuckets = {};
+        attendees.forEach(a => {
+          const raw = (a.category || 'Unknown').trim();
+          const key = raw.toLowerCase();
+          if (!catBuckets[key]) catBuckets[key] = { display: raw, n: 0, _freq: {} };
+          catBuckets[key].n++;
+          catBuckets[key]._freq[raw] = (catBuckets[key]._freq[raw] || 0) + 1;
+        });
+        const catChipColors = {
+          icf_prji: { bg: '#fef3c7', tc: '#92400e' },
+          icf_mtg:  { bg: '#dbeafe', tc: '#1e40af' },
+          iyf:      { bg: '#fce7f3', tc: '#9d174d' },
+          igf:      { bg: '#dcfce7', tc: '#166534' },
+          'balarama team': { bg: '#ede9fe', tc: '#5b21b6' }
+        };
+        const catKeys = [...CAT_ORDER.map(c => c.toLowerCase()).filter(k => catBuckets[k]),
+                         ...Object.keys(catBuckets).filter(k => !CAT_ORDER.map(c=>c.toLowerCase()).includes(k)).sort()];
+        const catChips = catKeys.map(k => {
+          const { n, _freq } = catBuckets[k];
+          const disp = Object.entries(_freq).sort((a,b)=>b[1]-a[1])[0][0];
+          const col = catChipColors[k] || { bg: '#f1f5f9', tc: '#475569' };
+          return `<span class="rs-cat-chip" style="background:${col.bg};color:${col.tc};cursor:pointer"
+              onclick="App._showCatDetail('${esc(k)}','${esc(disp)}')">
+            ${esc(disp)} <span class="rs-chip-n">${n}</span>
+          </span>`;
+        }).join('');
+
+        // ── 2. Team-wise: grouped by team's DEPARTMENT ──────────────────────
+        const deptBuckets = {};
+        attendees.forEach(a => {
+          const rawTeam = (a.team || 'Other').trim();
+          const teamKey = rawTeam.toLowerCase();
+          const dept = Reports.getTeamDept(rawTeam, tcMap) || 'Unassigned';
+          if (!deptBuckets[dept]) deptBuckets[dept] = {};
+          if (!deptBuckets[dept][teamKey]) deptBuckets[dept][teamKey] = { display: rawTeam, paid: 0, unpaid: 0, total: 0, _freq: {} };
+          const t = deptBuckets[dept][teamKey];
+          t.total++;
+          t._freq[rawTeam] = (t._freq[rawTeam] || 0) + 1;
+          const ps = (a.paymentStatus || '').toLowerCase();
+          if (ps === 'paid') t.paid++;
+          else if (ps !== 'free') t.unpaid++;
+        });
+
+        const allDepts = [...CAT_ORDER.filter(d => deptBuckets[d]),
+                          ...Object.keys(deptBuckets).filter(d => !CAT_ORDER.includes(d)).sort()];
+        let grandPaid = 0, grandUnpaid = 0, grandTotal = 0;
+        let tableRows = '';
+
+        allDepts.forEach((dept, di) => {
+          const teamMap = deptBuckets[dept];
+          const teamKeys = Object.keys(teamMap).sort();
+          let dp = 0, du = 0, dt = 0;
+          teamKeys.forEach(tk => { dp += teamMap[tk].paid; du += teamMap[tk].unpaid; dt += teamMap[tk].total; });
+          grandPaid += dp; grandUnpaid += du; grandTotal += dt;
+          const gid = 'rdg' + di;
+
+          tableRows += `<tr class="rs-dept-hdr" onclick="App._toggleRegDept('${gid}')">
+            <td style="display:flex;align-items:center;justify-content:space-between">
+              <span>${esc(dept)}</span>
+              <span id="${gid}-chev" style="font-size:.6rem;color:#166534;transition:transform .2s;display:inline-block">&#9660;</span>
+            </td>
+            <td style="text-align:center;color:#15803d">${dp}</td>
+            <td style="text-align:center;color:#dc2626">${du}</td>
+            <td style="text-align:center">${dt}</td>
+          </tr>`;
+
+          teamKeys.forEach(tk => {
+            const { _freq, paid: p, unpaid: u, total: tot } = teamMap[tk];
+            const disp = Object.entries(_freq).sort((a,b)=>b[1]-a[1])[0][0];
+            tableRows += `<tr class="pre-data-row ${gid}-team" style="display:none">
+              <td style="padding-left:1.5rem">${esc(disp)}</td>
+              <td style="text-align:center;color:#15803d;font-weight:600">${p}</td>
+              <td style="text-align:center;color:#dc2626;font-weight:600">${u}</td>
+              <td style="text-align:center;font-weight:700">${tot}</td>
+            </tr>`;
+          });
+        });
+
+        regSummaryEl.innerHTML = `
+          <div style="margin-bottom:.35rem;font-size:.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">By Registration Category</div>
+          <div class="rs-cat-chips">${catChips}</div>
+          <div style="margin-bottom:.4rem;font-size:.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">By Team (tap to expand)</div>
+          <div class="table-wrap">
+            <table class="report-table pre-rpt-table">
+              <thead><tr>
+                <th>Category / Team</th>
+                <th style="text-align:center">Paid</th>
+                <th style="text-align:center">Unpaid</th>
+                <th style="text-align:center">Total</th>
+              </tr></thead>
+              <tbody>${tableRows}</tbody>
+              <tfoot><tr class="pre-grand-total">
+                <td>Grand Total</td>
+                <td style="text-align:center">${grandPaid}</td>
+                <td style="text-align:center">${grandUnpaid}</td>
+                <td style="text-align:center">${grandTotal}</td>
+              </tr></tfoot>
+            </table>
+          </div>`;
+
+        App._toggleRegDept = (gid) => {
+          const rows = document.querySelectorAll(`.${gid}-team`);
+          const chev = document.getElementById(gid + '-chev');
+          const opening = rows.length && rows[0].style.display === 'none';
+          rows.forEach(r => r.style.display = opening ? '' : 'none');
+          if (chev) chev.style.transform = opening ? 'rotate(180deg)' : '';
+        };
+
+        App._showCatDetail = (catKey, catLabel) => {
+          const list = attendees.filter(a => (a.category || 'Unknown').trim().toLowerCase() === catKey);
+          const paidList   = list.filter(a => (a.paymentStatus||'').toLowerCase() === 'paid');
+          const unpaidList = list.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid');
+          const freeList   = list.filter(a => (a.paymentStatus||'').toLowerCase() === 'free');
+          const rows = list.map(a => {
+            const ps = (a.paymentStatus || 'unpaid').toLowerCase();
+            const badge = ps === 'paid' ? 'present' : ps === 'free' ? 'before' : 'unpaid';
+            return `<div class="pop-list-row">
+              <div class="pop-list-main">
+                <div class="pop-list-name">${esc(a.name)}</div>
+                <div class="pop-list-meta">${esc(a.mobile||'')}${a.team ? ' · '+esc(a.team) : ''}</div>
+              </div>
+              <span class="badge ${badge}" style="flex-shrink:0">${ps}</span>
+            </div>`;
+          }).join('');
+          Helpers.modal(`
+            <div class="pop-list-header">
+              <div class="pop-list-title">${esc(catLabel)}</div>
+              <div class="pop-list-count">${list.length} registered</div>
+            </div>
+            <div style="display:flex;gap:.5rem;margin:.6rem 0;flex-wrap:wrap">
+              <span class="badge present" style="font-size:.78rem">Paid: ${paidList.length}</span>
+              <span class="badge unpaid" style="font-size:.78rem">Unpaid: ${unpaidList.length}</span>
+              ${freeList.length ? `<span class="badge before" style="font-size:.78rem">Free: ${freeList.length}</span>` : ''}
+            </div>
+            <div class="pop-list-body">${rows}</div>
+            <div style="margin-top:1rem;text-align:right">
+              <button class="btn-ghost" onclick="Helpers.closeModal()">Close</button>
+            </div>`);
+        };
+
+      } else if (regSummaryEl) {
+        regSummaryEl.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">No registrations yet.</p>';
+      }
 
     } catch(e) { console.error('Dashboard error', e); }
   }
@@ -1101,6 +1790,82 @@ const App = (() => {
         <button class="btn-ghost" onclick="Helpers.closeModal()">Close</button>
       </div>
     `);
+  }
+
+  // ── Full Registration Report modal ──────────────────────────────────────────
+  async function showFullReport() {
+    try {
+      const attendees = _dashAttendees.length ? _dashAttendees : await DB.getAll(DB.STORES.attendees);
+      const rawTcMap  = await DB.getConfig('teamCategoryMap');
+      const tcMap     = rawTcMap ? JSON.parse(rawTcMap) : {};
+      const html      = Reports.renderPreEventReports(attendees, tcMap);
+      Helpers.modal(`
+        <div style="max-height:82vh;overflow-y:auto;padding:.25rem 0">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;position:sticky;top:0;background:#fff;padding:.5rem 0;z-index:1;border-bottom:1px solid var(--border)">
+            <h3 style="margin:0;font-size:1rem;font-weight:700">Registration Report</h3>
+            <button class="btn-ghost" style="font-size:.8rem;padding:.3rem .6rem" onclick="Helpers.closeModal()">&#x2715; Close</button>
+          </div>
+          ${html}
+        </div>
+      `);
+      // Re-wire download buttons rendered inside the modal
+      Reports.initPreEventReports(attendees, tcMap);
+    } catch(e) {
+      Helpers.toast('Could not load report', 'error');
+    }
+  }
+
+  // ── Share registration report as image (WhatsApp / native share) ────────────
+  async function shareRegReportAsImage() {
+    if (typeof html2canvas === 'undefined') {
+      Helpers.toast('Share library not loaded yet, try again', 'warning');
+      return;
+    }
+    Helpers.toast('Preparing image…', 'info', 2000);
+    try {
+      const attendees = _dashAttendees.length ? _dashAttendees : await DB.getAll(DB.STORES.attendees);
+      const rawTcMap  = await DB.getConfig('teamCategoryMap');
+      const tcMap     = rawTcMap ? JSON.parse(rawTcMap) : {};
+      const eventName = (await DB.getEvent(DB.getCurrentEvent()))?.name || 'Event';
+      const html      = Reports.renderPreEventReports(attendees, tcMap);
+
+      // Build an off-screen styled container
+      const wrap = document.createElement('div');
+      wrap.style.cssText = [
+        'position:fixed', 'left:-9999px', 'top:0', 'width:520px',
+        'background:#fff', 'padding:1.25rem 1.5rem',
+        'font-family:DM Sans,sans-serif', 'font-size:14px', 'color:#1a2e1a'
+      ].join(';');
+      wrap.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;border-bottom:2px solid #166534;padding-bottom:.6rem">
+          <div>
+            <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#166534">PRERNA</div>
+            <div style="font-size:1.05rem;font-weight:800;color:#14532d">${Helpers.escapeHtml(eventName)}</div>
+          </div>
+          <div style="font-size:.75rem;color:#64748b">${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div>
+        </div>
+        ${html}`;
+      document.body.appendChild(wrap);
+      // Remove download buttons — irrelevant in image
+      wrap.querySelectorAll('button').forEach(b => b.remove());
+
+      const canvas = await html2canvas(wrap, { backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false });
+      document.body.removeChild(wrap);
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) { Helpers.toast('Failed to create image', 'error'); return; }
+        const file = new File([blob], `${eventName.replace(/\s+/g,'-')}-report.png`, { type: 'image/png' });
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: `${eventName} — Registration Report` });
+        } else {
+          Helpers.downloadBlob(blob, file.name);
+          Helpers.toast('Image downloaded — open WhatsApp and share', 'info');
+        }
+      }, 'image/png');
+    } catch(e) {
+      console.error(e);
+      Helpers.toast('Could not create image', 'error');
+    }
   }
 
   // ===== IMPORT =====
@@ -1224,6 +1989,7 @@ const App = (() => {
     { key: 'category', label: 'Category' },
     { key: 'reference', label: 'Reference' },
     { key: 'team', label: 'Team' },
+    { key: 'area', label: 'Area / Zone' },
     { key: 'paymentStatus', label: 'Payment Status' },
     { key: 'paymentMode', label: 'Mode of Payment' },
     { key: 'paymentAmount', label: 'Payment Amount' },
@@ -1231,7 +1997,6 @@ const App = (() => {
     { key: 'remarks', label: 'Payment Remarks' },
     { key: 'serviceStatus', label: 'Service/Non-Service Devotee' },
     { key: 'activeStatus', label: 'Active/Inactive/New Devotee' },
-    { key: 'busRoute', label: 'Bus Route' },
     { key: 'pickupLocation', label: 'Pickup Location' }
   ];
 
@@ -1241,7 +2006,8 @@ const App = (() => {
     mobile: ['mobile', 'phone', 'contact', 'mobile number', 'phone number', 'contact no', 'mob', 'cell'],
     category: ['category', 'cat', 'type', 'group type'],
     reference: ['reference', 'ref', 'counselor', 'referred by', 'counsellor'],
-    team: ['team', 'team name', 'group', 'zone', 'area'],
+    team: ['team', 'team name', 'group'],
+    area: ['area', 'zone', 'area zone', 'zone area', 'area / zone', 'area/zone'],
     paymentStatus: ['payment status', 'pay status', 'payment', 'status', 'paid', 'payment received'],
     paymentMode: ['mode of payment', 'payment mode', 'mode', 'pay mode', 'method'],
     paymentAmount: ['payment amount', 'amount', 'fees', 'charge', 'paid amount', 'received'],
@@ -1249,11 +2015,10 @@ const App = (() => {
     remarks: ['remarks', 'payment remarks', 'remark', 'notes', 'comment', 'description'],
     serviceStatus: ['service', 'service devotee', 'service status', 'service or non service', 'devotee type'],
     activeStatus: ['active', 'active status', 'active devotee', 'active or inactive', 'activity'],
-    busRoute: ['bus route', 'bus', 'route', 'transport'],
     pickupLocation: ['pickup', 'pickup location', 'pickup point', 'pick up']
   };
 
-  function showColumnMapping() {
+  async function showColumnMapping() {
     const grid = document.getElementById('column-mapping-grid');
     grid.innerHTML = SYSTEM_FIELDS.map(f => {
       const aliases = FIELD_ALIASES[f.key] || [f.key];
@@ -1263,6 +2028,20 @@ const App = (() => {
       });
       return `<div class="mapping-row"><label>${f.label}</label><select data-field="${f.key}"><option value="">-- Skip --</option>${importHeaders.map((h, i) => `<option value="${i}" ${i === autoMatch ? 'selected' : ''}>${h}</option>`).join('')}</select></div>`;
     }).join('');
+
+    // Populate area selector if areas are configured for this event
+    try {
+      const raw = await DB.getConfig('areas');
+      const areas = raw ? JSON.parse(raw) : [];
+      const areaRow = document.getElementById('import-area-row');
+      const areaSel = document.getElementById('import-area-select');
+      if (areaRow && areaSel && areas.length) {
+        areaSel.innerHTML = '<option value="">— No area (visible to all volunteers) —</option>' +
+          areas.map(a => { const n = Helpers.escapeHtml(typeof a === 'string' ? a : (a.name || '')); return `<option value="${n}">${n}</option>`; }).join('');
+        areaRow.style.display = '';
+      }
+    } catch {}
+
     document.getElementById('column-mapping-section').classList.remove('hidden');
     document.getElementById('column-mapping-section').scrollIntoView({ behavior: 'smooth' });
   }
@@ -1359,13 +2138,21 @@ const App = (() => {
         // Auto-correct: status is paid but no amount and no mode — leave as-is (pre-paid, amount unknown)
 
         r.paymentTiming = Helpers.paymentTiming(r.paymentDate, eventDate);
-        r.attendeeId    = Helpers.generateId();
         r.createdAt     = new Date().toISOString();
+        // Per-row area from Excel column takes priority; fall back to global dropdown
+        if (!r.area) r.area = document.getElementById('import-area-select')?.value || '';
 
         // Auto-assign category from team name if category is missing
         if (!r.category && r.team) {
           const guessed = getCategoryForTeam(r.team);
           if (guessed) r.category = guessed;
+        }
+
+        // Normalize category to canonical casing (ICF_prji → ICF_Prji, icf_mtg → ICF_Mtg, etc.)
+        if (r.category) {
+          const catLow = r.category.toLowerCase().trim();
+          const canon = (Reports.CATEGORY_ORDER || []).find(c => c.toLowerCase() === catLow);
+          if (canon) r.category = canon;
         }
 
         return r;
@@ -1430,6 +2217,9 @@ const App = (() => {
       showImportPreview(records, dupIds.size);
       Helpers.toast(`✓ ${summary}`, 'success', 6000);
 
+      // Warn if any imported area values don't match configured areas
+      _warnAreaMismatch(toImport);
+
       // Detect teams not in the predefined list — load saved map then prompt
       checkAndSaveUnknownTeams(records);
 
@@ -1440,6 +2230,27 @@ const App = (() => {
       btn.disabled = false;
       btn.textContent = 'Confirm Import';
     }
+  }
+
+  // After import: warn if area values don't match any configured area name
+  async function _warnAreaMismatch(importedRecords) {
+    try {
+      const configuredAreas = await _loadAreas();
+      if (!configuredAreas.length) return;
+      const configuredNorms = new Set(configuredAreas.map(a => normBus(a.name)));
+      const badAreas = new Set(
+        importedRecords
+          .map(r => r.area)
+          .filter(a => a && a.trim() && !configuredNorms.has(normBus(a)))
+      );
+      if (badAreas.size) {
+        const list = [...badAreas].map(a => `"${a}"`).join(', ');
+        Helpers.toast(
+          `⚠ ${importedRecords.filter(r => badAreas.has(r.area)).length} records have unknown area (${list}). Check Setup › Areas for the correct spelling.`,
+          'warning', 8000
+        );
+      }
+    } catch {}
   }
 
   async function checkAndSaveUnknownTeams(records) {
@@ -1493,7 +2304,10 @@ const App = (() => {
         return newMap[t] && !r.category;
       });
       for (const r of affected) {
-        r.category = newMap[(r.team || '').toLowerCase()];
+        const rawCat = newMap[(r.team || '').toLowerCase()];
+        const catLow = (rawCat || '').toLowerCase().trim();
+        const canon = (Reports.CATEGORY_ORDER || []).find(c => c.toLowerCase() === catLow);
+        r.category = canon || rawCat;
         await DB.put(DB.STORES.attendees, r);
         const idx = allAttendees.findIndex(x => x.id === r.id);
         if (idx >= 0) allAttendees[idx] = { ...allAttendees[idx], ...r };
@@ -1554,15 +2368,26 @@ const App = (() => {
     preview.scrollIntoView({ behavior: 'smooth' });
   }
 
+  function _openWalkin() {
+    document.getElementById('walkin-panel').classList.remove('hidden');
+    document.getElementById('wi-name')?.focus();
+    initWalkinPanel();
+  }
+
   // ===== ATTENDANCE (ADMISSION) — PRD: <2 seconds, ONE TAP =====
   let attendanceInited = false;
 
   let _attFilter = 'all'; // module-level so renderAllAttendance can always read it
 
-  function initAttendance() {
+  async function initAttendance() {
+    checkGateLock();
+    const isLocked = !document.getElementById('gate-content') || document.getElementById('gate-content').classList.contains('hidden');
+    if (isLocked) return; // gate lock screen is showing — don't proceed
+    const busBlocked = await checkBusRequired();
+    if (busBlocked) return; // bus selection screen is showing
     updateAdmitCountersFromCache();
     primeAbsenteeMap();
-    renderAllAttendance(); // always show full list on enter
+    renderAllAttendance(document.getElementById('att-search')?.value);
 
     if (attendanceInited) return;
     attendanceInited = true;
@@ -1599,15 +2424,13 @@ const App = (() => {
       if (e.key === 'Enter') document.getElementById('btn-manual-scan').click();
     });
 
-    // Walk-in FAB
-    document.getElementById('btn-fab-walkin').addEventListener('click', () => {
-      document.getElementById('walkin-panel').classList.remove('hidden');
-      document.getElementById('wi-name').focus();
-      initWalkinPanel();
-    });
+    // Walk-in FAB — HTML onclick="App._openWalkin()" handles opening; keep close listener here
     document.getElementById('btn-close-walkin').addEventListener('click', () => {
       document.getElementById('walkin-panel').classList.add('hidden');
     });
+
+    // Admin: keep walk-in panel always open so they can verify the feature works
+    if (currentUser?.role === 'admin') _openWalkin();
     document.getElementById('btn-add-walkin').addEventListener('click', addWalkIn);
 
     // Payment collect panel (for unpaid admission)
@@ -1654,7 +2477,7 @@ const App = (() => {
       if (nl.startsWith(ql))     return 1; // name starts with query
       if (nl.includes(ql))       return 2; // name contains query
       if ((a.mobile || '').includes(q)) return 3; // mobile match
-      return 4;                             // attendeeId / other
+      return 4;
     };
     return list.slice().sort((a, b) => {
       const diff = score(a) - score(b);
@@ -1705,6 +2528,7 @@ const App = (() => {
   // Cross-event absentee warning: prime the cache when entering attendance page
   let _absenteeMap = null;
   function primeAbsenteeMap() {
+    if (_absenteeMap) return; // already loaded for this event; cleared on event switch
     Reports.computeRepeatAbsenteeMap()
       .then(map => {
         _absenteeMap = map;
@@ -1782,7 +2606,7 @@ const App = (() => {
         <div class="att-result-card ${ps.cls}" onclick="App.instantAdmit('${a.id}')" data-id="${a.id}">
           <div class="att-result-info">
             <div class="att-name">${esc(a.name)} ${a.isWalkIn ? '<span class="badge walkin">WI</span>' : ''}</div>
-            <div class="att-meta">${esc(a.mobile || '')} · ${esc(a.team || '')} · ${esc(a.attendeeId || '')}</div>
+            <div class="att-meta">${esc(a.mobile || '')} · ${esc(a.team || '')}</div>
             <div class="att-payment-badge ${ps.cls}">${ps.label}${a.paymentMode ? ' · ' + esc(a.paymentMode) : ''}${a.paymentAmount > 0 ? ' · ' + Helpers.currency(a.paymentAmount) : ''}</div>
             ${absBadge}
           </div>
@@ -1835,56 +2659,120 @@ const App = (() => {
     try {
       const absInfo = await Reports.getAbsenteeWarning(a);
       if (absInfo && absInfo.history && absInfo.history.length) {
-        const last5 = absInfo.history.slice(0, 5);
-        const rows = last5.map(h => {
-          const ps = (h.paymentStatus || 'unpaid').toLowerCase();
-          const isPaid = ps === 'paid' || ps === 'free';
-          const attCell  = h.present
-            ? `<span style="color:#15803d;font-weight:700">✓ Present</span>`
-            : `<span style="color:#dc2626;font-weight:700">✗ Absent</span>`;
-          const payCell  = isPaid
-            ? `<span style="color:#15803d">${ps}${h.paymentAmount > 0 ? ' ₹' + h.paymentAmount : ''}</span>`
-            : `<span style="color:#dc2626;font-weight:600">unpaid${h.paymentAmount > 0 ? ' ₹' + h.paymentAmount : ''}</span>`;
-          return `<tr>
-            <td style="padding:.28rem .4rem;font-size:.8rem;color:#334155">${h.eventName}</td>
-            <td style="padding:.28rem .4rem;font-size:.8rem;white-space:nowrap">${attCell}</td>
-            <td style="padding:.28rem .4rem;font-size:.8rem;white-space:nowrap">${payCell}</td>
-          </tr>`;
-        }).join('');
+        // Show ALL absent events — free seva wale bhi, chhuti allowed nahi
+        const absentRows = absInfo.history.filter(h => !h.present).slice(0, 5);
 
-        const headerColor = absInfo.consecutive > 0 ? '#92400e' : '#166534';
-        const headerBg    = absInfo.consecutive > 0 ? '#fef3c7' : '#dcfce7';
-        const headerText  = absInfo.consecutive > 0
-          ? `⚠ Absent in last ${absInfo.consecutive} event${absInfo.consecutive > 1 ? 's' : ''}`
-          : `✓ Attended last event`;
+        if (absentRows.length > 0) {
+          const rows = absentRows.map(h => {
+            const ps = (h.paymentStatus || 'unpaid').toLowerCase();
+            const isFreeAbsent = ps === 'free';
+            const isPaid = ps === 'paid';
+            let dueCell;
+            if (isPaid) {
+              dueCell = `<span style="color:#15803d">paid${h.paymentAmount > 0 ? ' ₹' + h.paymentAmount : ''}</span>`;
+            } else if (isFreeAbsent) {
+              dueCell = `<span style="color:#b45309;font-weight:700">Fine due ⚠</span>`;
+            } else {
+              const amt = h.paymentAmount > 0 ? ` ₹${h.paymentAmount}` : '';
+              dueCell = `<span style="color:#dc2626;font-weight:700">unpaid${amt}</span>`;
+            }
+            return `<tr style="border-top:1px solid #fde68a">
+              <td style="padding:.3rem .5rem;font-size:.82rem;color:#334155">${h.eventName}</td>
+              <td style="padding:.3rem .5rem;font-size:.82rem;color:#dc2626;font-weight:700;white-space:nowrap">✗ Absent</td>
+              <td style="padding:.3rem .5rem;font-size:.82rem;white-space:nowrap">${dueCell}</td>
+            </tr>`;
+          }).join('');
 
-        histEl.innerHTML = `
-          <div style="border:1px solid #e2e8f0;border-radius:7px;margin-bottom:.75rem;overflow:hidden;font-size:.8rem">
-            <div style="background:${headerBg};color:${headerColor};font-weight:700;padding:.35rem .5rem;font-size:.8rem">${headerText} · Last ${last5.length} event${last5.length !== 1 ? 's' : ''}</div>
-            <table style="width:100%;border-collapse:collapse">
-              <thead><tr style="background:#f8fafc">
-                <th style="padding:.25rem .4rem;font-size:.75rem;font-weight:600;text-align:left;color:#64748b">Event</th>
-                <th style="padding:.25rem .4rem;font-size:.75rem;font-weight:600;text-align:left;color:#64748b">Attendance</th>
-                <th style="padding:.25rem .4rem;font-size:.75rem;font-weight:600;text-align:left;color:#64748b">Payment</th>
-              </tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>`;
+          const fineCount = absentRows.filter(h => (h.paymentStatus || '').toLowerCase() === 'free').length;
+          const unpaidCount = absentRows.filter(h => { const ps = (h.paymentStatus || 'unpaid').toLowerCase(); return ps !== 'paid' && ps !== 'free'; }).length;
+          const summary = [
+            unpaidCount > 0 ? `${unpaidCount} unpaid` : '',
+            fineCount > 0   ? `${fineCount} fine due (free sewa absent)` : ''
+          ].filter(Boolean).join(' · ');
+
+          histEl.innerHTML = `
+            <div style="border:1px solid #f97316;border-radius:7px;margin-bottom:.75rem;overflow:hidden;background:#fff7ed">
+              <div style="background:#fed7aa;color:#9a3412;font-weight:700;padding:.4rem .6rem;font-size:.8rem;display:flex;justify-content:space-between;align-items:center">
+                <span>&#9888; Absent in ${absentRows.length} past event${absentRows.length > 1 ? 's' : ''}</span>
+                <span style="font-size:.75rem;font-weight:400;opacity:.85">${summary}</span>
+              </div>
+              <table style="width:100%;border-collapse:collapse">
+                <thead><tr style="background:#ffedd5">
+                  <th style="padding:.25rem .5rem;font-size:.75rem;font-weight:600;text-align:left;color:#9a3412">Event</th>
+                  <th style="padding:.25rem .5rem;font-size:.75rem;font-weight:600;text-align:left;color:#9a3412">Status</th>
+                  <th style="padding:.25rem .5rem;font-size:.75rem;font-weight:600;text-align:left;color:#9a3412">Recovery</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>`;
+        }
       }
     } catch { /* absentee map not ready — skip silently */ }
   }
 
   // Actually perform the admission (shared by instant and payment-collect flow)
+  let _pendingAdmit = null;
+
+  function _promptSelectBusThenAdmit(a, extraPayment) {
+    const buses  = (window._cachedBusesForPicker || []);
+    const myArea = getMyArea();
+    const visible = myArea ? buses.filter(b => normBus(b.area) === normBus(myArea)) : buses;
+    if (!visible.length) { doAdmit(a, extraPayment); return; }
+    const esc = Helpers.escapeHtml;
+    const pills = visible.map(b =>
+      `<button class="ss-area-pill" onclick="App._gatePickBusAndAdmit('${esc(b.name)}',this)">${esc(b.name)}</button>`
+    ).join('');
+    _pendingAdmit = { a, extraPayment, chosenBus: '' };
+    Helpers.modal(`
+      <div style="margin-bottom:.85rem">
+        <h3 style="margin:0 0 .25rem;font-size:1rem;font-weight:700">Select bus before admitting</h3>
+        <p style="margin:0;font-size:.82rem;color:var(--text-muted)">Which bus is <strong>${esc(a.name)}</strong> boarding?</p>
+      </div>
+      <div class="ss-area-grid" id="gate-bus-pick-grid">${pills}</div>
+      <button class="btn-primary" id="gate-bus-pick-confirm" style="width:100%;margin-top:1.25rem" disabled
+        onclick="App._gateConfirmBusAndAdmit()">Admit ›</button>
+      <button class="btn-ghost" style="width:100%;margin-top:.4rem" onclick="Helpers.closeModal()">Cancel</button>
+    `);
+  }
+
+  function _gatePickBusAndAdmit(busName, btn) {
+    document.querySelectorAll('#gate-bus-pick-grid .ss-area-pill').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    if (_pendingAdmit) _pendingAdmit.chosenBus = busName;
+    const confirm = document.getElementById('gate-bus-pick-confirm');
+    if (confirm) confirm.disabled = false;
+  }
+
+  async function _gateConfirmBusAndAdmit() {
+    if (!_pendingAdmit?.chosenBus) { Helpers.toast('Select a bus first', 'error'); return; }
+    const pending = _pendingAdmit;
+    _pendingAdmit = null;
+    setMyBus(pending.chosenBus);
+    initMyBusPicker(); // refresh bus bar to show newly selected bus
+    Helpers.closeModal();
+    if (pending._isWalkIn) {
+      // Re-trigger walk-in submission now that bus is set
+      await addWalkIn();
+    } else {
+      await doAdmit(pending.a, pending.extraPayment);
+    }
+  }
+
   async function doAdmit(a, extraPayment) {
+    const myBus  = getMyBus();
+    const myArea = getMyArea();
+
+    // Hard block: buses exist but none selected — ask first, then retry
+    if (!myBus && _busesConfigured) {
+      _promptSelectBusThenAdmit(a, extraPayment);
+      return;
+    }
+
     a.attendance = 'present';
     a.entryTime  = new Date().toISOString();
     a.markedBy   = currentUser?.name || 'Unknown';
-    const myBus  = getMyBus();
-    if (myBus) {
-      a.boardedBus = myBus;
-    } else if (_busesConfigured) {
-      Helpers.toast('No bus selected — admitted without bus tag. Select your bus above.', 'warning', 3500);
-    }
+    if (myBus) a.boardedBus = myBus;
+    if (myArea && !a.area) a.area = myArea;
 
     if (extraPayment && extraPayment.collected) {
       // Payment was collected at the gate — mark as PAID
@@ -2018,7 +2906,7 @@ const App = (() => {
     const sel = document.getElementById('detail-bus-select');
     if (!sel) return;
     const newBus = sel.value;
-    await DB.put(DB.STORES.attendees, id, { boardedBus: newBus, updatedAt: new Date().toISOString() });
+    await DB.put(DB.STORES.attendees, { id, boardedBus: newBus, updatedAt: new Date().toISOString() });
     const cached = allAttendees.find(x => x.id === id);
     if (cached) cached.boardedBus = newBus;
     await DB.log('busEdit', `Bus updated to "${newBus}" for ${id}`, currentUser?.email);
@@ -2108,11 +2996,11 @@ const App = (() => {
   async function markByIdOrQr(input) {
     const feedback = document.getElementById('scan-feedback');
     try {
-      let attendeeId = null;
-      try { const parsed = JSON.parse(input); attendeeId = parsed.id || parsed.aid; }
-      catch { attendeeId = input; }
+      let lookupId = null;
+      try { const parsed = JSON.parse(input); lookupId = parsed.id; }
+      catch { lookupId = input; }
       const found = allAttendees.find(a =>
-        String(a.id) === String(attendeeId) || a.attendeeId === attendeeId || a.mobile === input.replace(/\D/g, '')
+        String(a.id) === String(lookupId) || a.mobile === input.replace(/\D/g, '')
       );
       if (!found) {
         feedback.className = 'scan-feedback error'; feedback.textContent = `Not found: "${input}"`; feedback.classList.remove('hidden');
@@ -2175,7 +3063,7 @@ const App = (() => {
       for (const row of rows.slice(1)) {
         const val = String(row[0] || '').trim();
         if (!val) continue;
-        const found = all.find(a => a.attendeeId === val || a.mobile === val || String(a.id) === val);
+        const found = all.find(a => a.mobile === val || String(a.id) === val);
         if (found && found.attendance !== 'present') {
           const myBusBulk = getMyBus();
           found.attendance = 'present';
@@ -2199,59 +3087,117 @@ const App = (() => {
   }
 
   async function addWalkIn() {
-    const name = document.getElementById('wi-name').value.trim();
-    const mobile = document.getElementById('wi-mobile').value.trim();
+    if (_walkinSubmitting) return;
+
+    const name    = document.getElementById('wi-name').value.trim();
+    const mobile  = document.getElementById('wi-mobile').value.trim();
     const reference = document.getElementById('wi-reference').value.trim();
     const payment = document.getElementById('wi-payment').value;
-    const category = document.getElementById('wi-category').value;
-    const busRoute = document.getElementById('wi-busroute').value.trim();
-    const payStatus = document.getElementById('wi-paystatus').value;
-    const payMode = document.getElementById('wi-paymode').value;
-    const remarks = document.getElementById('wi-remarks')?.value?.trim() || '';
-    const fb = document.getElementById('walkin-feedback');
+    const category  = document.getElementById('wi-category').value;
+    const payMode   = document.getElementById('wi-paymode').value;
+    const remarks   = document.getElementById('wi-remarks')?.value?.trim() || '';
+    const fb  = document.getElementById('walkin-feedback');
+    const btn = document.getElementById('btn-add-walkin');
 
-    if (!name || !mobile) { fb.className = 'scan-feedback error'; fb.textContent = 'Name and Mobile required'; fb.classList.remove('hidden'); return; }
+    const showErr = (msg) => { fb.className = 'scan-feedback error'; fb.textContent = msg; fb.classList.remove('hidden'); };
 
-    // Check if mobile is already registered — prevent duplicate walk-in records
+    if (!name)   { showErr('Name is required'); return; }
+    if (!mobile) { showErr('Mobile is required'); return; }
+
     const normMob = mobile.replace(/\D/g, '').slice(-10);
-    const existing = allAttendees.find(a => !a.isWalkIn && a.mobile && a.mobile.toString().replace(/\D/g, '').slice(-10) === normMob);
-    if (existing) {
-      fb.className = 'scan-feedback error';
-      fb.textContent = `Already registered as "${existing.name}" — admit from Admission tab`;
-      fb.classList.remove('hidden');
+    if (normMob.length < 10) { showErr('Enter a valid 10-digit mobile number'); return; }
+
+    // Hard block: already a registered attendee
+    const registered = allAttendees.find(a => !a.isWalkIn && a.mobile && a.mobile.toString().replace(/\D/g, '').slice(-10) === normMob);
+    if (registered) {
+      showErr(`Already registered as "${registered.name}" — admit from the Gate tab`);
       return;
     }
 
-    const now = new Date();
-    const paydate = now.toISOString().slice(0, 10);
-    const eventDate = await DB.getConfig('eventDate');
-    const myBusAtWalkin = getMyBus();
-    const record = {
-      name, mobile, reference, paymentAmount: parseFloat(payment) || 0, paymentDate: paydate,
-      paymentTiming: Helpers.paymentTiming(paydate, eventDate),
-      paymentStatus: payStatus || 'unpaid', paymentMode: payMode || '', remarks,
-      team: '', category, busRoute, attendeeId: Helpers.generateId('WI'),
-      attendance: 'present', entryTime: now.toISOString(), markedBy: currentUser?.name || 'Unknown',
-      isWalkIn: true, isDuplicate: false, createdAt: now.toISOString(),
-      // Tag with the volunteer's selected bus so the walk-in shows up in My
-      // Bus alongside everyone else admitted at that bus.
-      boardedBus: myBusAtWalkin || ''
-    };
+    // Hard block: already a walk-in with same mobile (no bypass)
+    const dupWI = allAttendees.find(a => a.isWalkIn && a.mobile && a.mobile.toString().replace(/\D/g, '').slice(-10) === normMob);
+    if (dupWI) {
+      showErr(`Walk-in already added: "${dupWI.name}" (${dupWI.mobile})`);
+      return;
+    }
 
-    await DB.add(DB.STORES.attendees, record);
-    await DB.log('walkin', `Walk-in: ${name}`, currentUser?.email);
+    // Hard block: buses exist but none selected
+    if (!getMyBus() && _busesConfigured) {
+      _pendingAdmit = {
+        a: { name, mobile },
+        extraPayment: null,
+        chosenBus: '',
+        _isWalkIn: true,
+        _walkinData: { name, mobile, reference, payment, category, payMode, remarks }
+      };
+      const buses  = (window._cachedBusesForPicker || []);
+      const myArea = getMyArea();
+      const visible = myArea ? buses.filter(b => normBus(b.area) === normBus(myArea)) : buses;
+      if (visible.length) {
+        const esc2 = Helpers.escapeHtml;
+        const pills = visible.map(b =>
+          `<button class="ss-area-pill" onclick="App._gatePickBusAndAdmit('${esc2(b.name)}',this)">${esc2(b.name)}</button>`
+        ).join('');
+        Helpers.modal(`
+          <div style="margin-bottom:.85rem">
+            <h3 style="margin:0 0 .25rem;font-size:1rem;font-weight:700">Select bus before admitting</h3>
+            <p style="margin:0;font-size:.82rem;color:var(--text-muted)">Which bus is <strong>${Helpers.escapeHtml(name)}</strong> (walk-in) boarding?</p>
+          </div>
+          <div class="ss-area-grid" id="gate-bus-pick-grid">${pills}</div>
+          <button class="btn-primary" id="gate-bus-pick-confirm" style="width:100%;margin-top:1.25rem" disabled
+            onclick="App._gateConfirmBusAndAdmit()">Add Walk-in ›</button>
+          <button class="btn-ghost" style="width:100%;margin-top:.4rem" onclick="Helpers.closeModal()">Cancel</button>
+        `);
+        return;
+      }
+    }
 
-    fb.className = 'scan-feedback success'; fb.textContent = `${name} added!`; fb.classList.remove('hidden');
-    setTimeout(() => fb.classList.add('hidden'), 2000);
-    clearWalkinForm();
-    document.getElementById('walkin-panel').classList.add('hidden');
-    updateAdmitCountersFromCache();
-    Helpers.toast(`${name} registered & admitted`, 'success');
+    // Lock submission — prevents double-tap on slow network
+    _walkinSubmitting = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    fb.classList.add('hidden');
+
+    try {
+      const now = new Date();
+      const paydate    = now.toISOString().slice(0, 10);
+      const eventDate  = await DB.getConfig('eventDate');
+      const walkinPayAmt    = parseFloat(payment) || 0;
+      const walkinPayStatus = walkinPayAmt > 0 ? 'paid' : 'unpaid';
+      const record = {
+        name, mobile, reference,
+        paymentAmount: walkinPayAmt, paymentDate: paydate,
+        paymentTiming: Helpers.paymentTiming(paydate, eventDate),
+        paymentStatus: walkinPayStatus, paymentMode: payMode || '', remarks,
+        team: '', category,
+        attendance: 'present', entryTime: now.toISOString(),
+        markedBy: currentUser?.name || 'Unknown',
+        collectedBy: currentUser?.name || 'Unknown',
+        isWalkIn: true, isDuplicate: false, createdAt: now.toISOString(),
+        boardedBus: getMyBus() || '',
+        area: getMyArea() || '',
+        paidAtEvent: walkinPayAmt > 0 || walkinPayStatus === 'paid',
+      };
+
+      const newId = await DB.add(DB.STORES.attendees, record);
+      // Immediately inject into local cache so re-submission is blocked even before onSnapshot fires
+      allAttendees.push({ id: newId, ...record });
+
+      await DB.log('walkin', `Walk-in: ${name} (${mobile})`, currentUser?.email);
+
+      clearWalkinForm();
+      document.getElementById('walkin-panel').classList.add('hidden');
+      updateAdmitCountersFromCache();
+      Helpers.toast(`${name} added as walk-in`, 'success');
+    } catch (err) {
+      showErr('Failed to add: ' + err.message);
+    } finally {
+      _walkinSubmitting = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Add & Mark Present'; }
+    }
   }
 
   function clearWalkinForm() {
-    ['wi-name','wi-mobile','wi-reference','wi-payment','wi-busroute','wi-remarks'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-    const ps = document.getElementById('wi-paystatus'); if (ps) ps.value = 'unpaid';
+    ['wi-name','wi-mobile','wi-reference','wi-payment','wi-remarks'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     const pm = document.getElementById('wi-paymode'); if (pm) pm.value = '';
   }
 
@@ -2383,12 +3329,20 @@ const App = (() => {
   async function resolveDuplicate(id) {
     const a = await DB.getById(DB.STORES.attendees, id);
     if (!a) return;
+    const esc = Helpers.escapeHtml;
+    const dupOf = a._dupOf || '(another record with same mobile)';
     Helpers.modal(`
       <h3 class="modal-title">Resolve Duplicate</h3>
-      <p style="color:var(--text-secondary);margin-bottom:1rem">${a.name} (${a.mobile}) matches: <strong>${a._dupOf}</strong></p>
+      <p style="color:var(--text-secondary);margin-bottom:.5rem">
+        <strong>${esc(a.name)}</strong> (${esc(a.mobile || '—')}) appears to match: <strong>${esc(dupOf)}</strong>
+      </p>
+      <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:1rem">
+        "Accept as Unique" keeps this record and removes the duplicate flag.<br>
+        "Delete" permanently removes this entry.
+      </p>
       <div class="modal-actions">
-        <button class="btn-primary" onclick="App.acceptDuplicate('${id}')">Accept as Unique</button>
-        <button class="btn-danger" onclick="App.deleteDuplicate('${id}')">Delete</button>
+        <button class="btn-primary" onclick="App.acceptDuplicate('${esc(id)}')">Accept as Unique</button>
+        <button class="btn-danger" onclick="App.deleteDuplicate('${esc(id)}')">Delete</button>
         <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
       </div>
     `);
@@ -2422,7 +3376,7 @@ const App = (() => {
 
   // ===== FINANCIAL YEAR =====
   async function initFinancial() {
-    const el = document.getElementById('page-financial');
+    const el = document.getElementById('page-financial-content') || document.getElementById('page-financial');
     el.innerHTML = '<p style="color:var(--text-muted);padding:2rem;text-align:center">Loading...</p>';
     try {
       const events = await DB.getEvents();
@@ -2432,14 +3386,28 @@ const App = (() => {
         if (!fyMap[fy]) fyMap[fy] = [];
         const oldEvent = DB.getCurrentEvent();
         DB.setCurrentEvent(evt.id);
-        const participants = await DB.getAll(DB.STORES.attendees);
+        const [participants, buses, areasRaw] = await Promise.all([
+          DB.getAll(DB.STORES.attendees),
+          DB.getAll(DB.STORES.buses).catch(() => []),
+          DB.getConfig('areas').catch(() => null)
+        ]);
         DB.setCurrentEvent(oldEvent);
 
+        const areas = areasRaw
+          ? JSON.parse(areasRaw).map(a => typeof a === 'string' ? { name: a, perBusCost: 0 } : a)
+          : [];
+
         const totalCollected = participants.reduce((s, p) => s + (parseFloat(p.paymentAmount) || 0), 0);
-        const expense = parseFloat(evt.totalExpense) || 0;
+
+        // Compute bus cost exactly as the dashboard does: buses per area × area's per-bus cost
+        const busCost = areas.reduce((sum, area) => {
+          const n = buses.filter(b => normBus(b.area) === normBus(area.name)).length;
+          return sum + n * (parseFloat(area.perBusCost) || 0);
+        }, 0);
+
         fyMap[fy].push({ ...evt, participantCount: participants.length,
           presentCount: participants.filter(p => p.attendance === 'present').length,
-          totalCollected, expense, profitLoss: totalCollected - expense,
+          totalCollected, busCost, profitLoss: totalCollected - busCost,
           paidCount: participants.filter(p => p.paymentStatus === 'paid').length,
           unpaidCount: participants.filter(p => !p.paymentStatus || p.paymentStatus === 'unpaid').length,
           freeCount: participants.filter(p => p.paymentStatus === 'free').length
@@ -2451,17 +3419,23 @@ const App = (() => {
       for (const fy of sortedFYs) {
         const evts = fyMap[fy];
         const fyTotal = evts.reduce((s, e) => s + e.totalCollected, 0);
-        const fyExpense = evts.reduce((s, e) => s + e.expense, 0);
+        const fyExpense = evts.reduce((s, e) => s + e.busCost, 0);
         const fyPL = fyTotal - fyExpense;
         html += `<div style="margin-bottom:1.5rem">
           <h4 style="color:#15803d;margin-bottom:.75rem;display:flex;justify-content:space-between">
             <span>FY ${fy}</span>
             <span style="font-family:var(--font-mono);color:${fyPL >= 0 ? 'var(--success)' : 'var(--danger)'}">${Helpers.currency(fyPL)} ${fyPL >= 0 ? 'Profit' : 'Loss'}</span>
           </h4>
-          ${Helpers.buildTable(['Event','Date','Total','Present','Paid','Unpaid','Free','Collected','Expense','P/L'],
-            evts.map(e => ({ cells: [e.name, Helpers.formatDate(e.date) || '-', e.participantCount, e.presentCount,
-              e.paidCount, e.unpaidCount, e.freeCount, Helpers.currency(e.totalCollected), Helpers.currency(e.expense),
-              `<span style="color:${e.profitLoss >= 0 ? 'var(--success)' : 'var(--danger)'};font-weight:600">${Helpers.currency(e.profitLoss)}</span>`] })),
+          ${Helpers.buildTable(['Event','Date','Total','Present','Paid','Unpaid','Free','Collected','Bus Cost','P/L'],
+            evts.map(e => ({ cells: [
+              Helpers.escapeHtml(e.name),
+              Helpers.formatDate(e.date) || '-',
+              e.participantCount, e.presentCount,
+              e.paidCount, e.unpaidCount, e.freeCount,
+              Helpers.currency(e.totalCollected),
+              Helpers.currency(e.busCost),
+              `<span style="color:${e.profitLoss >= 0 ? 'var(--success)' : 'var(--danger)'};font-weight:600">${Helpers.currency(e.profitLoss)}</span>`
+            ] })),
             { cls: 'report-table' })}
         </div>`;
       }
@@ -2470,16 +3444,362 @@ const App = (() => {
   }
 
   // ===== SETTINGS — menu only, each option opens a modal =====
-  function initSettings() {
-    document.getElementById('smenu-event').onclick      = openEventConfigModal;
-    document.getElementById('smenu-users').onclick      = openTeamAccessModal;
-    document.getElementById('smenu-buses').onclick      = openBusRoutesModal;
-    document.getElementById('smenu-bus-manage').onclick = openBusManageModal;
-    document.getElementById('smenu-danger').onclick     = openDangerZoneModal;
+  function _toggleSetupPanel(contentId, chevId) {
+    const body = document.getElementById(contentId);
+    const chev = document.getElementById(chevId);
+    if (!body) return;
+    const opening = body.classList.contains('hidden');
+    body.classList.toggle('hidden', !opening);
+    if (chev) chev.classList.toggle('open', opening);
+  }
+
+  async function initSettings() {
+    await Promise.all([
+      _renderSetupEvent(),
+      _renderSetupAreas(),
+      _renderSetupTeam(),
+      _renderSetupDanger()
+    ]);
+  }
+
+  // ── Setup: Event section ──────────────────────────────────────────────────
+  async function _renderSetupEvent() {
+    const el = document.getElementById('setup-event-content');
+    if (!el) return;
+    const evt = await DB.getEvent(DB.getCurrentEvent());
+    const isCurrent = !!evt?.isCurrentEvent;
+    const esc = Helpers.escapeHtml;
+    el.innerHTML = `
+      <div class="setup-field-row col2">
+        <div>
+          <div class="setup-label">Event Name</div>
+          <input id="se-name" class="wi-input" style="width:100%" value="${esc(evt?.name || '')}" placeholder="e.g. Prerna 2025" />
+        </div>
+        <div>
+          <div class="setup-label">Event Date</div>
+          <input id="se-date" type="date" class="wi-input" style="width:100%" value="${evt?.date || ''}" />
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.65rem;margin-top:.35rem">
+        <label style="display:flex;align-items:center;gap:.45rem;cursor:pointer;font-size:.87rem;font-weight:500;color:${isCurrent ? 'var(--accent)' : 'var(--text-secondary)'}">
+          <input type="checkbox" id="se-current" ${isCurrent ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)" />
+          &#11088; Mark as Current Event
+        </label>
+        <button class="btn-primary" onclick="App._saveSetupEvent()">Save</button>
+      </div>`;
+  }
+
+  async function _saveSetupEvent() {
+    const name   = document.getElementById('se-name')?.value.trim();
+    const date   = document.getElementById('se-date')?.value;
+    const isCurr = document.getElementById('se-current')?.checked || false;
+    const eid    = DB.getCurrentEvent();
+    if (!name) { Helpers.toast('Event name is required', 'error'); return; }
+    if (isCurr) {
+      try {
+        const allEvts = await DB.getEvents();
+        await Promise.all(allEvts.filter(e => e.id !== eid && e.isCurrentEvent).map(e => DB.updateEvent(e.id, { isCurrentEvent: false })));
+      } catch {}
+    }
+    await DB.updateEvent(eid, { name, date, financialYear: date ? Helpers.getFinancialYear(date) : '', isCurrentEvent: isCurr });
+    await DB.setConfig('eventName', name);
+    await DB.setConfig('eventDate', date);
+    await loadEventSelector();
+    Helpers.toast('Event saved' + (isCurr ? ' · marked as current' : ''), 'success');
+  }
+
+  // ── Setup: Areas & Buses section ─────────────────────────────────────────
+  async function _renderSetupAreas() {
+    const el = document.getElementById('setup-areas-content');
+    if (!el) return;
+    const esc = Helpers.escapeHtml;
+    const [areas, buses] = await Promise.all([
+      _loadAreas().catch(() => []),
+      DB.getAll(DB.STORES.buses).catch(() => [])
+    ]);
+
+    const totalReg     = allAttendees.length;
+    const totalPresent = allAttendees.filter(a => a.attendance === 'present').length;
+
+    const summaryBar = `
+      <div class="setup-summary-row">
+        <span class="setup-stat-chip sc-green">&#128205; ${areas.length} area${areas.length !== 1 ? 's' : ''}</span>
+        <span class="setup-stat-chip sc-blue">&#128652; ${buses.length} bus${buses.length !== 1 ? 'es' : ''}</span>
+        <span class="setup-stat-chip sc-purple">&#128101; ${totalReg} registered</span>
+        ${totalPresent > 0 ? `<span class="setup-stat-chip sc-orange">&#9989; ${totalPresent} present</span>` : ''}
+      </div>`;
+
+    const areaCards = areas.map(area => {
+      const aReg      = allAttendees.filter(a => normBus(a.area) === normBus(area.name));
+      const aPresent  = aReg.filter(a => a.attendance === 'present').length;
+      const areaBuses = buses.filter(b => normBus(b.area) === normBus(area.name));
+      // Bus cost comes from actual buses added, not a manual bus-count field
+      const actualBusCost = areaBuses.length * (area.perBusCost || 0);
+
+      const busRows = areaBuses.map(b => {
+        const onBus = allAttendees.filter(a => a.attendance === 'present' && normBus(a.boardedBus) === normBus(b.name)).length;
+        const cap   = parseInt(b.capacity) || 0;
+        const pct   = cap ? onBus / cap : 0;
+        const badgeCls = !cap ? 'bok' : pct >= 1 ? 'bfull' : pct >= 0.8 ? 'bnear' : 'bok';
+        return `<div class="setup-bus-row">
+          <span style="font-size:1rem">&#128652;</span>
+          <span style="flex:1;font-weight:600;font-size:.85rem">${esc(b.name)}</span>
+          ${b.coordinator ? `<span style="font-size:.74rem;color:var(--text-muted);background:#f1f5f9;padding:.1rem .4rem;border-radius:4px">&#128100; ${esc(b.coordinator)}</span>` : ''}
+          <span class="bus-occ-badge ${badgeCls}">${onBus}${cap > 0 ? '/' + cap : ''} boarded</span>
+          <button data-bid="${esc(b.id)}" onclick="App._setupBusEdit(this.dataset.bid)" class="icon-btn edit" title="Edit bus">&#9998;</button>
+          <button data-bid="${esc(b.id)}" onclick="App._setupBusDelete(this.dataset.bid)" class="icon-btn danger" title="Remove bus">&#10005;</button>
+        </div>`;
+      }).join('');
+
+      const addBusFormId = 'sabf-' + area.id;
+      return `
+        <div class="setup-area-card">
+          <div class="setup-area-header" onclick="App._toggleAreaCard('${esc(area.id)}')">
+            <span style="font-size:1.05rem">&#128205;</span>
+            <span style="flex:1;font-weight:700;font-size:.95rem;color:var(--text-primary)">${esc(area.name)}</span>
+            <span style="font-size:.73rem;color:#15803d;background:#dcfce7;padding:.15rem .5rem;border-radius:10px;font-weight:600;white-space:nowrap">${aReg.length} reg &middot; ${aPresent} present</span>
+            <button data-aid="${esc(area.id)}" onclick="event.stopPropagation();App._setupAreaEdit(this.dataset.aid)" class="icon-btn edit" title="Edit area">&#9998;</button>
+            <button data-aid="${esc(area.id)}" onclick="event.stopPropagation();App._setupAreaDelete(this.dataset.aid)" class="icon-btn danger" title="Delete area">&#10005;</button>
+            <span id="sac-chev-${esc(area.id)}" class="setup-area-chev">&#9660;</span>
+          </div>
+          <div class="setup-area-meta">
+            ${area.coordinator ? `<span>&#128100; <b>${esc(area.coordinator)}</b></span>` : ''}
+            <span>&#128652; ${areaBuses.length} bus${areaBuses.length !== 1 ? 'es' : ''}</span>
+            ${area.perPersonCharge ? `<span>&#8377;${area.perPersonCharge}/person</span>` : ''}
+            ${area.perBusCost ? `<span>&#8377;${(area.perBusCost).toLocaleString('en-IN')}/bus &rarr; <b style="color:var(--text-primary)">&#8377;${actualBusCost.toLocaleString('en-IN')} total</b></span>` : ''}
+          </div>
+          <div id="sac-body-${esc(area.id)}" class="setup-area-body hidden">
+            <div>${areaBuses.length ? busRows : '<div style="padding:.5rem .85rem;font-size:.82rem;color:var(--text-muted);font-style:italic">No buses yet — add one below</div>'}</div>
+            <div id="${addBusFormId}" style="display:none;padding:.6rem .85rem;border-top:1px solid var(--border);background:#f8fafc">
+              <div style="font-size:.73rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.4rem">Add Bus to ${esc(area.name)}</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 70px auto;gap:.4rem;align-items:end">
+                <div><div class="setup-label">Bus Name</div><input id="sabn-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="e.g. RJ-01" /></div>
+                <div><div class="setup-label">Coordinator</div><input id="sabc-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="Name" /></div>
+                <div><div class="setup-label">Seats</div><input id="sabcap-${esc(area.id)}" type="number" class="wi-input" style="width:100%" placeholder="45" /></div>
+                <div style="display:flex;gap:.3rem;padding-bottom:.02rem">
+                  <button class="btn-primary" style="font-size:.8rem;padding:.42rem .55rem" data-aid="${esc(area.id)}" data-aname="${esc(area.name)}" onclick="App._setupBusSave(this.dataset.aid,this.dataset.aname)">Add</button>
+                  <button class="btn-ghost" style="font-size:.8rem;padding:.42rem .45rem" onclick="document.getElementById('${addBusFormId}').style.display='none'">&#10005;</button>
+                </div>
+              </div>
+            </div>
+            <div style="padding:.4rem .85rem;border-top:1px solid #f1f5f9">
+              <button onclick="document.getElementById('${addBusFormId}').style.display='';document.getElementById('sabn-${esc(area.id)}').focus()"
+                style="width:100%;background:none;border:1px dashed #a7f3d0;border-radius:7px;padding:.35rem;font-size:.81rem;color:var(--accent);cursor:pointer;font-weight:600"
+                onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background='none'">
+                + Add Bus to ${esc(area.name)}
+              </button>
+            </div>
+          </div>
+        </div>`;
+    }).join('') || `<div style="text-align:center;padding:1.5rem;font-size:.88rem;color:var(--text-muted);background:#f8fafc;border-radius:10px;margin-bottom:.75rem;border:1px dashed var(--border)">No areas yet — add one below ↓</div>`;
+
+    el.innerHTML = `${summaryBar}<div id="setup-area-list">${areaCards}</div>
+      <button class="btn-secondary" style="width:100%;margin-top:.25rem" onclick="App._openAddAreaModal()">&#43; Add Area</button>`;
+
+    // wire interactive handlers into App.* so onclick= can find them
+    App._toggleAreaCard = (areaId) => {
+      const body = document.getElementById('sac-body-' + areaId);
+      const chev = document.getElementById('sac-chev-' + areaId);
+      if (!body) return;
+      const opening = body.classList.contains('hidden');
+      body.classList.toggle('hidden', !opening);
+      if (chev) chev.classList.toggle('open', opening);
+    };
+
+    App._openAddAreaModal = () => {
+      Helpers.modal(`
+        <h3 class="modal-title">&#43; Add Area</h3>
+        <div style="display:flex;flex-direction:column;gap:.6rem;margin-bottom:.85rem">
+          <div><div class="setup-label">Area Name *</div><input id="sana-name" class="wi-input" style="width:100%" placeholder="e.g. Rajkot North" /></div>
+          <div><div class="setup-label">Area Coordinator</div><input id="sana-coord" class="wi-input" style="width:100%" placeholder="In-charge name" /></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+            <div><div class="setup-label">&#8377;/Person</div><input id="sana-charge" type="number" class="wi-input" style="width:100%" placeholder="0" /></div>
+            <div><div class="setup-label">&#8377;/Bus Cost</div><input id="sana-buscost" type="number" class="wi-input" style="width:100%" placeholder="0" /></div>
+          </div>
+          <div style="font-size:.76rem;color:var(--text-muted)">Bus cost is auto-calculated from buses you add to this area.</div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-primary" onclick="App._setupAreaSave()">Add Area</button>
+          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        </div>`);
+      setTimeout(() => document.getElementById('sana-name')?.focus(), 80);
+    };
+
+    App._setupAreaSave = async () => {
+      const name = document.getElementById('sana-name')?.value.trim();
+      if (!name) { Helpers.toast('Area name required', 'error'); return; }
+      const fresh = await _loadAreas().catch(() => []);
+      if (fresh.find(a => normBus(a.name) === normBus(name))) { Helpers.toast('Area already exists', 'warning'); return; }
+      fresh.push({
+        id: 'a' + Date.now(), name,
+        coordinator:     document.getElementById('sana-coord')?.value.trim() || '',
+        perPersonCharge: parseFloat(document.getElementById('sana-charge')?.value) || 0,
+        perBusCost:      parseFloat(document.getElementById('sana-buscost')?.value) || 0
+      });
+      await _saveAreas(fresh);
+      Helpers.closeModal();
+      Helpers.toast(`${name} added`, 'success');
+      await _renderSetupAreas();
+    };
+
+    App._setupAreaDelete = (areaId) => {
+      const area = areas.find(a => a.id === areaId);
+      if (!area) return;
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Delete Area?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:.75rem">Delete <b>${esc(area.name)}</b>? Its buses become unassigned.</p>
+        <div class="modal-actions">
+          <button class="btn-danger" onclick="App._setupAreaConfirmDelete('${esc(areaId)}')">Delete</button>
+          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        </div>`);
+    };
+
+    App._setupAreaConfirmDelete = async (areaId) => {
+      const fresh     = await _loadAreas().catch(() => []);
+      const area      = fresh.find(a => a.id === areaId);
+      const areaBuses = (await DB.getAll(DB.STORES.buses).catch(() => [])).filter(b => normBus(b.area) === normBus(area?.name || ''));
+      for (const b of areaBuses) await DB.put(DB.STORES.buses, { id: b.id, area: '' }).catch(() => {});
+      await _saveAreas(fresh.filter(a => a.id !== areaId));
+      Helpers.closeModal();
+      Helpers.toast('Area deleted', 'success');
+      await _renderSetupAreas();
+    };
+
+    App._setupAreaEdit = (areaId) => {
+      const area = areas.find(a => a.id === areaId);
+      if (!area) return;
+      Helpers.modal(`
+        <h3 class="modal-title">&#9998; Edit — ${esc(area.name)}</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.5rem">
+          <div><div class="setup-label">Area Name</div><input id="sae-name" class="wi-input" style="width:100%" value="${esc(area.name)}" /></div>
+          <div><div class="setup-label">Coordinator</div><input id="sae-coord" class="wi-input" style="width:100%" value="${esc(area.coordinator || '')}" /></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.85rem">
+          <div><div class="setup-label">&#8377;/Person</div><input id="sae-charge" type="number" class="wi-input" style="width:100%" value="${area.perPersonCharge || 0}" /></div>
+          <div><div class="setup-label">&#8377;/Bus Cost</div><input id="sae-buscost" type="number" class="wi-input" style="width:100%" value="${area.perBusCost || 0}" /></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-primary" onclick="App._setupAreaUpdate('${esc(areaId)}')">Save</button>
+          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        </div>`);
+    };
+
+    App._setupAreaUpdate = async (areaId) => {
+      const fresh = await _loadAreas().catch(() => []);
+      const idx   = fresh.findIndex(a => a.id === areaId);
+      if (idx < 0) return;
+      fresh[idx] = { ...fresh[idx],
+        name:            document.getElementById('sae-name')?.value.trim() || fresh[idx].name,
+        coordinator:     document.getElementById('sae-coord')?.value.trim() || '',
+        perPersonCharge: parseFloat(document.getElementById('sae-charge')?.value) || 0,
+        perBusCost:      parseFloat(document.getElementById('sae-buscost')?.value) || 0
+      };
+      await _saveAreas(fresh);
+      Helpers.closeModal();
+      Helpers.toast('Area updated', 'success');
+      await _renderSetupAreas();
+    };
+
+    App._setupBusSave = async (areaId, areaName) => {
+      const name  = document.getElementById(`sabn-${areaId}`)?.value.trim();
+      const coord = document.getElementById(`sabc-${areaId}`)?.value.trim() || '';
+      const cap   = parseInt(document.getElementById(`sabcap-${areaId}`)?.value) || 0;
+      if (!name) { Helpers.toast('Bus name required', 'error'); return; }
+      await DB.add(DB.STORES.buses, { name, coordinator: coord, area: areaName, capacity: cap });
+      Helpers.toast(`${name} added`, 'success');
+      await _renderSetupAreas();
+    };
+
+    App._setupBusEdit = (busId) => {
+      const bus = buses.find(b => b.id === busId);
+      if (!bus) return;
+      Helpers.modal(`
+        <h3 class="modal-title">&#9998; Edit Bus</h3>
+        <div style="display:flex;flex-direction:column;gap:.65rem;margin-bottom:.85rem">
+          <div><div class="setup-label">Bus Name *</div><input id="sbe-name" class="wi-input" style="width:100%" value="${esc(bus.name)}" /></div>
+          <div><div class="setup-label">Coordinator</div><input id="sbe-coord" class="wi-input" style="width:100%" value="${esc(bus.coordinator || '')}" placeholder="In-charge name" /></div>
+          <div><div class="setup-label">Seat Capacity</div><input id="sbe-cap" type="number" class="wi-input" style="width:100%" value="${bus.capacity || ''}" placeholder="e.g. 45" /></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-primary" onclick="App._setupBusUpdate('${esc(busId)}')">Save Changes</button>
+          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        </div>`);
+    };
+
+    App._setupBusUpdate = async (busId) => {
+      const name  = document.getElementById('sbe-name')?.value.trim();
+      const coord = document.getElementById('sbe-coord')?.value.trim() || '';
+      const cap   = parseInt(document.getElementById('sbe-cap')?.value) || 0;
+      if (!name) { Helpers.toast('Bus name required', 'error'); return; }
+      const existing = buses.find(b => b.id === busId);
+      await DB.put(DB.STORES.buses, { ...existing, name, coordinator: coord, capacity: cap });
+      Helpers.closeModal();
+      Helpers.toast('Bus updated', 'success');
+      await _renderSetupAreas();
+    };
+
+    App._setupBusDelete = async (busId) => {
+      await DB.deleteRecord(DB.STORES.buses, busId).catch(() => {});
+      Helpers.toast('Bus removed', 'success');
+      await _renderSetupAreas();
+    };
+  }
+
+  // ── Setup: Team & Access section ──────────────────────────────────────────
+  async function _renderSetupTeam() {
+    const el = document.getElementById('setup-team-content');
+    if (!el) return;
+    el.innerHTML = `<div id="users-list" style="margin-bottom:.65rem"></div>
+      <button class="btn-secondary" onclick="App.showAddUserModal()">+ Invite User</button>`;
+    await renderUsers();
+  }
+
+  // ── Setup: Danger Zone section ────────────────────────────────────────────
+  async function _renderSetupDanger() {
+    const el = document.getElementById('setup-danger-content');
+    if (!el) return;
+    el.innerHTML = `
+      <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem">These actions cannot be undone. Proceed with caution.</p>
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+        <button class="btn-danger" onclick="App._setupClearData()" style="font-size:.85rem">Clear Participant Data</button>
+        <button class="btn-danger" onclick="App._setupDeleteEvent()" style="font-size:.85rem">Delete This Event</button>
+      </div>`;
+
+    App._setupClearData = () => openDangerZoneModal();
+    App._setupDeleteEvent = () => {
+      const esc = Helpers.escapeHtml;
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Delete Event?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:.75rem">Permanently deletes this event and all its data. Cannot be undone.</p>
+        <p style="color:var(--text-secondary);margin-bottom:.5rem">Type <b>DELETE</b> to confirm:</p>
+        <input type="text" id="sdel-confirm" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" autofocus />
+        <div class="modal-actions">
+          <button class="btn-danger" id="sdel-btn">Delete Event</button>
+          <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+        </div>`);
+      document.getElementById('sdel-btn').onclick = async () => {
+        if ((document.getElementById('sdel-confirm')?.value || '').trim() !== 'DELETE') { Helpers.toast('Type DELETE exactly', 'error'); return; }
+        const btn = document.getElementById('sdel-btn');
+        btn.disabled = true; btn.textContent = 'Deleting...';
+        try {
+          await DB.deleteEvent(DB.getCurrentEvent());
+          DB.setCurrentEvent(null);
+          allAttendees = []; attendanceInited = false;
+          Helpers.closeModal();
+          await loadEventSelector();
+          Helpers.toast('Event deleted', 'success');
+          navigate('attendance');
+        } catch (err) {
+          btn.disabled = false; btn.textContent = 'Delete Event';
+          Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error');
+        }
+      };
+    };
   }
 
   async function openEventConfigModal() {
     const evt = await DB.getEvent(DB.getCurrentEvent());
+    const isCurrent = !!evt?.isCurrentEvent;
     Helpers.modal(`
       <h3 class="modal-title">&#128197; Event Configuration</h3>
       <div class="input-group" style="margin-bottom:.75rem">
@@ -2490,7 +3810,7 @@ const App = (() => {
         <label class="settings-label">Event Date</label>
         <input type="date" id="m-cfg-date" class="wi-input" value="${evt?.date || ''}" style="width:100%" />
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1.25rem">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
         <div>
           <label class="settings-label">Charge Per Person (&#8377;)</label>
           <input type="number" id="m-cfg-charge" class="wi-input" value="${evt?.chargePerPerson || 0}" min="0" style="width:100%" />
@@ -2500,6 +3820,11 @@ const App = (() => {
           <input type="number" id="m-cfg-expense" class="wi-input" value="${evt?.totalExpense || 0}" min="0" style="width:100%" />
         </div>
       </div>
+      <label style="display:flex;align-items:center;gap:.6rem;padding:.7rem;border-radius:8px;border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'};background:${isCurrent ? '#f0fdf4' : 'transparent'};cursor:pointer;margin-bottom:1.1rem;font-size:.9rem;font-weight:500">
+        <input type="checkbox" id="m-cfg-current" ${isCurrent ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--accent)" />
+        <span>&#11088; Mark as Current Event</span>
+        <span style="margin-left:auto;font-size:.77rem;color:var(--text-muted);font-weight:400">Volunteers auto-switch to this event on login</span>
+      </label>
       <div class="modal-actions" style="margin-bottom:1rem">
         <button class="btn-primary" onclick="App.saveEventConfig()">Save Changes</button>
         <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
@@ -2545,17 +3870,249 @@ const App = (() => {
   }
 
   async function saveEventConfig() {
-    const name      = document.getElementById('m-cfg-name').value;
-    const date      = document.getElementById('m-cfg-date').value;
-    const charge    = parseFloat(document.getElementById('m-cfg-charge').value) || 0;
-    const expense   = parseFloat(document.getElementById('m-cfg-expense').value) || 0;
-    await DB.updateEvent(DB.getCurrentEvent(), { name, date, chargePerPerson: charge, totalExpense: expense, financialYear: date ? Helpers.getFinancialYear(date) : '' });
+    const name          = document.getElementById('m-cfg-name').value;
+    const date          = document.getElementById('m-cfg-date').value;
+    const charge        = parseFloat(document.getElementById('m-cfg-charge').value) || 0;
+    const expense       = parseFloat(document.getElementById('m-cfg-expense').value) || 0;
+    const markCurrent   = document.getElementById('m-cfg-current')?.checked || false;
+    const eid           = DB.getCurrentEvent();
+
+    // If marking as current, clear the flag from all other events first
+    if (markCurrent) {
+      try {
+        const allEvts = await DB.getEvents();
+        const others = allEvts.filter(e => e.id !== eid && e.isCurrentEvent);
+        await Promise.all(others.map(e => DB.updateEvent(e.id, { isCurrentEvent: false })));
+      } catch {}
+    }
+
+    await DB.updateEvent(eid, {
+      name, date, chargePerPerson: charge, totalExpense: expense,
+      financialYear: date ? Helpers.getFinancialYear(date) : '',
+      isCurrentEvent: markCurrent
+    });
     await DB.setConfig('eventName', name);
     await DB.setConfig('eventDate', date);
     await DB.setConfig('chargePerPerson', charge);
     await loadEventSelector();
     Helpers.closeModal();
-    Helpers.toast('Event saved!', 'success');
+    Helpers.toast('Event saved!' + (markCurrent ? ' Marked as current event.' : ''), 'success');
+  }
+
+  async function openAreasTransportModal() {
+    const esc = Helpers.escapeHtml;
+    const [areas, buses] = await Promise.all([
+      _loadAreas(),
+      DB.getAll(DB.STORES.buses).catch(() => [])
+    ]);
+
+    const _render = () => {
+      // ── Overall summary ──
+      const totalReg     = allAttendees.length;
+      const totalPresent = allAttendees.filter(a => a.attendance === 'present').length;
+      const totalCollect = allAttendees.reduce((s, a) => s + (parseFloat(a.paymentAmount) || 0), 0);
+      const summaryBar = `
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem 1.25rem;padding:.55rem .75rem;background:var(--accent);color:#fff;border-radius:8px;font-size:.82rem;margin-bottom:1rem">
+          <span><b>${areas.length}</b> areas</span>
+          <span><b>${buses.length}</b> buses</span>
+          <span><b>${totalReg}</b> registered</span>
+          <span><b>${totalPresent}</b> present</span>
+          <span>Collected: <b>&#8377;${totalCollect.toLocaleString('en-IN')}</b></span>
+        </div>`;
+
+      // ── Per-area cards ──
+      const areaCards = areas.map(area => {
+        const aReg       = allAttendees.filter(a => normBus(a.area) === normBus(area.name));
+        const aPresent   = aReg.filter(a => a.attendance === 'present').length;
+        const aCollected = aReg.reduce((s, a) => s + (parseFloat(a.paymentAmount) || 0), 0);
+        const aExpected  = aReg.length * (area.perPersonCharge || 0);
+        const busCost    = (area.busCount || 0) * (area.perBusCost || 0);
+        const areaBuses  = buses.filter(b => normBus(b.area) === normBus(area.name));
+
+        const busRows = areaBuses.map(b => {
+          const onBus = allAttendees.filter(a => a.attendance === 'present' && normBus(a.boardedBus) === normBus(b.name)).length;
+          const cap   = b.capacity || 0;
+          const pct   = cap > 0 ? Math.min(100, Math.round(onBus / cap * 100)) : 0;
+          const bar   = cap > 0
+            ? `<div style="width:70px;height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:.3rem"><div style="height:100%;width:${pct}%;background:var(--accent)"></div></div>`
+            : '';
+          return `
+            <div style="display:flex;align-items:center;gap:.5rem;padding:.38rem .6rem;border-top:1px solid var(--border);font-size:.83rem">
+              <span>&#128652;</span>
+              <span style="flex:1;font-weight:500">${esc(b.name)}</span>
+              <span style="color:var(--text-muted);font-size:.78rem">${esc(b.coordinator || '')}</span>
+              <span style="white-space:nowrap">${bar}<b>${onBus}</b>${cap > 0 ? '/' + cap : ''} boarded</span>
+              <button data-bid="${esc(b.id)}" onclick="App._atBusDelete(this.dataset.bid)" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:.9rem;line-height:1;padding:.1rem .25rem" title="Remove">&#10005;</button>
+            </div>`;
+        }).join('');
+
+        return `
+          <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:.85rem">
+            <div style="background:var(--bg-card2);padding:.55rem .7rem;display:flex;align-items:center;gap:.5rem">
+              <span>&#128205;</span>
+              <span style="flex:1;font-weight:700;font-size:.95rem">${esc(area.name)}</span>
+              <span style="font-size:.78rem;color:var(--text-muted)">${aReg.length} reg &middot; ${aPresent} present</span>
+              <button data-aid="${esc(area.id)}" onclick="App._atAreaEdit(this.dataset.aid)" style="background:none;border:none;cursor:pointer;font-size:.82rem;padding:.2rem .35rem;color:var(--text-secondary)" title="Edit">&#9998;</button>
+              <button data-aid="${esc(area.id)}" onclick="App._atAreaDelete(this.dataset.aid)" style="background:none;border:none;cursor:pointer;font-size:.82rem;padding:.2rem .35rem;color:var(--danger)" title="Delete">&#10005;</button>
+            </div>
+            <div style="padding:.35rem .7rem;display:flex;flex-wrap:wrap;gap:.6rem 1rem;font-size:.79rem;background:#f8fafc;border-bottom:1px solid var(--border)">
+              <span>&#8377;${area.perPersonCharge || 0}/person</span>
+              <span>${area.busCount || 0} bus${area.busCount !== 1 ? 'es' : ''} &times; &#8377;${(area.perBusCost || 0).toLocaleString('en-IN')} = <b>&#8377;${busCost.toLocaleString('en-IN')} cost</b></span>
+              <span style="color:#15803d">Collected: <b>&#8377;${aCollected.toLocaleString('en-IN')}</b></span>
+              <span style="color:#1d4ed8">Expected: <b>&#8377;${aExpected.toLocaleString('en-IN')}</b></span>
+            </div>
+            <div>${areaBuses.length ? busRows : '<div style="padding:.5rem .7rem;font-size:.82rem;color:var(--text-muted)">No buses added yet</div>'}</div>
+            <div id="atbf-${esc(area.id)}" style="display:none;padding:.5rem .65rem;border-top:1px solid var(--border);background:var(--bg-card2)">
+              <div style="display:grid;grid-template-columns:1fr 1fr 80px auto;gap:.4rem;align-items:end">
+                <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.2rem">Bus Name</div><input id="atbn-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="e.g. Bus RJ-01" /></div>
+                <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.2rem">Coordinator</div><input id="atbc-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="Name" /></div>
+                <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.2rem">Seats</div><input id="atbcap-${esc(area.id)}" type="number" class="wi-input" style="width:100%" placeholder="45" /></div>
+                <div style="display:flex;gap:.3rem;padding-bottom:.02rem">
+                  <button class="btn-primary" style="font-size:.8rem;padding:.42rem .6rem;white-space:nowrap" data-aid="${esc(area.id)}" data-aname="${esc(area.name)}" onclick="App._atBusSave(this.dataset.aid,this.dataset.aname)">Save</button>
+                  <button class="btn-ghost" style="font-size:.8rem;padding:.42rem .5rem" onclick="document.getElementById('atbf-${esc(area.id)}').style.display='none'">&#10005;</button>
+                </div>
+              </div>
+            </div>
+            <div style="padding:.38rem .65rem;border-top:1px solid var(--border)">
+              <button onclick="document.getElementById('atbf-${esc(area.id)}').style.display='';document.getElementById('atbn-${esc(area.id)}').focus()"
+                style="width:100%;background:none;border:1px dashed var(--border);border-radius:6px;padding:.32rem;font-size:.82rem;color:var(--accent);cursor:pointer">
+                + Add Bus to ${esc(area.name)}
+              </button>
+            </div>
+          </div>`;
+      }).join('') || `<p style="color:var(--text-muted);text-align:center;padding:1rem 0">No areas yet. Add one below.</p>`;
+
+      // ── Add area form ──
+      const addForm = `
+        <div style="border:1px dashed var(--border);border-radius:10px;padding:.85rem;margin-top:.25rem">
+          <div style="font-size:.88rem;font-weight:700;margin-bottom:.6rem;color:var(--text-secondary)">+ Add New Area</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.45rem;margin-bottom:.45rem">
+            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">Area Name *</div><input id="atna-name" class="wi-input" style="width:100%" placeholder="e.g. Rajkot North" /></div>
+            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">Area Coordinator</div><input id="atna-coord" class="wi-input" style="width:100%" placeholder="In-charge name" /></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.45rem;margin-bottom:.45rem">
+            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">&#8377; Per Person</div><input id="atna-charge" type="number" class="wi-input" style="width:100%" placeholder="0" oninput="App._atCalcTotal()" /></div>
+            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">No. of Buses</div><input id="atna-buses" type="number" class="wi-input" style="width:100%" placeholder="0" oninput="App._atCalcTotal()" /></div>
+            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">&#8377; Per Bus Cost</div><input id="atna-buscost" type="number" class="wi-input" style="width:100%" placeholder="0" oninput="App._atCalcTotal()" /></div>
+          </div>
+          <div id="atna-calc" style="font-size:.8rem;color:var(--text-muted);margin-bottom:.55rem">Total bus cost: &#8377;0</div>
+          <button class="btn-primary" onclick="App._atAreaSave()">Add Area</button>
+        </div>`;
+
+      return `<h3 class="modal-title">&#127758; Areas &amp; Transport</h3>${summaryBar}<div id="at-area-list">${areaCards}</div>${addForm}`;
+    };
+
+    const _openModal = () => {
+      Helpers.modal(_render());
+      document.getElementById('modal-content').style.maxWidth = '680px';
+      document.getElementById('atna-name').onkeydown = e => { if (e.key === 'Enter') App._atAreaSave(); };
+    };
+    _openModal();
+
+    App._atCalcTotal = () => {
+      const b = parseInt(document.getElementById('atna-buses')?.value) || 0;
+      const c = parseFloat(document.getElementById('atna-buscost')?.value) || 0;
+      const el = document.getElementById('atna-calc');
+      if (el) el.textContent = `Total bus cost: ₹${(b * c).toLocaleString('en-IN')}`;
+    };
+
+    App._atAreaSave = async () => {
+      const name = document.getElementById('atna-name')?.value.trim();
+      if (!name) { Helpers.toast('Area name is required', 'error'); return; }
+      if (areas.find(a => normBus(a.name) === normBus(name))) { Helpers.toast('Area already exists', 'warning'); return; }
+      areas.push({
+        id: 'a' + Date.now(),
+        name,
+        coordinator:      document.getElementById('atna-coord')?.value.trim() || '',
+        perPersonCharge:  parseFloat(document.getElementById('atna-charge')?.value) || 0,
+        busCount:         parseInt(document.getElementById('atna-buses')?.value) || 0,
+        perBusCost:       parseFloat(document.getElementById('atna-buscost')?.value) || 0
+      });
+      await _saveAreas(areas);
+      Helpers.toast(`${name} added`, 'success');
+      _openModal();
+    };
+
+    App._atAreaEdit = async (areaId) => {
+      const area = areas.find(a => a.id === areaId);
+      if (!area) return;
+      Helpers.modal(`
+        <h3 class="modal-title">&#9998; Edit — ${esc(area.name)}</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.5rem">
+          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">Area Name</div><input id="atea-name" class="wi-input" style="width:100%" value="${esc(area.name)}" /></div>
+          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">Coordinator</div><input id="atea-coord" class="wi-input" style="width:100%" value="${esc(area.coordinator || '')}" /></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;margin-bottom:.85rem">
+          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">&#8377;/Person</div><input id="atea-charge" type="number" class="wi-input" style="width:100%" value="${area.perPersonCharge || 0}" /></div>
+          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">No. of Buses</div><input id="atea-buses" type="number" class="wi-input" style="width:100%" value="${area.busCount || 0}" /></div>
+          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">&#8377;/Bus Cost</div><input id="atea-buscost" type="number" class="wi-input" style="width:100%" value="${area.perBusCost || 0}" /></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-primary" onclick="App._atAreaUpdate('${esc(areaId)}')">Save</button>
+          <button class="btn-ghost" onclick="App.openAreasTransportModal()">Back</button>
+        </div>`);
+      document.getElementById('modal-content').style.maxWidth = '680px';
+    };
+
+    App._atAreaUpdate = async (areaId) => {
+      const idx = areas.findIndex(a => a.id === areaId);
+      if (idx < 0) return;
+      areas[idx] = {
+        ...areas[idx],
+        name:            document.getElementById('atea-name')?.value.trim() || areas[idx].name,
+        coordinator:     document.getElementById('atea-coord')?.value.trim() || '',
+        perPersonCharge: parseFloat(document.getElementById('atea-charge')?.value) || 0,
+        busCount:        parseInt(document.getElementById('atea-buses')?.value) || 0,
+        perBusCost:      parseFloat(document.getElementById('atea-buscost')?.value) || 0
+      };
+      await _saveAreas(areas);
+      Helpers.toast('Area updated', 'success');
+      await openAreasTransportModal();
+    };
+
+    App._atAreaDelete = (areaId) => {
+      const area = areas.find(a => a.id === areaId);
+      if (!area) return;
+      Helpers.modal(`
+        <h3 class="modal-title" style="color:var(--danger)">Delete Area?</h3>
+        <p style="color:var(--text-secondary);margin-bottom:.75rem">Delete <b>${esc(area.name)}</b>? Buses in this area will become unassigned.</p>
+        <div class="modal-actions">
+          <button class="btn-danger" onclick="App._atAreaConfirmDelete('${esc(areaId)}')">Delete</button>
+          <button class="btn-ghost" onclick="App.openAreasTransportModal()">Cancel</button>
+        </div>`);
+    };
+
+    App._atAreaConfirmDelete = async (areaId) => {
+      const area = areas.find(a => a.id === areaId);
+      const areaBuses = buses.filter(b => normBus(b.area) === normBus(area?.name || ''));
+      for (const b of areaBuses) {
+        await DB.put(DB.STORES.buses, { id: b.id, area: '' }).catch(() => {});
+      }
+      areas.splice(areas.findIndex(a => a.id === areaId), 1);
+      await _saveAreas(areas);
+      Helpers.toast('Area deleted', 'success');
+      await openAreasTransportModal();
+    };
+
+    App._atBusSave = async (areaId, areaName) => {
+      const name  = document.getElementById(`atbn-${areaId}`)?.value.trim();
+      const coord = document.getElementById(`atbc-${areaId}`)?.value.trim() || '';
+      const cap   = parseInt(document.getElementById(`atbcap-${areaId}`)?.value) || 0;
+      if (!name) { Helpers.toast('Bus name required', 'error'); return; }
+      await DB.add(DB.STORES.buses, { name, coordinator: coord, area: areaName, capacity: cap });
+      Helpers.toast(`${name} added to ${areaName}`, 'success');
+      const newBuses = await DB.getAll(DB.STORES.buses).catch(() => []);
+      buses.length = 0; buses.push(...newBuses);
+      _openModal();
+    };
+
+    App._atBusDelete = async (busId) => {
+      await DB.deleteRecord(DB.STORES.buses, busId).catch(() => {});
+      Helpers.toast('Bus removed', 'success');
+      const newBuses = await DB.getAll(DB.STORES.buses).catch(() => []);
+      buses.length = 0; buses.push(...newBuses);
+      _openModal();
+    };
   }
 
   async function openTeamAccessModal() {
@@ -2726,8 +4283,8 @@ const App = (() => {
       if (!name) { Helpers.toast('Name required', 'error'); return; }
       await DB.setUserProfile(currentUser.uid, { name });
       currentUser.name = name;
-      document.getElementById('sidebar-username').textContent = name;
-      document.getElementById('sidebar-avatar').textContent = name[0].toUpperCase();
+      const avEl = document.getElementById('topbar-user-avatar');
+      if (avEl) avEl.textContent = name[0].toUpperCase();
       Helpers.toast('Profile saved', 'success');
       Helpers.closeModal();
     };
@@ -2859,6 +4416,7 @@ const App = (() => {
     Helpers.toast(`${name} added`, 'success');
     document.getElementById('bus-add-form').style.display = 'none';
     ['m-bus-name','m-bus-coordinator','m-bus-capacity'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    _dashStaticCache = null;
     await renderBusManageList();
     if (currentPage === 'dashboard') initDashboard();
     if (currentPage === 'attendance') initMyBusPicker();
@@ -2866,6 +4424,7 @@ const App = (() => {
 
   async function deleteBus(id) {
     await DB.deleteRecord(DB.STORES.buses, id);
+    _dashStaticCache = null;
     await renderBusManageList();
     if (currentPage === 'dashboard') initDashboard();
     if (currentPage === 'attendance') initMyBusPicker();
@@ -2927,7 +4486,9 @@ const App = (() => {
 
   function updateNetworkStatus() {
     const el = document.getElementById('sync-status');
-    el.textContent = navigator.onLine ? 'Online' : 'Offline';
+    if (!el) return;
+    el.textContent = navigator.onLine ? '●' : '○';
+    el.title = navigator.onLine ? 'Online' : 'Offline';
     el.className = 'sync-status ' + (navigator.onLine ? 'online' : 'offline');
   }
 
@@ -3096,21 +4657,27 @@ const App = (() => {
   }
 
   return {
-    init, navigate,
+    init, navigate, switchTab,
     downloadTemplate,
     instantAdmit, submitPaymentCollect, unmarkAttendance, showDetail, showPaymentUpdate, savePaymentUpdate,
     resolveDuplicate, acceptDuplicate, deleteDuplicate,
     saveBusRoute, deleteBusRoute, toggleUserRole,
     showAddBusModal, deleteBusRouteFromDash,
     showEventPicker, _filterEvents, _pickEvent, showSessionSetupModal,
-    initMyBus, _toggleBusTable,
+    _ssPickFY, _ssPickEvent, _ssConfirmEvent, _ssPickArea, _ssConfirmArea, _ssOnEventChange, _ssAreaSelected,
+    _ssPickBus, _ssConfirmBus, _ssSkipBus,
+    _gatePickBusAndAdmit, _gateConfirmBusAndAdmit,
+    _gateBusPick,
+    initMyBus, _toggleBusTable, _myBusFilterArea, _repairBrokenArea,
     _selectMyBus, _saveBusCoordHead,
     openBusManageModal, saveBus, deleteBus,
     showCreateEventModal, createEvent,
-    showCountList,
+    showCountList, showFullReport, shareRegReportAsImage, _toggleSetupPanel,
     initAttendees,
-    // Settings modals
-    openEventConfigModal, saveEventConfig,
+    // Settings inline sections
+    _saveSetupEvent,
+    // Settings modals (kept for back-compat / danger zone)
+    openEventConfigModal, saveEventConfig, openAreasTransportModal,
     openTeamAccessModal,
     openBusRoutesModal,
     openDangerZoneModal,
@@ -3119,7 +4686,9 @@ const App = (() => {
     // OCR
     openOcrModal, confirmOcrMarks, _updateOcrConfirmBtn,
     saveBusFromDetail,
-    closeSidebarPublic: closeSidebar
+    // Gate & report sub-tabs
+    _reportSubTab, _gateAdminUnlock, _gateShowList,
+    _openWalkin,
   };
 })();
 

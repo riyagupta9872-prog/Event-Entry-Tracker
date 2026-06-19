@@ -4,12 +4,12 @@ const Export = (() => {
 
   const SHEET_HEADER = [
     'Sr. No.', 'Name', 'Mobile number', 'Category', 'Reference',
-    'Team Name', 'Pickup Point', 'Payment Status', 'Payment Remarks',
+    'Team Name', 'Area / Zone', 'Pickup Point', 'Payment Status', 'Payment Remarks',
     'Mode of Payment', 'Payment Amt.', 'Attendence', 'Admitted by', 'Admitted at',
     'Payment Timing', 'Boarded Bus'
   ];
 
-  const COL_WIDTHS = [7, 26, 14, 13, 22, 16, 18, 14, 28, 16, 13, 18, 20, 22, 16, 18];
+  const COL_WIDTHS = [7, 26, 14, 13, 22, 16, 14, 18, 14, 28, 16, 13, 18, 20, 22, 16, 18];
 
   // ── ExcelJS ARGB helper (ExcelJS needs alpha prefix) ──────────────────────
   function argb(hex) { return 'FF' + hex.toUpperCase(); }
@@ -56,6 +56,7 @@ const Export = (() => {
       a.category       || '',
       a.reference      || '',
       a.team           || '',
+      a.area           || '',
       a.pickupLocation || '',
       ps,
       a.remarks        || '',
@@ -451,9 +452,9 @@ const Export = (() => {
 
     const HEADERS = [
       'Sr. No.', 'Collected By', 'Name', 'Mobile', 'Team',
-      'Reference', 'Bus Route', 'Amount (₹)', 'Mode', 'Remarks', 'Entry Time'
+      'Reference', 'Amount (₹)', 'Mode', 'Remarks', 'Entry Time'
     ];
-    const WIDTHS = [7, 20, 26, 14, 18, 20, 18, 13, 10, 28, 22];
+    const WIDTHS = [7, 20, 26, 14, 18, 20, 13, 10, 28, 22];
 
     ws.columns = WIDTHS.map((w, i) => ({ header: HEADERS[i], key: `c${i}`, width: w }));
     applyHeaderStyle(ws.getRow(1));
@@ -494,7 +495,6 @@ const Export = (() => {
           a.mobile        || '',
           a.team          || '',
           a.reference     || '',
-          a.busRoute      || '',
           parseFloat(a.paymentAmount || 0) || '',
           (a.paymentMode || '').toUpperCase(),
           a.remarks       || '',
