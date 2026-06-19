@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#15803d"/>
+      <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
+
+  <!-- Back petals (slightly behind) -->
+  <ellipse cx="213" cy="252" rx="27" ry="78" fill="white" fill-opacity="0.55" transform="rotate(-28 213 310)"/>
+  <ellipse cx="299" cy="252" rx="27" ry="78" fill="white" fill-opacity="0.55" transform="rotate(28 299 310)"/>
+
+  <!-- Side petals -->
+  <ellipse cx="206" cy="268" rx="30" ry="84" fill="white" fill-opacity="0.82" transform="rotate(-14 206 315)"/>
+  <ellipse cx="306" cy="268" rx="30" ry="84" fill="white" fill-opacity="0.82" transform="rotate(14 306 315)"/>
+
+  <!-- Center petal (front) -->
+  <ellipse cx="256" cy="250" rx="34" ry="90" fill="white"/>
+
+  <!-- Stamen -->
+  <circle cx="256" cy="214" r="18" fill="#16a34a"/>
+  <circle cx="256" cy="214" r="9"  fill="#fde68a"/>
+
+  <!-- Water base -->
+  <ellipse cx="256" cy="356" rx="96" ry="14" fill="white" fill-opacity="0.22"/>
+
+  <!-- PRERNA wordmark -->
+  <text
+    x="256" y="428"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-weight="700"
+    font-size="54"
+    letter-spacing="9"
+    fill="white"
+    fill-opacity="0.95">PRERNA</text>
+</svg>

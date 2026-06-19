@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prerna-festival-v113';
+const CACHE_NAME = 'prerna-festival-v114';
 
 // Derive base URL from the service worker's own location
 // Works correctly on GitHub Pages subdirectory (e.g. /Event-Entry-Tracker/)
@@ -14,6 +14,8 @@ const CORE_ASSETS = [
   BASE + 'export.js',
   BASE + 'app.js',
   BASE + 'manifest.json',
+  BASE + 'icons/icon.svg',
+  BASE + 'icons/icon-maskable.svg',
 ];
 
 // CDN assets (optional — cache failures are silently ignored)

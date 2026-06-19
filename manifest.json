@@ -1,20 +1,28 @@
 {
+  "id": "/prerna-festival/",
   "name": "Prerna Festival Management",
   "short_name": "Prerna",
-  "description": "Attendance tracking and reporting for Prerna Festival",
-  "start_url": ".",
+  "description": "Attendance tracking, payments and transport for Prerna Festival",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#ffffff",
   "theme_color": "#16a34a",
-  "orientation": "any",
+  "categories": ["productivity", "utilities"],
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪷</text></svg>",
+      "src": "icons/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ],
-  "categories": ["productivity", "utilities"],
   "screenshots": []
 }

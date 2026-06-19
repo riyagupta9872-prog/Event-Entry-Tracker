@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#15803d"/>
+      <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Full-bleed background — OS clips to its shape (circle/squircle) -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!--
+    Safe zone = inner 80% = circle r=205 centred at 256,256.
+    All visible content must stay within that circle.
+    Content is scaled down ~15% compared to icon.svg.
+  -->
+
+  <!-- Back petals -->
+  <ellipse cx="222" cy="258" rx="23" ry="66" fill="white" fill-opacity="0.55" transform="rotate(-28 222 308)"/>
+  <ellipse cx="290" cy="258" rx="23" ry="66" fill="white" fill-opacity="0.55" transform="rotate(28 290 308)"/>
+
+  <!-- Side petals -->
+  <ellipse cx="216" cy="272" rx="26" ry="72" fill="white" fill-opacity="0.82" transform="rotate(-14 216 312)"/>
+  <ellipse cx="296" cy="272" rx="26" ry="72" fill="white" fill-opacity="0.82" transform="rotate(14 296 312)"/>
+
+  <!-- Center petal -->
+  <ellipse cx="256" cy="256" rx="29" ry="76" fill="white"/>
+
+  <!-- Stamen -->
+  <circle cx="256" cy="224" r="15" fill="#16a34a"/>
+  <circle cx="256" cy="224" r="8"  fill="#fde68a"/>
+
+  <!-- Water base -->
+  <ellipse cx="256" cy="346" rx="82" ry="12" fill="white" fill-opacity="0.22"/>
+
+  <!-- PRERNA wordmark — stays inside safe zone -->
+  <text
+    x="256" y="408"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-weight="700"
+    font-size="46"
+    letter-spacing="8"
+    fill="white"
+    fill-opacity="0.95">PRERNA</text>
+</svg>
