@@ -647,7 +647,7 @@ const App = (() => {
     } else {
       bar.style.background = '';
       bar.style.borderBottom = '';
-      if (label) label.textContent = 'Your Bus:';
+      if (label) label.innerHTML = 'Your Bus: <a href="#" onclick="App._changeBusSetup();return false" style="font-size:.72rem;color:var(--accent);margin-left:.35rem;text-decoration:underline">change</a>';
     }
 
     // Volunteers only see buses in their area; admins see all
@@ -675,6 +675,12 @@ const App = (() => {
       if (bar)   { bar.style.background = ''; bar.style.borderBottom = ''; }
       if (label)   label.textContent = 'Your Bus:';
     }
+  }
+
+  async function _changeBusSetup() {
+    _clearSessionSetup();
+    await showSessionSetupModal();
+    initMyBusPicker();
   }
 
   // ===== EVENT MANAGEMENT =====
@@ -809,7 +815,8 @@ const App = (() => {
   // Page → bottom nav tab mapping
   const PAGE_TO_TAB = {
     dashboard: 'home', attendance: 'gate', walkin: 'gate',
-    mybus: 'mybus', settings: 'setup', import: 'setup', attendees: 'setup',
+    mybus: 'mybus', manage: 'manage',
+    settings: 'setup', import: 'setup', attendees: 'setup',
     reports: 'reports', financial: 'reports'
   };
 
@@ -838,7 +845,7 @@ const App = (() => {
       attendance: '', walkin: '/ Walk-ins',
       attendees: '/ Attendees', reports: '',
       settings: '', financial: '/ Financial',
-      mybus: ''
+      mybus: '', manage: ''
     };
     const titleEl = document.getElementById('page-title');
     if (titleEl) titleEl.textContent = titles[page] !== undefined ? titles[page] : '';
@@ -857,6 +864,7 @@ const App = (() => {
       case 'settings': initSettings(); break;
       case 'financial': initFinancial(); break;
       case 'mybus': initMyBus(); break;
+      case 'manage': initManage(); break;
     }
   }
 
@@ -869,6 +877,7 @@ const App = (() => {
       home: 'dashboard',
       gate: 'attendance',
       mybus: 'mybus',
+      manage: 'manage',
       setup: 'settings',
       reports: 'reports'
     };
@@ -3357,6 +3366,458 @@ const App = (() => {
     Helpers.closeModal(); Helpers.toast('Removed', 'success'); initAttendees();
   }
 
+  // ===== MANAGE PAGE (Attendees / Action / Fine Collection) =====
+  let _mngTab = 'attendees';
+  let _finesCache = [];
+
+  function initManage() { _manageSubTab(_mngTab); }
+
+  function _manageSubTab(tab) {
+    _mngTab = tab;
+    document.querySelectorAll('#page-manage > .att-filter-tabs .att-tab').forEach(b =>
+      b.classList.toggle('active', b.id === `mng-tab-${tab}`)
+    );
+    const host = document.getElementById('manage-content');
+    host.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:2rem">Loading…</p>';
+    if (tab === 'attendees') _initMngAttendees(host);
+    else if (tab === 'action') _initMngAction(host);
+    else if (tab === 'fines') _initMngFines(host);
+  }
+
+  // ── Attendees sub-tab: edit, cancel, add registrations ──────────
+  async function _initMngAttendees(host) {
+    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const esc = Helpers.escapeHtml;
+    const teamMap = {}, refMap = {};
+    attendees.forEach(a => {
+      const t = (a.team || '').trim(), r = (a.reference || '').trim();
+      if (t && !teamMap[t.toLowerCase()]) teamMap[t.toLowerCase()] = t;
+      if (r && !refMap[r.toLowerCase()]) refMap[r.toLowerCase()] = r;
+    });
+    const teams = Object.values(teamMap).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+    const refs = Object.values(refMap).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+
+    host.innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">
+          <h3 class="card-title" style="margin:0">Manage Registrations</h3>
+          <button class="btn-primary" style="font-size:.82rem;padding:.4rem .85rem" onclick="App._showAddReg()">+ Add Registration</button>
+        </div>
+        <div class="table-controls">
+          <input type="text" id="mng-att-search" class="search-input" placeholder="Search..." style="flex:2" />
+          <select id="mng-att-team" class="filter-select"><option value="">All Teams</option>${teams.map(t => `<option>${esc(t)}</option>`).join('')}</select>
+          <select id="mng-att-ref" class="filter-select"><option value="">All References</option>${refs.map(r => `<option>${esc(r)}</option>`).join('')}</select>
+          <select id="mng-att-pay" class="filter-select">
+            <option value="">All Payment</option><option value="paid">Paid</option><option value="unpaid">Unpaid</option><option value="free">Free</option>
+          </select>
+          <select id="mng-att-status" class="filter-select">
+            <option value="">All</option><option value="active">Active</option><option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div id="mng-att-count" class="table-count"></div>
+        <div id="mng-att-table"></div>
+      </div>`;
+
+    const render = () => {
+      let filtered = attendees;
+      const q = document.getElementById('mng-att-search').value.toLowerCase();
+      const team = document.getElementById('mng-att-team').value;
+      const ref = document.getElementById('mng-att-ref').value;
+      const pay = document.getElementById('mng-att-pay').value;
+      const status = document.getElementById('mng-att-status').value;
+      if (q) filtered = filtered.filter(a => Helpers.searchFilter(a, q));
+      if (team) filtered = filtered.filter(a => normBus(a.team) === normBus(team));
+      if (ref) filtered = filtered.filter(a => normBus(a.reference) === normBus(ref));
+      if (pay) filtered = filtered.filter(a => (a.paymentStatus || 'unpaid') === pay);
+      if (status === 'active') filtered = filtered.filter(a => !a.cancelled);
+      if (status === 'cancelled') filtered = filtered.filter(a => a.cancelled);
+      filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+
+      const limit = 300;
+      document.getElementById('mng-att-count').textContent =
+        `${filtered.length} registrations` + (filtered.length > limit ? ` (showing ${limit})` : '');
+
+      const rows = filtered.slice(0, limit).map((a, i) => {
+        const cancelled = a.cancelled;
+        const payBadge = a.paymentStatus === 'paid' ? '<span class="badge present">Paid</span>'
+          : a.paymentStatus === 'free' ? '<span class="badge before">Free</span>'
+          : '<span class="badge unpaid">Unpaid</span>';
+        const tags = (cancelled ? ' <span class="badge" style="background:#fee2e2;color:#dc2626;border:1px solid #fca5a5">Cancelled</span>' : '')
+          + (a.isWalkIn ? ' <span class="badge walkin">WI</span>' : '');
+        return `<tr style="${cancelled ? 'opacity:.55;' : ''}">
+          <td>${i + 1}</td>
+          <td style="font-weight:500">${esc(a.name)}${tags}</td>
+          <td>${esc(a.mobile || '-')}</td>
+          <td>${esc(a.team || '-')}</td>
+          <td>${payBadge}${a.paymentAmount > 0 ? ' ₹' + a.paymentAmount : ''}</td>
+          <td>${esc(a.area || '-')}</td>
+          <td style="white-space:nowrap">
+            <button class="btn-small" onclick="App.showDetail('${a.id}')">View</button>
+            <button class="btn-small" onclick="App._collectPayment('${a.id}')">Collect</button>
+            ${cancelled
+              ? `<button class="btn-small success" onclick="App._uncancelReg('${a.id}')">Restore</button>`
+              : `<button class="btn-small danger" onclick="App._cancelReg('${a.id}')">Cancel</button>`}
+          </td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('mng-att-table').innerHTML = `
+        <div class="att-table-scroll"><table class="att-table">
+          <thead><tr><th>#</th><th>Name</th><th>Mobile</th><th>Team</th><th>Payment</th><th>Area</th><th>Actions</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted)">No registrations</td></tr>'}</tbody>
+        </table></div>`;
+    };
+
+    const debounced = Helpers.debounce(render, 200);
+    ['mng-att-search', 'mng-att-team', 'mng-att-ref', 'mng-att-pay', 'mng-att-status'].forEach(id => {
+      document.getElementById(id).oninput = debounced;
+    });
+    render();
+  }
+
+  async function _cancelReg(id) {
+    if (!confirm('Cancel this registration?')) return;
+    await DB.put(DB.STORES.attendees, { id, cancelled: true, updatedAt: new Date().toISOString() });
+    const cached = allAttendees.find(x => x.id === id);
+    if (cached) cached.cancelled = true;
+    await DB.log('cancel', `Registration cancelled: ${id}`, currentUser?.email);
+    Helpers.toast('Registration cancelled', 'success');
+    _manageSubTab('attendees');
+  }
+
+  async function _uncancelReg(id) {
+    await DB.put(DB.STORES.attendees, { id, cancelled: false, updatedAt: new Date().toISOString() });
+    const cached = allAttendees.find(x => x.id === id);
+    if (cached) cached.cancelled = false;
+    await DB.log('uncancel', `Registration restored: ${id}`, currentUser?.email);
+    Helpers.toast('Registration restored', 'success');
+    _manageSubTab('attendees');
+  }
+
+  async function _collectPayment(id) {
+    const a = await DB.getById(DB.STORES.attendees, id);
+    if (!a) return;
+    const esc = Helpers.escapeHtml;
+    const existing = parseFloat(a.paymentAmount) || 0;
+    Helpers.modal(`
+      <h3 class="modal-title">Collect Payment — ${esc(a.name)}</h3>
+      ${existing > 0 ? `<p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:.75rem">Already collected: ${Helpers.currency(existing)}</p>` : ''}
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label>Amount (₹)</label>
+        <input id="cp-amt" type="number" min="0" value="${existing || ''}" style="font-size:1.1rem;font-weight:700" />
+      </div>
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label>Mode</label>
+        <select id="cp-mode">
+          <option value="cash" ${a.paymentMode === 'cash' ? 'selected' : ''}>Cash</option>
+          <option value="online" ${a.paymentMode === 'online' ? 'selected' : ''}>Online</option>
+        </select>
+      </div>
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label>Remarks</label>
+        <input id="cp-remarks" type="text" value="${esc(a.remarks || '')}" placeholder="e.g. collected by Riya" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="App._saveCollectPayment('${a.id}')">Save</button>
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+      </div>`);
+  }
+
+  async function _saveCollectPayment(id) {
+    const amt = parseFloat(document.getElementById('cp-amt').value) || 0;
+    const mode = document.getElementById('cp-mode').value;
+    const remarks = document.getElementById('cp-remarks').value.trim();
+    const status = amt > 0 ? 'paid' : 'unpaid';
+    await DB.put(DB.STORES.attendees, {
+      id, paymentAmount: amt, paymentMode: mode, paymentStatus: status,
+      remarks, paymentDate: amt > 0 ? new Date().toISOString().slice(0, 10) : '',
+      updatedAt: new Date().toISOString()
+    });
+    const cached = allAttendees.find(x => x.id === id);
+    if (cached) { cached.paymentAmount = amt; cached.paymentMode = mode; cached.paymentStatus = status; cached.remarks = remarks; }
+    await DB.log('collectPayment', `Payment collected: ${id}, ₹${amt} (${mode})`, currentUser?.email);
+    Helpers.closeModal();
+    Helpers.toast(amt > 0 ? `₹${amt} collected` : 'Payment cleared', 'success');
+    if (_mngTab === 'attendees') _manageSubTab('attendees');
+    else if (_mngTab === 'action') _manageSubTab('action');
+  }
+
+  async function _showAddReg() {
+    const areas = await _loadAreas().catch(() => []);
+    const esc = Helpers.escapeHtml;
+    const areaOpts = areas.map(a => `<option value="${esc(a.name)}">${esc(a.name)}</option>`).join('');
+    Helpers.modal(`
+      <h3 class="modal-title">Add Registration</h3>
+      <div class="form-grid">
+        <div class="input-group"><label>Name *</label><input id="ar-name" /></div>
+        <div class="input-group"><label>Mobile *</label><input id="ar-mobile" type="tel" /></div>
+        <div class="input-group"><label>Team</label><input id="ar-team" /></div>
+        <div class="input-group"><label>Category</label>
+          <select id="ar-cat"><option value="">—</option><option>IGF</option><option>IYF</option><option>ICF_MTG</option><option>ICF_PRJI</option></select></div>
+        <div class="input-group"><label>Reference</label><input id="ar-ref" /></div>
+        <div class="input-group"><label>Area</label>
+          <select id="ar-area"><option value="">—</option>${areaOpts}</select></div>
+        <div class="input-group"><label>Payment Status</label>
+          <select id="ar-pay"><option value="unpaid">Unpaid</option><option value="paid">Paid</option><option value="free">Free</option></select></div>
+        <div class="input-group"><label>Amount</label><input id="ar-amt" type="number" min="0" value="0" /></div>
+        <div class="input-group"><label>Mode</label>
+          <select id="ar-mode"><option value="">—</option><option value="cash">Cash</option><option value="online">Online</option></select></div>
+        <div class="input-group"><label>Remarks</label><input id="ar-remarks" /></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="App._saveAddReg()">Add</button>
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+      </div>`);
+  }
+
+  async function _saveAddReg() {
+    const name = document.getElementById('ar-name').value.trim();
+    const mobile = document.getElementById('ar-mobile').value.trim();
+    if (!name || !mobile) { Helpers.toast('Name and mobile required', 'error'); return; }
+    const normMob = mobile.replace(/\D/g, '').slice(-10);
+    if (normMob.length < 10) { Helpers.toast('Enter valid 10-digit mobile', 'error'); return; }
+    const existing = allAttendees.find(a => a.mobile && a.mobile.toString().replace(/\D/g, '').slice(-10) === normMob);
+    if (existing) { Helpers.toast(`Mobile already exists: "${existing.name}"`, 'error'); return; }
+
+    const amt = parseFloat(document.getElementById('ar-amt').value) || 0;
+    const record = {
+      name, mobile,
+      team: document.getElementById('ar-team').value.trim(),
+      category: document.getElementById('ar-cat').value,
+      reference: document.getElementById('ar-ref').value.trim(),
+      area: document.getElementById('ar-area').value,
+      paymentStatus: document.getElementById('ar-pay').value,
+      paymentAmount: amt,
+      paymentMode: document.getElementById('ar-mode').value,
+      remarks: document.getElementById('ar-remarks').value.trim(),
+      attendance: 'absent', isWalkIn: false, isDuplicate: false, cancelled: false,
+      createdAt: new Date().toISOString(),
+      addedBy: currentUser?.name || 'Unknown',
+      paymentDate: amt > 0 ? new Date().toISOString().slice(0, 10) : '',
+    };
+    const newId = await DB.add(DB.STORES.attendees, record);
+    allAttendees.push({ id: newId, ...record });
+    await DB.log('addReg', `Registration added: ${name} (${mobile})`, currentUser?.email);
+    Helpers.closeModal();
+    Helpers.toast(`${name} registered`, 'success');
+    _manageSubTab('attendees');
+  }
+
+  // ── Action sub-tab: present but unpaid ──────────────────────────
+  async function _initMngAction(host) {
+    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const esc = Helpers.escapeHtml;
+    const unpaid = attendees.filter(a =>
+      a.attendance === 'present' && a.paymentStatus !== 'paid' && a.paymentStatus !== 'free' && !a.cancelled
+    ).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+
+    const evtDoc = await DB.getEvent(DB.getCurrentEvent()).catch(() => null);
+    const charge = parseFloat(evtDoc?.chargePerPerson) || 0;
+    const partialAmt = unpaid.reduce((s, a) => s + (parseFloat(a.paymentAmount) || 0), 0);
+    const outstanding = charge ? (charge * unpaid.length) - partialAmt : 0;
+
+    host.innerHTML = `
+      <div class="card">
+        <h3 class="card-title">Present but Unpaid — Follow Up</h3>
+        <div class="stats-grid" style="margin-bottom:1rem">
+          <div class="stat-card warning"><div class="stat-value">${unpaid.length}</div><div class="stat-label">Unpaid Present</div></div>
+          ${charge ? `<div class="stat-card danger"><div class="stat-value">${Helpers.currency(outstanding)}</div><div class="stat-label">Outstanding</div></div>
+          <div class="stat-card info"><div class="stat-value">${Helpers.currency(charge)}</div><div class="stat-label">Per Person</div></div>` : ''}
+          ${partialAmt ? `<div class="stat-card accent"><div class="stat-value">${Helpers.currency(partialAmt)}</div><div class="stat-label">Partial Collected</div></div>` : ''}
+        </div>
+        ${unpaid.length === 0
+          ? '<p style="text-align:center;color:var(--text-muted);padding:1rem">All present attendees have paid!</p>'
+          : `<div class="att-table-scroll"><table class="att-table">
+              <thead><tr><th>#</th><th>Name</th><th>Mobile</th><th>Team</th><th>Partial</th><th>Actions</th></tr></thead>
+              <tbody>${unpaid.map((a, i) => {
+                const partial = parseFloat(a.paymentAmount || 0);
+                return `<tr>
+                  <td>${i + 1}</td><td style="font-weight:500">${esc(a.name)}</td><td>${esc(a.mobile || '-')}</td>
+                  <td>${esc(a.team || '-')}</td><td>${partial > 0 ? Helpers.currency(partial) : '-'}</td>
+                  <td style="white-space:nowrap">
+                    <button class="btn-small success" onclick="App._collectPayment('${a.id}')">Collect</button>
+                    <button class="btn-small" onclick="App.showDetail('${a.id}')">View</button>
+                  </td></tr>`;
+              }).join('')}</tbody>
+            </table></div>`}
+      </div>`;
+  }
+
+  // ── Fine Collection sub-tab ─────────────────────────────────────
+  async function _initMngFines(host) {
+    const eid = DB.getCurrentEvent();
+    const evtDoc = await DB.getEvent(eid).catch(() => null);
+    const esc = Helpers.escapeHtml;
+
+    let fines = [];
+    try { fines = await DB.getAll(DB.STORES.fines); } catch {}
+    _finesCache = fines;
+
+    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const absentees = attendees.filter(a => a.attendance !== 'present' && !a.cancelled && !a.isWalkIn);
+    const finedIds = new Set(fines.map(f => f.participantId));
+    const unfined = absentees.filter(a => !finedIds.has(a.id));
+
+    const pending = fines.filter(f => f.status === 'pending');
+    const collected = fines.filter(f => f.status === 'collected');
+    const waived = fines.filter(f => f.status === 'waived');
+    const totalPending = pending.reduce((s, f) => s + (parseFloat(f.fineAmount) || 0), 0);
+    const totalCollected = collected.reduce((s, f) => s + (parseFloat(f.collectedAmount) || 0), 0);
+
+    host.innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">
+          <h3 class="card-title" style="margin:0">Fine Collection — ${esc(evtDoc?.name || 'Current Event')}</h3>
+          ${unfined.length > 0 ? `<button class="btn-primary" style="font-size:.82rem;padding:.4rem .85rem" onclick="App._generateFines()">Generate Fines (${unfined.length} absentees)</button>` : ''}
+        </div>
+        <div class="stats-grid" style="margin-bottom:1rem">
+          <div class="stat-card warning"><div class="stat-value">${pending.length}</div><div class="stat-label">Pending</div></div>
+          <div class="stat-card success"><div class="stat-value">${collected.length}</div><div class="stat-label">Collected</div></div>
+          <div class="stat-card info"><div class="stat-value">${Helpers.currency(totalCollected)}</div><div class="stat-label">Total Collected</div></div>
+          <div class="stat-card danger"><div class="stat-value">${Helpers.currency(totalPending)}</div><div class="stat-label">Outstanding</div></div>
+        </div>
+        ${fines.length === 0
+          ? `<p style="text-align:center;color:var(--text-muted);padding:1rem">${unfined.length > 0
+              ? 'No fines generated yet. Click "Generate Fines" to create fine entries for absentees.'
+              : 'No absentees found for this event.'}</p>`
+          : `<div class="att-filter-tabs" style="margin-bottom:.75rem">
+              <button class="att-tab active" onclick="App._filterFines('all',this)">All (${fines.length})</button>
+              <button class="att-tab" onclick="App._filterFines('pending',this)">Pending (${pending.length})</button>
+              <button class="att-tab" onclick="App._filterFines('collected',this)">Collected (${collected.length})</button>
+              ${waived.length ? `<button class="att-tab" onclick="App._filterFines('waived',this)">Waived (${waived.length})</button>` : ''}
+            </div>
+            <div id="mng-fines-table"></div>`}
+      </div>`;
+
+    if (fines.length) _renderFinesTable(fines, 'all');
+  }
+
+  function _renderFinesTable(fines, filter) {
+    const esc = Helpers.escapeHtml;
+    let list = fines;
+    if (filter === 'pending') list = fines.filter(f => f.status === 'pending');
+    else if (filter === 'collected') list = fines.filter(f => f.status === 'collected');
+    else if (filter === 'waived') list = fines.filter(f => f.status === 'waived');
+    list.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+
+    const tbl = document.getElementById('mng-fines-table');
+    if (!tbl) return;
+    tbl.innerHTML = `
+      <div class="att-table-scroll"><table class="att-table">
+        <thead><tr><th>#</th><th>Name</th><th>Mobile</th><th>Team</th><th>Fine</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>${list.length ? list.map((f, i) => {
+          const badge = f.status === 'collected'
+            ? `<span class="badge present">Collected ${Helpers.currency(f.collectedAmount)}</span>`
+            : f.status === 'waived' ? `<span class="badge before">Waived</span>`
+            : `<span class="badge unpaid">Pending</span>`;
+          return `<tr>
+            <td>${i + 1}</td><td style="font-weight:500">${esc(f.name)}</td>
+            <td>${esc(f.mobile || '-')}</td><td>${esc(f.team || '-')}</td>
+            <td>${Helpers.currency(f.fineAmount)}</td><td>${badge}</td>
+            <td style="white-space:nowrap">${f.status === 'pending'
+              ? `<button class="btn-small success" onclick="App._collectFine('${f.id}')">Collect</button>
+                 <button class="btn-small warning" onclick="App._waiveFine('${f.id}')">Waive</button>`
+              : `<span style="font-size:.75rem;color:var(--text-muted)">${esc(f.collectedBy || f.remarks || '')}</span>`}
+            </td></tr>`;
+        }).join('') : '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted)">No fines in this view</td></tr>'}</tbody>
+      </table></div>`;
+  }
+
+  function _filterFines(filter, btn) {
+    if (btn) {
+      btn.closest('.att-filter-tabs').querySelectorAll('.att-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+    }
+    _renderFinesTable(_finesCache, filter);
+  }
+
+  async function _generateFines() {
+    const eid = DB.getCurrentEvent();
+    const evtDoc = await DB.getEvent(eid).catch(() => null);
+    const charge = parseFloat(evtDoc?.chargePerPerson) || 0;
+    let fineAmt = charge;
+    if (!fineAmt) {
+      const input = prompt('Enter fine amount per person (₹):');
+      if (!input || isNaN(input) || parseFloat(input) <= 0) { Helpers.toast('Enter a valid amount', 'error'); return; }
+      fineAmt = parseFloat(input);
+    }
+
+    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    let existing = [];
+    try { existing = await DB.getAll(DB.STORES.fines); } catch {}
+    const finedIds = new Set(existing.map(f => f.participantId));
+    const absentees = attendees.filter(a =>
+      a.attendance !== 'present' && !a.cancelled && !a.isWalkIn && !finedIds.has(a.id)
+    );
+    if (!absentees.length) { Helpers.toast('No new absentees to fine', 'info'); return; }
+    if (!confirm(`Generate fines for ${absentees.length} absentees at ${Helpers.currency(fineAmt)} each?`)) return;
+
+    const now = new Date().toISOString();
+    const BATCH = 400;
+    for (let i = 0; i < absentees.length; i += BATCH) {
+      await Promise.all(absentees.slice(i, i + BATCH).map(a => DB.add(DB.STORES.fines, {
+        participantId: a.id, name: a.name, mobile: a.mobile || '',
+        team: a.team || '', category: a.category || '',
+        fineAmount: fineAmt, status: 'pending',
+        collectedAmount: 0, collectedAt: null, collectedBy: '', collectedMode: '', remarks: '',
+        createdAt: now, eventName: evtDoc?.name || ''
+      })));
+    }
+    await DB.log('finesGenerated', `Generated ${absentees.length} fines at ₹${fineAmt}`, currentUser?.email);
+    Helpers.toast(`${absentees.length} fines generated`, 'success');
+    _manageSubTab('fines');
+  }
+
+  function _collectFine(fineId) {
+    const f = _finesCache.find(x => x.id === fineId);
+    Helpers.modal(`
+      <h3 class="modal-title">Collect Fine${f ? ' — ' + Helpers.escapeHtml(f.name) : ''}</h3>
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label>Amount Collected (₹)</label>
+        <input id="fc-amt" type="number" min="0" value="${f?.fineAmount || ''}" />
+      </div>
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label>Mode</label>
+        <select id="fc-mode"><option value="cash">Cash</option><option value="online">Online</option></select>
+      </div>
+      <div class="input-group" style="margin-bottom:.75rem">
+        <label>Remarks</label>
+        <input id="fc-remarks" type="text" placeholder="e.g. collected at next event" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="App._saveFineColl('${fineId}')">Save</button>
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+      </div>`);
+  }
+
+  async function _saveFineColl(fineId) {
+    const amt = parseFloat(document.getElementById('fc-amt').value);
+    if (!amt || amt <= 0) { Helpers.toast('Enter a valid amount', 'error'); return; }
+    await DB.put(DB.STORES.fines, {
+      id: fineId, status: 'collected', collectedAmount: amt,
+      collectedAt: new Date().toISOString(),
+      collectedBy: currentUser?.name || 'Unknown',
+      collectedMode: document.getElementById('fc-mode').value,
+      remarks: document.getElementById('fc-remarks').value.trim()
+    });
+    await DB.log('fineCollected', `Fine collected: ${fineId}, ₹${amt}`, currentUser?.email);
+    Helpers.closeModal(); Helpers.toast('Fine collected', 'success');
+    _manageSubTab('fines');
+  }
+
+  async function _waiveFine(fineId) {
+    const reason = prompt('Reason for waiving (optional):');
+    if (reason === null) return;
+    await DB.put(DB.STORES.fines, {
+      id: fineId, status: 'waived', remarks: reason || 'Waived',
+      collectedAt: new Date().toISOString(),
+      collectedBy: currentUser?.name || 'Unknown'
+    });
+    await DB.log('fineWaived', `Fine waived: ${fineId}`, currentUser?.email);
+    Helpers.toast('Fine waived', 'info');
+    _manageSubTab('fines');
+  }
+
   // ===== REPORTS =====
   function initReports() {
     loadReport();
@@ -4688,7 +5149,11 @@ const App = (() => {
     saveBusFromDetail,
     // Gate & report sub-tabs
     _reportSubTab, _gateAdminUnlock, _gateShowList,
-    _openWalkin,
+    _openWalkin, _changeBusSetup,
+    // Manage page
+    _manageSubTab, _collectPayment, _saveCollectPayment, _showAddReg, _saveAddReg,
+    _cancelReg, _uncancelReg,
+    _filterFines, _generateFines, _collectFine, _saveFineColl, _waiveFine,
   };
 })();
 

@@ -426,7 +426,7 @@ const Export = (() => {
 
     let f = allAtts;
     if (search)  f = f.filter(a => Helpers.searchFilter(a, search));
-    if (teamVal) f = f.filter(a => a.team === teamVal);
+    if (teamVal) f = f.filter(a => (a.team || '').toLowerCase() === teamVal.toLowerCase());
     if (catVal)  f = f.filter(a => a.category === catVal);
     if (attVal)  f = f.filter(a => attVal === 'present' ? a.attendance === 'present' : a.attendance !== 'present');
 
@@ -610,11 +610,12 @@ const Export = (() => {
     // Build dept → { team → members[] } using team's DEPARTMENT (not devotee category)
     const deptMap = {};
     attendees.forEach(a => {
-      const team = (a.team || 'Other').trim();
-      const dept = Reports.getTeamDept(team, savedMap) || 'Unassigned';
+      const rawTeam = (a.team || 'Other').trim();
+      const teamKey = rawTeam.toLowerCase();
+      const dept = Reports.getTeamDept(rawTeam, savedMap) || 'Unassigned';
       if (!deptMap[dept]) deptMap[dept] = {};
-      if (!deptMap[dept][team]) deptMap[dept][team] = [];
-      deptMap[dept][team].push(a);
+      if (!deptMap[dept][teamKey]) deptMap[dept][teamKey] = { display: rawTeam, members: [] };
+      deptMap[dept][teamKey].members.push(a);
     });
     const allCats = [...CATEGORY_ORDER.filter(d => deptMap[d]), ...Object.keys(deptMap).filter(d => !CATEGORY_ORDER.includes(d)).sort()];
 
@@ -646,14 +647,14 @@ const Export = (() => {
       ws.mergeCells(`A${catHdr.number}:D${catHdr.number}`);
 
       let catPaid = 0, catUnpaid = 0, catTotal = 0;
-      teams.forEach((team, i) => {
-        const members = teamMap[team];
+      teams.forEach((teamKey, i) => {
+        const { display: teamName, members } = teamMap[teamKey];
         const paid   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'paid').length;
         const free   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'free').length;
         const unpaid = members.length - paid - free;
         catPaid += paid; catUnpaid += unpaid; catTotal += members.length;
 
-        const row = ws.addRow([team, paid, unpaid, members.length]);
+        const row = ws.addRow([teamName, paid, unpaid, members.length]);
         row.height = 20;
         const bg = i % 2 === 0 ? 'F0FDF4' : 'FFFFFF';
         row.eachCell({ includeEmpty: true }, (cell, col) => {

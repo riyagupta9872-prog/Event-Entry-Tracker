@@ -9,7 +9,8 @@ const DB = (() => {
     busRoutes: 'busRoutes',
     buses: 'buses',
     auditLog: 'auditLog',
-    offlineQueue: 'offlineQueue'
+    offlineQueue: 'offlineQueue',
+    fines: 'fines'
   };
 
   function setCurrentEvent(id) {

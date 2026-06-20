@@ -1897,6 +1897,16 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
             </div>
           </div>
 
+          <!-- MANAGE PAGE (admin) -->
+          <div id="page-manage" class="page hidden admin-page">
+            <div class="att-filter-tabs" style="margin-bottom:1rem">
+              <button class="att-tab active" id="mng-tab-attendees" onclick="App._manageSubTab('attendees')">Attendees</button>
+              <button class="att-tab" id="mng-tab-action" onclick="App._manageSubTab('action')">Action</button>
+              <button class="att-tab" id="mng-tab-fines" onclick="App._manageSubTab('fines')">Fine Collection</button>
+            </div>
+            <div id="manage-content"></div>
+          </div>
+
           <!-- MY BUS PAGE -->
           <div id="page-mybus" class="page hidden">
             <div id="mybus-content"></div>
@@ -1976,6 +1986,10 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           <button class="bnav-item" data-tab="mybus" onclick="App.switchTab('mybus')">
             <span class="bnav-icon"><svg viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 4v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></span>
             <span class="bnav-label">My Bus</span>
+          </button>
+          <button class="bnav-item admin-only" data-tab="manage" onclick="App.switchTab('manage')">
+            <span class="bnav-icon"><svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg></span>
+            <span class="bnav-label">Manage</span>
           </button>
           <button class="bnav-item admin-only" data-tab="setup" onclick="App.switchTab('setup')">
             <span class="bnav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>

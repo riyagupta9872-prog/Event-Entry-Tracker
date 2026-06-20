@@ -174,7 +174,9 @@ const Helpers = (() => {
     const q = query.toLowerCase();
     return (
       (item.name || '').toLowerCase().includes(q) ||
-      (item.mobile || '').includes(q)
+      (item.mobile || '').includes(q) ||
+      (item.team || '').toLowerCase().includes(q) ||
+      (item.reference || '').toLowerCase().includes(q)
     );
   }
 
