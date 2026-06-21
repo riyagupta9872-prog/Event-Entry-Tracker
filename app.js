@@ -545,9 +545,6 @@ const App = (() => {
       // Firestore 'in' with null crashes — client filter is simpler and equally fast.
       liveUnsubscribe = col.onSnapshot(snap => {
         let docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        if (!isAdmin && myArea) {
-          docs = docs.filter(a => !a.area || a.area === '' || normBus(a.area) === normBus(myArea));
-        }
         allAttendees = docs.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
         updateAdmitCountersFromCache();
         _debouncedPageRefresh();
@@ -2352,6 +2349,9 @@ const App = (() => {
         await DB.bulkAdd(DB.STORES.attendees, toImport);
       }
 
+      // Force fresh fetch on next page load — cache is now stale
+      allAttendees = [];
+
       const summary = [
         `${toImport.length} imported`,
         existingInDb.length ? `${existingInDb.length} skipped (already in app)` : '',
@@ -2620,11 +2620,16 @@ const App = (() => {
     const ql = q.toLowerCase();
     const score = a => {
       const nl = (a.name || '').toLowerCase();
-      if (nl === ql)              return 0; // exact name match
-      if (nl.startsWith(ql))     return 1; // name starts with query
-      if (nl.includes(ql))       return 2; // name contains query
-      if ((a.mobile || '').includes(q)) return 3; // mobile match
-      return 4;
+      if (nl === ql)              return 0; // exact name match "Uma" = "Uma"
+      if (nl.startsWith(ql))     return 1; // first name starts "Uma devi"
+      // word boundary match — query matches start of any word in name
+      const words = nl.split(/\s+/);
+      if (words.some(w => w.startsWith(ql))) return 2; // "Uma" in "Devi Uma"
+      if (nl.includes(ql))       return 3; // substring in middle "Kumar" contains "uma"
+      if ((a.mobile || '').includes(q)) return 4; // mobile match
+      if ((a.team || '').toLowerCase().includes(ql)) return 5;
+      if ((a.reference || '').toLowerCase().includes(ql)) return 6;
+      return 7;
     };
     return list.slice().sort((a, b) => {
       const diff = score(a) - score(b);
@@ -3353,7 +3358,7 @@ const App = (() => {
   }
 
   async function renderWalkinList() {
-    const all = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const all = await DB.getAll(DB.STORES.attendees);
     const walkins = all.filter(a => a.isWalkIn).slice().reverse();
     document.getElementById('walkin-list').innerHTML = walkins.length ? Helpers.buildTable(
       ['Name', 'Mobile', 'Reference', 'Payment', 'Mode', 'Entry'],
@@ -3366,7 +3371,7 @@ const App = (() => {
   // ===== ATTENDEES =====
   const ATTENDEES_LIMIT = 500;
   async function initAttendees() {
-    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const attendees = await DB.getAll(DB.STORES.attendees);
     attendeesPage = 1;
 
     // Deduplicate team names case-insensitively; display canonical (most-frequent) spelling
@@ -3530,7 +3535,7 @@ const App = (() => {
 
   // ── Attendees sub-tab: edit, cancel, add registrations ──────────
   async function _initMngAttendees(host) {
-    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const attendees = await DB.getAll(DB.STORES.attendees);
     const esc = Helpers.escapeHtml;
     const teamMap = {}, refMap = {};
     attendees.forEach(a => {
@@ -3577,11 +3582,9 @@ const App = (() => {
       if (status === 'cancelled') filtered = filtered.filter(a => a.cancelled);
       filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
 
-      const limit = 300;
-      document.getElementById('mng-att-count').textContent =
-        `${filtered.length} registrations` + (filtered.length > limit ? ` (showing ${limit})` : '');
+      document.getElementById('mng-att-count').textContent = `${filtered.length} registrations`;
 
-      const rows = filtered.slice(0, limit).map((a, i) => {
+      const rows = filtered.map((a, i) => {
         const cancelled = a.cancelled;
         const payBadge = a.paymentStatus === 'paid' ? '<span class="badge present">Paid</span>'
           : a.paymentStatus === 'free' ? '<span class="badge before">Free</span>'
@@ -3621,7 +3624,7 @@ const App = (() => {
 
   // ── Walk-ins sub-tab ─────────────────────────────────────────────
   async function _initMngWalkins(host) {
-    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const attendees = await DB.getAll(DB.STORES.attendees);
     const walkins = attendees.filter(a => a.isWalkIn).sort((a, b) => {
       const ta = a.entryTime || a.createdAt || '', tb = b.entryTime || b.createdAt || '';
       return tb.localeCompare(ta);
@@ -3689,7 +3692,7 @@ const App = (() => {
 
   // ── Late Registrations sub-tab ───────────────────────────────────
   async function _initMngLate(host) {
-    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const attendees = await DB.getAll(DB.STORES.attendees);
     const cutoffDate = await DB.getConfig('cutoffDate').catch(() => null);
     const lateCharge = parseFloat(await DB.getConfig('lateCharge').catch(() => 0)) || 0;
     const normalCharge = parseFloat(await DB.getConfig('chargePerPerson').catch(() => 0)) || 0;
@@ -3886,7 +3889,7 @@ const App = (() => {
 
   // ── Action sub-tab: present but unpaid ──────────────────────────
   async function _initMngAction(host) {
-    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const attendees = await DB.getAll(DB.STORES.attendees);
     const esc = Helpers.escapeHtml;
     const unpaid = attendees.filter(a =>
       a.attendance === 'present' && a.paymentStatus !== 'paid' && a.paymentStatus !== 'free' && !a.cancelled
@@ -3934,7 +3937,7 @@ const App = (() => {
     try { fines = await DB.getAll(DB.STORES.fines); } catch {}
     _finesCache = fines;
 
-    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const attendees = await DB.getAll(DB.STORES.attendees);
     const absentees = attendees.filter(a => a.attendance !== 'present' && !a.cancelled && !a.isWalkIn);
     const finedIds = new Set(fines.map(f => f.participantId));
     const unfined = absentees.filter(a => !finedIds.has(a.id));
@@ -4023,7 +4026,7 @@ const App = (() => {
       fineAmt = parseFloat(input);
     }
 
-    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const attendees = await DB.getAll(DB.STORES.attendees);
     let existing = [];
     try { existing = await DB.getAll(DB.STORES.fines); } catch {}
     const finedIds = new Set(existing.map(f => f.participantId));
@@ -4121,7 +4124,7 @@ const App = (() => {
     const host = document.getElementById('page-payment-content');
     host.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:2rem">Loading…</p>';
 
-    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const attendees = await DB.getAll(DB.STORES.attendees);
     const rawTcMap = await DB.getConfig('teamCategoryMap').catch(() => null);
     const tcMap = rawTcMap ? JSON.parse(rawTcMap) : {};
     const evtDoc = await DB.getEvent(DB.getCurrentEvent()).catch(() => null);
