@@ -1507,6 +1507,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           <span id="page-title" style="margin-left:.25rem"></span>
           <div class="top-bar-right">
             <button id="event-selector-btn" class="event-select" onclick="App.showEventPicker()" title="Switch event">—</button>
+            <button onclick="App._refreshSync()" title="Refresh / Sync" style="background:none;border:none;cursor:pointer;font-size:1.15rem;padding:0.2rem;color:var(--text-secondary);-webkit-tap-highlight-color:transparent">&#8635;</button>
             <span id="sync-status" class="sync-status online">●</span>
             <span id="offline-badge" class="offline-badge hidden">Queued</span>
             <button class="user-avatar admin-only" id="topbar-user-avatar" title="Account" onclick="App.showMyAccountModal()">A</button>

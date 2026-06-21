@@ -680,6 +680,19 @@ const App = (() => {
     initMyBusPicker();
   }
 
+  async function _refreshSync() {
+    Helpers.toast('Syncing…', 'info', 1500);
+    stopLiveSync();
+    allAttendees = [];
+    _dashStaticCache = null;
+    _attFilter = 'all';
+    try {
+      allAttendees = await DB.getAll(DB.STORES.attendees);
+    } catch {}
+    startLiveSync();
+    navigate(currentPage);
+  }
+
   // ===== EVENT MANAGEMENT =====
   let _cachedEvents = [];
 
@@ -2529,9 +2542,14 @@ const App = (() => {
   async function initAttendance() {
     checkGateLock();
     const isLocked = !document.getElementById('gate-content') || document.getElementById('gate-content').classList.contains('hidden');
-    if (isLocked) return; // gate lock screen is showing — don't proceed
+    if (isLocked) return;
     const busBlocked = await checkBusRequired();
-    if (busBlocked) return; // bus selection screen is showing
+    if (busBlocked) return;
+
+    // Reset filter to "All" every time Gate page loads — prevents stale filter hiding records
+    _attFilter = 'all';
+    document.querySelectorAll('.att-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === 'all'));
+
     updateAdmitCountersFromCache();
     primeAbsenteeMap();
     renderAllAttendance(document.getElementById('att-search')?.value);
@@ -2638,13 +2656,21 @@ const App = (() => {
     });
   }
 
-  function renderAllAttendance(query) {
+  async function renderAllAttendance(query) {
+    // Always ensure we have fresh data — onSnapshot may not have fired yet or may have partial cache
+    if (!allAttendees.length) {
+      try {
+        const fresh = await DB.getAll(DB.STORES.attendees);
+        if (fresh.length > allAttendees.length) allAttendees = fresh;
+      } catch {}
+    }
     let list = allAttendees.slice();
 
     // Apply tab filter
     if (_attFilter === 'unpaid')  list = list.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid');
     else if (_attFilter === 'absent')  list = list.filter(a => a.attendance !== 'present');
     else if (_attFilter === 'present') list = list.filter(a => a.attendance === 'present');
+    else if (_attFilter === 'walkin')  list = list.filter(a => !!a.isWalkIn);
 
     // Apply search with relevance sorting
     const q = (query || '').trim();
@@ -5596,7 +5622,7 @@ const App = (() => {
     saveBusFromDetail,
     // Gate & report sub-tabs
     _reportSubTab, _shareTeamPayImg, _shareAllPayImgs, _gateAdminUnlock, _gateShowList,
-    _openWalkin, _changeBusSetup,
+    _openWalkin, _changeBusSetup, _refreshSync,
     // Manage page
     _manageSubTab, _collectPayment, _saveCollectPayment, _showAddReg, _saveAddReg,
     _cancelReg, _uncancelReg,
