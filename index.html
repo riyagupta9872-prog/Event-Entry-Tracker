@@ -1901,6 +1901,8 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
           <div id="page-manage" class="page hidden admin-page">
             <div class="att-filter-tabs" style="margin-bottom:1rem">
               <button class="att-tab active" id="mng-tab-attendees" onclick="App._manageSubTab('attendees')">Attendees</button>
+              <button class="att-tab" id="mng-tab-walkins" onclick="App._manageSubTab('walkins')">Walk-ins</button>
+              <button class="att-tab" id="mng-tab-late" onclick="App._manageSubTab('late')">Late</button>
               <button class="att-tab" id="mng-tab-action" onclick="App._manageSubTab('action')">Action</button>
               <button class="att-tab" id="mng-tab-fines" onclick="App._manageSubTab('fines')">Fine Collection</button>
             </div>
@@ -1914,20 +1916,32 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 
           <!-- REPORTS PAGE -->
           <div id="page-reports" class="page hidden admin-page">
-            <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+            <div style="display:flex;gap:.5rem;margin-bottom:1rem;overflow-x:auto">
               <button class="rep-tab active" id="rep-subtab-reports" onclick="App._reportSubTab('reports')">Reports</button>
               <button class="rep-tab" id="rep-subtab-financial" onclick="App._reportSubTab('financial')">Financial Year</button>
+              <button class="rep-tab" id="rep-subtab-payment" onclick="App._reportSubTab('payment')">Payment</button>
             </div>
             <div id="report-content" class="report-content"></div>
           </div>
 
           <!-- FINANCIAL YEAR PAGE -->
           <div id="page-financial" class="page hidden admin-page">
-            <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+            <div style="display:flex;gap:.5rem;margin-bottom:1rem;overflow-x:auto">
               <button class="rep-tab" onclick="App._reportSubTab('reports')">Reports</button>
               <button class="rep-tab active" onclick="App._reportSubTab('financial')">Financial Year</button>
+              <button class="rep-tab" onclick="App._reportSubTab('payment')">Payment</button>
             </div>
             <div id="page-financial-content"></div>
+
+          <!-- PAYMENT REPORTS PAGE -->
+          </div>
+          <div id="page-payment" class="page hidden admin-page">
+            <div style="display:flex;gap:.5rem;margin-bottom:1rem;overflow-x:auto">
+              <button class="rep-tab" onclick="App._reportSubTab('reports')">Reports</button>
+              <button class="rep-tab" onclick="App._reportSubTab('financial')">Financial Year</button>
+              <button class="rep-tab active" onclick="App._reportSubTab('payment')">Payment</button>
+            </div>
+            <div id="page-payment-content"></div>
           </div>
 
           <!-- SETTINGS PAGE -->

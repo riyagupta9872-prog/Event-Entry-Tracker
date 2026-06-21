@@ -60,8 +60,9 @@ const Helpers = (() => {
     if (na === nb) return true;
     const dist = levenshtein(na, nb);
     const maxLen = Math.max(na.length, nb.length);
-    // 0.35 threshold: catches 1-char typos in names as short as 3 chars ("raj"/"rai")
-    return maxLen > 0 && (dist / maxLen) < 0.35;
+    // 0.18 threshold: catches real typos (1-2 chars off) but not family members
+    // sharing a surname (e.g. "Kajal jaisawal" vs "Maya jaisawal" = 0.23 → NOT flagged)
+    return maxLen > 0 && (dist / maxLen) < 0.18;
   }
 
   function levenshtein(a, b) {

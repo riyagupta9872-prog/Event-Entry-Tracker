@@ -817,7 +817,7 @@ const App = (() => {
     dashboard: 'home', attendance: 'gate', walkin: 'gate',
     mybus: 'mybus', manage: 'manage',
     settings: 'setup', import: 'setup', attendees: 'setup',
-    reports: 'reports', financial: 'reports'
+    reports: 'reports', financial: 'reports', payment: 'reports'
   };
 
   // ===== NAVIGATION =====
@@ -845,7 +845,7 @@ const App = (() => {
       attendance: '', walkin: '/ Walk-ins',
       attendees: '/ Attendees', reports: '',
       settings: '', financial: '/ Financial',
-      mybus: '', manage: ''
+      mybus: '', manage: '', payment: '/ Payment'
     };
     const titleEl = document.getElementById('page-title');
     if (titleEl) titleEl.textContent = titles[page] !== undefined ? titles[page] : '';
@@ -865,6 +865,7 @@ const App = (() => {
       case 'financial': initFinancial(); break;
       case 'mybus': initMyBus(); break;
       case 'manage': initManage(); break;
+      case 'payment': initPaymentReports(); break;
     }
   }
 
@@ -959,7 +960,7 @@ const App = (() => {
 
   // Reports sub-tab switcher (Reports vs Financial Year)
   function _reportSubTab(which) {
-    navigate(which === 'financial' ? 'financial' : 'reports');
+    navigate(which === 'financial' ? 'financial' : which === 'payment' ? 'payment' : 'reports');
   }
 
 
@@ -1715,35 +1716,73 @@ const App = (() => {
         };
 
         App._showCatDetail = (catKey, catLabel) => {
-          const list = attendees.filter(a => (a.category || 'Unknown').trim().toLowerCase() === catKey);
+          const list = attendees.filter(a => (a.category || 'Unknown').trim().toLowerCase() === catKey)
+            .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
           const paidList   = list.filter(a => (a.paymentStatus||'').toLowerCase() === 'paid');
           const unpaidList = list.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid');
           const freeList   = list.filter(a => (a.paymentStatus||'').toLowerCase() === 'free');
-          const rows = list.map(a => {
+
+          window._catDetailList = list;
+          window._catDetailLabel = catLabel;
+
+          const renderCatRows = (items) => items.map(a => {
             const ps = (a.paymentStatus || 'unpaid').toLowerCase();
             const badge = ps === 'paid' ? 'present' : ps === 'free' ? 'before' : 'unpaid';
             return `<div class="pop-list-row">
               <div class="pop-list-main">
                 <div class="pop-list-name">${esc(a.name)}</div>
-                <div class="pop-list-meta">${esc(a.mobile||'')}${a.team ? ' · '+esc(a.team) : ''}</div>
+                <div class="pop-list-meta">${esc(a.mobile||'')}${a.team ? ' · '+esc(a.team) : ''}${a.reference ? ' · '+esc(a.reference) : ''}</div>
               </div>
               <span class="badge ${badge}" style="flex-shrink:0">${ps}</span>
             </div>`;
           }).join('');
+
           Helpers.modal(`
             <div class="pop-list-header">
               <div class="pop-list-title">${esc(catLabel)}</div>
               <div class="pop-list-count">${list.length} registered</div>
             </div>
-            <div style="display:flex;gap:.5rem;margin:.6rem 0;flex-wrap:wrap">
+            <div style="display:flex;gap:.5rem;margin:.6rem 0;flex-wrap:wrap;align-items:center">
               <span class="badge present" style="font-size:.78rem">Paid: ${paidList.length}</span>
               <span class="badge unpaid" style="font-size:.78rem">Unpaid: ${unpaidList.length}</span>
               ${freeList.length ? `<span class="badge before" style="font-size:.78rem">Free: ${freeList.length}</span>` : ''}
             </div>
-            <div class="pop-list-body">${rows}</div>
-            <div style="margin-top:1rem;text-align:right">
+            <div class="att-filter-tabs" style="margin:.6rem 0">
+              <button class="att-tab active" onclick="App._filterCatDetail('all',this)">All (${list.length})</button>
+              <button class="att-tab" onclick="App._filterCatDetail('paid',this)">Paid (${paidList.length})</button>
+              <button class="att-tab" onclick="App._filterCatDetail('unpaid',this)">Unpaid (${unpaidList.length})</button>
+            </div>
+            <div class="pop-list-body" id="cat-detail-body">${renderCatRows(list)}</div>
+            <div style="display:flex;gap:.5rem;margin-top:1rem;justify-content:flex-end;flex-wrap:wrap">
+              <button class="btn-small success" onclick="App._shareCatDetail('all')">Download All</button>
+              <button class="btn-small success" onclick="App._shareCatDetail('paid')">Download Paid</button>
+              <button class="btn-small success" onclick="App._shareCatDetail('unpaid')">Download Unpaid</button>
               <button class="btn-ghost" onclick="Helpers.closeModal()">Close</button>
             </div>`);
+        };
+
+        App._filterCatDetail = (filter, btn) => {
+          if (btn) {
+            btn.closest('.att-filter-tabs').querySelectorAll('.att-tab').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+          }
+          const list = window._catDetailList || [];
+          let filtered = list;
+          if (filter === 'paid') filtered = list.filter(a => (a.paymentStatus||'').toLowerCase() === 'paid');
+          else if (filter === 'unpaid') filtered = list.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid');
+          const body = document.getElementById('cat-detail-body');
+          if (!body) return;
+          body.innerHTML = filtered.length ? filtered.map(a => {
+            const ps = (a.paymentStatus || 'unpaid').toLowerCase();
+            const badge = ps === 'paid' ? 'present' : ps === 'free' ? 'before' : 'unpaid';
+            return `<div class="pop-list-row">
+              <div class="pop-list-main">
+                <div class="pop-list-name">${esc(a.name)}</div>
+                <div class="pop-list-meta">${esc(a.mobile||'')}${a.team ? ' · '+esc(a.team) : ''}${a.reference ? ' · '+esc(a.reference) : ''}</div>
+              </div>
+              <span class="badge ${badge}" style="flex-shrink:0">${ps}</span>
+            </div>`;
+          }).join('') : '<p style="text-align:center;color:var(--text-muted);padding:1rem">No records</p>';
         };
 
       } else if (regSummaryEl) {
@@ -1799,6 +1838,76 @@ const App = (() => {
         <button class="btn-ghost" onclick="Helpers.closeModal()">Close</button>
       </div>
     `);
+  }
+
+  async function _shareCatDetail(filter) {
+    if (typeof html2canvas === 'undefined') { Helpers.toast('Loading…', 'warning'); return; }
+    const list = window._catDetailList || [];
+    const label = window._catDetailLabel || 'Category';
+    let filtered = list;
+    if (filter === 'paid') filtered = list.filter(a => (a.paymentStatus||'').toLowerCase() === 'paid');
+    else if (filter === 'unpaid') filtered = list.filter(a => !a.paymentStatus || a.paymentStatus.toLowerCase() === 'unpaid');
+    if (!filtered.length) { Helpers.toast('No records to download', 'info'); return; }
+
+    const evtDoc = await DB.getEvent(DB.getCurrentEvent()).catch(() => null);
+    const eventName = evtDoc?.name || 'Event';
+    const esc = Helpers.escapeHtml;
+    const filterLabel = filter === 'paid' ? 'Paid' : filter === 'unpaid' ? 'Unpaid' : 'All';
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#fff;padding:1.25rem 1.5rem;font-family:DM Sans,sans-serif;font-size:13px;color:#1a2e1a';
+    wrap.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;border-bottom:2px solid #166534;padding-bottom:.5rem">
+        <div>
+          <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#166534">PRERNA · ${esc(eventName)}</div>
+          <div style="font-size:1.05rem;font-weight:800;color:#14532d">${esc(label)} — ${filterLabel} (${filtered.length})</div>
+        </div>
+        <div style="font-size:.72rem;color:#64748b">${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#166534;color:#fff">
+          <th style="padding:6px 8px;text-align:left">Sr.</th>
+          <th style="padding:6px 8px;text-align:left">Name</th>
+          <th style="padding:6px 8px;text-align:left">Mobile</th>
+          <th style="padding:6px 8px;text-align:left">Team</th>
+          <th style="padding:6px 8px;text-align:left">Reference</th>
+          <th style="padding:6px 8px;text-align:left">Payment</th>
+          <th style="padding:6px 8px;text-align:right">Amt.</th>
+        </tr></thead>
+        <tbody>${filtered.map((a, i) => {
+          const ps = (a.paymentStatus || 'unpaid').toLowerCase();
+          const psBg = ps === 'paid' ? 'background:#dcfce7;color:#15803d' : 'background:#fee2e2;color:#dc2626';
+          return `<tr style="border-bottom:1px solid #e5e7eb;${i % 2 ? 'background:#f8faf8' : ''}">
+            <td style="padding:5px 8px">${i+1}</td>
+            <td style="padding:5px 8px;font-weight:600">${esc(a.name)}</td>
+            <td style="padding:5px 8px">${esc(a.mobile||'-')}</td>
+            <td style="padding:5px 8px">${esc(a.team||'-')}</td>
+            <td style="padding:5px 8px">${esc(a.reference||'-')}</td>
+            <td style="padding:5px 8px"><span style="${psBg};padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700">${ps}</span></td>
+            <td style="padding:5px 8px;text-align:right;font-weight:600">${a.paymentAmount > 0 ? '₹'+a.paymentAmount : '-'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+
+    document.body.appendChild(wrap);
+    Helpers.toast('Preparing image…', 'info', 2000);
+    try {
+      const canvas = await html2canvas(wrap, { backgroundColor: '#fff', scale: 2, useCORS: true, logging: false });
+      document.body.removeChild(wrap);
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      if (!blob) { Helpers.toast('Failed', 'error'); return; }
+      const fileName = `${eventName.replace(/\s+/g,'-')}-${label}-${filterLabel}.png`;
+
+      if (_isMobile && navigator.share) {
+        const file = new File([blob], fileName, { type: 'image/png' });
+        try {
+          await navigator.share({ files: [file], text: `${label} — ${filterLabel} · ${eventName}` });
+          return;
+        } catch (e) { if (e.name === 'AbortError') return; }
+      }
+      Helpers.downloadBlob(blob, fileName);
+      Helpers.toast('Image downloaded', 'success');
+    } catch (e) { document.body.removeChild(wrap); Helpers.toast('Could not create image', 'error'); }
   }
 
   // ── Full Registration Report modal ──────────────────────────────────────────
@@ -1999,6 +2108,7 @@ const App = (() => {
     { key: 'reference', label: 'Reference' },
     { key: 'team', label: 'Team' },
     { key: 'area', label: 'Area / Zone' },
+    { key: 'registrationDate', label: 'Registration Date / Timestamp' },
     { key: 'paymentStatus', label: 'Payment Status' },
     { key: 'paymentMode', label: 'Mode of Payment' },
     { key: 'paymentAmount', label: 'Payment Amount' },
@@ -2017,6 +2127,7 @@ const App = (() => {
     reference: ['reference', 'ref', 'counselor', 'referred by', 'counsellor'],
     team: ['team', 'team name', 'group'],
     area: ['area', 'zone', 'area zone', 'zone area', 'area / zone', 'area/zone'],
+    registrationDate: ['timestamp', 'registration date', 'reg date', 'registered on', 'registered at', 'form submitted', 'submission date', 'date', 'registration timestamp'],
     paymentStatus: ['payment status', 'pay status', 'payment', 'status', 'paid', 'payment received'],
     paymentMode: ['mode of payment', 'payment mode', 'mode', 'pay mode', 'method'],
     paymentAmount: ['payment amount', 'amount', 'fees', 'charge', 'paid amount', 'received'],
@@ -2148,6 +2259,13 @@ const App = (() => {
 
         r.paymentTiming = Helpers.paymentTiming(r.paymentDate, eventDate);
         r.createdAt     = new Date().toISOString();
+
+        // Parse registration date for late-registration detection
+        if (r.registrationDate) {
+          const rd = new Date(r.registrationDate);
+          if (!isNaN(rd)) r.registrationDate = rd.toISOString();
+          else r.registrationDate = '';
+        }
         // Per-row area from Excel column takes priority; fall back to global dropdown
         if (!r.area) r.area = document.getElementById('import-area-select')?.value || '';
 
@@ -2171,6 +2289,26 @@ const App = (() => {
         Helpers.toast('No valid records found. Check that Name column has data.', 'error');
         btn.disabled = false; btn.textContent = 'Confirm Import';
         return;
+      }
+
+      // Flag late registrations based on cutoff date from event config
+      const cutoffDate = await DB.getConfig('cutoffDate').catch(() => null);
+      const lateCharge = parseFloat(await DB.getConfig('lateCharge').catch(() => 0)) || 0;
+      const normalCharge = parseFloat(await DB.getConfig('chargePerPerson').catch(() => 0)) || 0;
+      if (cutoffDate) {
+        const cutoff = new Date(cutoffDate);
+        cutoff.setHours(23, 59, 59, 999); // inclusive — cutoff date itself is on-time
+        records.forEach(r => {
+          if (r.registrationDate) {
+            const rd = new Date(r.registrationDate);
+            r.isLateRegistration = !isNaN(rd) && !isNaN(cutoff) && rd > cutoff;
+          } else {
+            r.isLateRegistration = false;
+          }
+          r.applicableCharge = r.isLateRegistration && lateCharge ? lateCharge : normalCharge;
+        });
+      } else {
+        records.forEach(r => { r.isLateRegistration = false; r.applicableCharge = normalCharge; });
       }
 
       // Step 1: Flag duplicates within this import batch (same mobile + similar name)
@@ -2616,7 +2754,7 @@ const App = (() => {
           <div class="att-result-info">
             <div class="att-name">${esc(a.name)} ${a.isWalkIn ? '<span class="badge walkin">WI</span>' : ''}</div>
             <div class="att-meta">${esc(a.mobile || '')} · ${esc(a.team || '')}</div>
-            <div class="att-payment-badge ${ps.cls}">${ps.label}${a.paymentMode ? ' · ' + esc(a.paymentMode) : ''}${a.paymentAmount > 0 ? ' · ' + Helpers.currency(a.paymentAmount) : ''}</div>
+            <div class="att-payment-badge ${ps.cls}">${ps.label}${a.paymentMode ? ' · ' + esc(a.paymentMode) : ''}${a.paymentAmount > 0 ? ' · ' + Helpers.currency(a.paymentAmount) : ''}${a.isLateRegistration ? ' · <span style="color:#92400e;font-weight:700">LATE</span>' : ''}</div>
             ${absBadge}
           </div>
           <div class="att-admit-btn ${ps.cls}">${admitLabel}</div>
@@ -2649,9 +2787,13 @@ const App = (() => {
   // Show bottom panel to collect payment info for unpaid attendees
   async function showPaymentCollect(a) {
     const panel = document.getElementById('payment-collect-panel');
-    document.getElementById('pc-name').textContent = a.name;
+    const nameEl = document.getElementById('pc-name');
+    nameEl.textContent = a.name;
+    if (a.isLateRegistration) nameEl.innerHTML += ' <span style="background:#fef3c7;color:#92400e;padding:.1rem .4rem;border-radius:4px;font-size:.7rem;font-weight:700;margin-left:.3rem">LATE</span>';
     document.getElementById('pc-attendee-id').value = a.id;
-    document.getElementById('pc-amount').value = a.paymentAmount > 0 ? a.paymentAmount : '';
+    // Pre-fill with applicable charge (late or normal) if unpaid; keep existing amount if already partially paid
+    const prefill = a.paymentAmount > 0 ? a.paymentAmount : (a.applicableCharge || '');
+    document.getElementById('pc-amount').value = prefill;
     document.getElementById('pc-remarks').value = '';
     document.getElementById('pc-mode-cash').checked = true;
     document.getElementById('pc-screenshot-wrap').style.display = 'none';
@@ -3380,6 +3522,8 @@ const App = (() => {
     const host = document.getElementById('manage-content');
     host.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:2rem">Loading…</p>';
     if (tab === 'attendees') _initMngAttendees(host);
+    else if (tab === 'walkins') _initMngWalkins(host);
+    else if (tab === 'late') _initMngLate(host);
     else if (tab === 'action') _initMngAction(host);
     else if (tab === 'fines') _initMngFines(host);
   }
@@ -3473,6 +3617,143 @@ const App = (() => {
       document.getElementById(id).oninput = debounced;
     });
     render();
+  }
+
+  // ── Walk-ins sub-tab ─────────────────────────────────────────────
+  async function _initMngWalkins(host) {
+    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const walkins = attendees.filter(a => a.isWalkIn).sort((a, b) => {
+      const ta = a.entryTime || a.createdAt || '', tb = b.entryTime || b.createdAt || '';
+      return tb.localeCompare(ta);
+    });
+    const esc = Helpers.escapeHtml;
+
+    const paid = walkins.filter(w => (w.paymentStatus || '').toLowerCase() === 'paid').length;
+    const unpaid = walkins.length - paid;
+    const totalAmt = walkins.reduce((s, w) => s + (parseFloat(w.paymentAmount) || 0), 0);
+
+    host.innerHTML = `
+      <div class="card">
+        <h3 class="card-title">Walk-in Admissions</h3>
+        <div class="stats-grid" style="margin-bottom:1rem">
+          <div class="stat-card info"><div class="stat-value">${walkins.length}</div><div class="stat-label">Total Walk-ins</div></div>
+          <div class="stat-card success"><div class="stat-value">${paid}</div><div class="stat-label">Paid</div></div>
+          <div class="stat-card warning"><div class="stat-value">${unpaid}</div><div class="stat-label">Unpaid</div></div>
+          <div class="stat-card accent"><div class="stat-value">${Helpers.currency(totalAmt)}</div><div class="stat-label">Collected</div></div>
+        </div>
+        <div class="table-controls" style="margin-bottom:.5rem">
+          <input type="text" id="mng-wi-search" class="search-input" placeholder="Search walk-ins..." style="flex:1" />
+        </div>
+        <div id="mng-wi-count" class="table-count"></div>
+        <div id="mng-wi-table"></div>
+      </div>`;
+
+    const render = () => {
+      let list = walkins;
+      const q = document.getElementById('mng-wi-search').value.toLowerCase();
+      if (q) list = list.filter(a => Helpers.searchFilter(a, q));
+
+      document.getElementById('mng-wi-count').textContent = `${list.length} walk-in${list.length !== 1 ? 's' : ''}`;
+
+      const rows = list.map((a, i) => {
+        const payBadge = (a.paymentStatus || '').toLowerCase() === 'paid'
+          ? '<span class="badge present">Paid</span>'
+          : '<span class="badge unpaid">Unpaid</span>';
+        return `<tr>
+          <td>${i + 1}</td>
+          <td style="font-weight:500">${esc(a.name)}</td>
+          <td>${esc(a.mobile || '-')}</td>
+          <td>${esc(a.reference || '-')}</td>
+          <td>${payBadge}${a.paymentAmount > 0 ? ' ₹' + a.paymentAmount : ''}</td>
+          <td>${esc(a.paymentMode || '-')}</td>
+          <td>${esc(a.boardedBus || '-')}</td>
+          <td>${esc(a.markedBy || '-')}</td>
+          <td>${a.entryTime ? Helpers.formatDateTime(a.entryTime) : '-'}</td>
+          <td style="white-space:nowrap">
+            <button class="btn-small" onclick="App.showDetail('${a.id}')">View</button>
+            <button class="btn-small" onclick="App._collectPayment('${a.id}')">Collect</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('mng-wi-table').innerHTML = `
+        <div class="att-table-scroll"><table class="att-table">
+          <thead><tr><th>#</th><th>Name</th><th>Mobile</th><th>Reference</th><th>Payment</th><th>Mode</th><th>Bus</th><th>Admitted By</th><th>Time</th><th>Actions</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text-muted)">No walk-ins yet</td></tr>'}</tbody>
+        </table></div>`;
+    };
+
+    document.getElementById('mng-wi-search').oninput = Helpers.debounce(render, 200);
+    render();
+  }
+
+  // ── Late Registrations sub-tab ───────────────────────────────────
+  async function _initMngLate(host) {
+    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const cutoffDate = await DB.getConfig('cutoffDate').catch(() => null);
+    const lateCharge = parseFloat(await DB.getConfig('lateCharge').catch(() => 0)) || 0;
+    const normalCharge = parseFloat(await DB.getConfig('chargePerPerson').catch(() => 0)) || 0;
+    const esc = Helpers.escapeHtml;
+
+    if (!cutoffDate) {
+      host.innerHTML = `<div class="card"><p style="text-align:center;color:var(--text-muted);padding:2rem">
+        No cutoff date configured. Go to <strong>Setup → Event Config</strong> and set a Registration Cutoff Date.
+      </p></div>`;
+      return;
+    }
+
+    const cutoff = new Date(cutoffDate);
+    cutoff.setHours(23, 59, 59, 999);
+    const late = attendees.filter(a => {
+      if (a.cancelled || a.isWalkIn) return false;
+      if (a.isLateRegistration) return true;
+      if (a.registrationDate) {
+        const rd = new Date(a.registrationDate);
+        return !isNaN(rd) && rd > cutoff;
+      }
+      return false;
+    }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+
+    const paid = late.filter(a => (a.paymentStatus || '').toLowerCase() === 'paid').length;
+    const unpaid = late.length - paid;
+    const collected = late.reduce((s, a) => s + (parseFloat(a.paymentAmount) || 0), 0);
+    const expected = late.length * (lateCharge || normalCharge);
+
+    host.innerHTML = `
+      <div class="card">
+        <h3 class="card-title">Late Registrations <span style="font-weight:400;font-size:.82rem;color:var(--text-muted)">(after ${Helpers.formatDate(cutoffDate)})</span></h3>
+        <div class="stats-grid" style="margin-bottom:1rem">
+          <div class="stat-card warning"><div class="stat-value">${late.length}</div><div class="stat-label">Late Registrations</div></div>
+          <div class="stat-card success"><div class="stat-value">${paid}</div><div class="stat-label">Paid</div></div>
+          <div class="stat-card danger"><div class="stat-value">${unpaid}</div><div class="stat-label">Unpaid</div></div>
+          <div class="stat-card info"><div class="stat-value">${Helpers.currency(lateCharge || normalCharge)}</div><div class="stat-label">Late Rate</div></div>
+        </div>
+        ${late.length === 0
+          ? '<p style="text-align:center;color:var(--text-muted);padding:1rem">No late registrations found.</p>'
+          : `<div class="att-table-scroll"><table class="att-table">
+              <thead><tr><th>#</th><th>Name</th><th>Mobile</th><th>Team</th><th>Registered</th><th>Charge</th><th>Payment</th><th>Actions</th></tr></thead>
+              <tbody>${late.map((a, i) => {
+                const payBadge = (a.paymentStatus || '').toLowerCase() === 'paid'
+                  ? '<span class="badge present">Paid</span>'
+                  : '<span class="badge unpaid">Unpaid</span>';
+                const regDate = a.registrationDate ? Helpers.formatDate(a.registrationDate) : '-';
+                const charge = a.applicableCharge || lateCharge || normalCharge;
+                return `<tr>
+                  <td>${i + 1}</td>
+                  <td style="font-weight:500">${esc(a.name)}</td>
+                  <td>${esc(a.mobile || '-')}</td>
+                  <td>${esc(a.team || '-')}</td>
+                  <td>${regDate}</td>
+                  <td style="font-weight:600">${Helpers.currency(charge)}</td>
+                  <td>${payBadge}${a.paymentAmount > 0 ? ' ₹' + a.paymentAmount : ''}</td>
+                  <td style="white-space:nowrap">
+                    <button class="btn-small" onclick="App.showDetail('${a.id}')">View</button>
+                    <button class="btn-small success" onclick="App._collectPayment('${a.id}')">Collect</button>
+                  </td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table></div>`}
+      </div>`;
   }
 
   async function _cancelReg(id) {
@@ -3832,6 +4113,152 @@ const App = (() => {
       Reports.initReportFilters(data);
     } catch (err) {
       el.innerHTML = `<p style="color:var(--danger);padding:2rem">Error: ${err.message}</p>`;
+    }
+  }
+
+  // ===== PAYMENT REPORTS (team-wise detailed tables, shareable as images) =====
+  async function initPaymentReports() {
+    const host = document.getElementById('page-payment-content');
+    host.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:2rem">Loading…</p>';
+
+    const attendees = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
+    const rawTcMap = await DB.getConfig('teamCategoryMap').catch(() => null);
+    const tcMap = rawTcMap ? JSON.parse(rawTcMap) : {};
+    const evtDoc = await DB.getEvent(DB.getCurrentEvent()).catch(() => null);
+    const eventName = evtDoc?.name || 'Event';
+    const esc = Helpers.escapeHtml;
+
+    const active = attendees.filter(a => !a.cancelled);
+
+    // Group by team (case-insensitive)
+    const teamMap = {};
+    active.forEach(a => {
+      const raw = (a.team || 'Other').trim();
+      const key = raw.toLowerCase();
+      if (!teamMap[key]) teamMap[key] = { display: raw, members: [], _freq: {} };
+      teamMap[key].members.push(a);
+      teamMap[key]._freq[raw] = (teamMap[key]._freq[raw] || 0) + 1;
+    });
+
+    const teamKeys = Object.keys(teamMap).sort();
+    const teamCount = teamKeys.length;
+
+    const renderTeamTable = (teamKey) => {
+      const { members, _freq } = teamMap[teamKey];
+      const teamName = Object.entries(_freq).sort((a, b) => b[1] - a[1])[0]?.[0] || teamKey;
+      const sorted = members.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+      const paid = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'paid').length;
+      const unpaid = members.length - paid;
+
+      return `<div class="card pay-report-card" data-team="${esc(teamKey)}" data-team-name="${esc(teamName)}" style="margin-bottom:1.25rem;page-break-inside:avoid">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;flex-wrap:wrap;gap:.4rem">
+          <h3 class="card-title" style="margin:0">${esc(teamName)} <span style="font-weight:400;font-size:.82rem;color:var(--text-muted)">(${members.length} members · ${paid} paid · ${unpaid} unpaid)</span></h3>
+          <button class="btn-small success" onclick="App._shareTeamPayImg('${esc(teamKey)}')">Share</button>
+        </div>
+        <div class="table-wrap">
+          <table class="report-table pre-rpt-table" style="width:100%">
+            <thead><tr>
+              <th>Sr.</th><th>Name</th><th>Mobile</th><th>Category</th><th>Reference</th>
+              <th>Pickup Point</th><th>Payment Status</th><th>Remarks</th><th>Mode</th><th>Amt.</th>
+            </tr></thead>
+            <tbody>${sorted.map((a, i) => {
+              const ps = (a.paymentStatus || 'unpaid').toLowerCase();
+              const psBg = ps === 'paid' ? '#dcfce7;color:#15803d' : ps === 'free' ? '#dbeafe;color:#1d4ed8' : '#fee2e2;color:#dc2626';
+              return `<tr>
+                <td>${i + 1}</td>
+                <td style="font-weight:500">${esc(a.name)}</td>
+                <td>${esc(a.mobile || '-')}</td>
+                <td>${esc(a.category || '-')}</td>
+                <td>${esc(a.reference || '-')}</td>
+                <td>${esc(a.pickupLocation || '-')}</td>
+                <td><span style="background:${psBg};padding:.15rem .45rem;border-radius:4px;font-size:.78rem;font-weight:600">${ps}</span></td>
+                <td>${esc(a.remarks || '-')}</td>
+                <td>${esc(a.paymentMode || '-')}</td>
+                <td style="text-align:right;font-weight:600">${a.paymentAmount > 0 ? '₹' + a.paymentAmount : '-'}</td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table>
+        </div>
+      </div>`;
+    };
+
+    host.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+        <h3 class="card-title" style="margin:0">Payment Reports — ${esc(eventName)} <span style="font-weight:400;font-size:.82rem;color:var(--text-muted)">(${teamCount} teams)</span></h3>
+        <button class="btn-primary" onclick="App._shareAllPayImgs()" style="font-size:.82rem;padding:.45rem .9rem">Share All on WhatsApp</button>
+      </div>
+      ${teamKeys.map(renderTeamTable).join('')}`;
+  }
+
+  const _isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  async function _shareTeamPayImg(teamKey) {
+    if (typeof html2canvas === 'undefined') { Helpers.toast('Share library loading…', 'warning'); return; }
+    const card = document.querySelector(`.pay-report-card[data-team="${teamKey}"]`);
+    if (!card) return;
+    const teamName = card.dataset.teamName || teamKey;
+    const evtDoc = await DB.getEvent(DB.getCurrentEvent()).catch(() => null);
+    const eventName = evtDoc?.name || 'Event';
+    const fileName = `${eventName.replace(/\s+/g, '-')}-${teamName}.png`;
+    Helpers.toast('Preparing image…', 'info', 2000);
+    try {
+      const canvas = await html2canvas(card, { backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false });
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      if (!blob) { Helpers.toast('Failed', 'error'); return; }
+
+      if (_isMobile && navigator.share) {
+        const file = new File([blob], fileName, { type: 'image/png' });
+        try {
+          await navigator.share({ files: [file], text: `${teamName} — ${eventName}` });
+          return;
+        } catch (e) { if (e.name === 'AbortError') return; }
+      }
+      Helpers.downloadBlob(blob, fileName);
+      Helpers.toast(`${teamName} image downloaded`, 'success');
+    } catch (e) { Helpers.toast('Could not create image', 'error'); }
+  }
+
+  async function _shareAllPayImgs() {
+    if (typeof html2canvas === 'undefined') { Helpers.toast('Share library loading…', 'warning'); return; }
+    const cards = [...document.querySelectorAll('.pay-report-card')];
+    if (!cards.length) { Helpers.toast('No team reports to share', 'warning'); return; }
+
+    const evtDoc = await DB.getEvent(DB.getCurrentEvent()).catch(() => null);
+    const eventName = evtDoc?.name || 'Event';
+
+    // Build all images first
+    Helpers.toast(`Preparing ${cards.length} images…`, 'info', 5000);
+    const items = [];
+    for (const card of cards) {
+      try {
+        const canvas = await html2canvas(card, { backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        if (blob) {
+          const teamName = card.dataset.teamName || card.dataset.team || 'team';
+          const file = new File([blob], `${eventName.replace(/\s+/g, '-')}-${teamName}.png`, { type: 'image/png' });
+          items.push({ file, teamName });
+        }
+      } catch {}
+    }
+    if (!items.length) { Helpers.toast('Failed to create images', 'error'); return; }
+
+    if (_isMobile && navigator.share) {
+      for (let i = 0; i < items.length; i++) {
+        const { file, teamName } = items[i];
+        Helpers.toast(`Sharing ${i + 1} of ${items.length}: ${teamName}`, 'info', 3000);
+        try {
+          await navigator.share({ files: [file], text: `${teamName} — ${eventName}` });
+        } catch (e) {
+          if (e.name === 'AbortError') {
+            Helpers.toast(`Stopped at ${i} of ${items.length}`, 'info');
+            return;
+          }
+        }
+      }
+      Helpers.toast(`All ${items.length} team reports shared!`, 'success');
+    } else {
+      items.forEach(({ file }) => Helpers.downloadBlob(file, file.name));
+      Helpers.toast(`${items.length} images downloaded`, 'success');
     }
   }
 
@@ -4261,6 +4688,8 @@ const App = (() => {
   async function openEventConfigModal() {
     const evt = await DB.getEvent(DB.getCurrentEvent());
     const isCurrent = !!evt?.isCurrentEvent;
+    const cfgCutoff = await DB.getConfig('cutoffDate').catch(() => '');
+    const cfgLateCharge = await DB.getConfig('lateCharge').catch(() => 0);
     Helpers.modal(`
       <h3 class="modal-title">&#128197; Event Configuration</h3>
       <div class="input-group" style="margin-bottom:.75rem">
@@ -4281,6 +4710,17 @@ const App = (() => {
           <input type="number" id="m-cfg-expense" class="wi-input" value="${evt?.totalExpense || 0}" min="0" style="width:100%" />
         </div>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+        <div>
+          <label class="settings-label">Registration Cutoff Date</label>
+          <input type="date" id="m-cfg-cutoff" class="wi-input" value="${cfgCutoff || ''}" style="width:100%" />
+        </div>
+        <div>
+          <label class="settings-label">Late Registration Charge (&#8377;)</label>
+          <input type="number" id="m-cfg-late-charge" class="wi-input" value="${cfgLateCharge || 0}" min="0" style="width:100%" />
+        </div>
+      </div>
+      <p style="font-size:.72rem;color:var(--text-muted);margin-bottom:.75rem">Cutoff date is <strong>inclusive</strong> — registrations on or before this date pay the normal rate. After this date → late charge applies. Import maps the "Timestamp" column automatically.</p>
       <label style="display:flex;align-items:center;gap:.6rem;padding:.7rem;border-radius:8px;border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'};background:${isCurrent ? '#f0fdf4' : 'transparent'};cursor:pointer;margin-bottom:1.1rem;font-size:.9rem;font-weight:500">
         <input type="checkbox" id="m-cfg-current" ${isCurrent ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--accent)" />
         <span>&#11088; Mark as Current Event</span>
@@ -4352,9 +4792,13 @@ const App = (() => {
       financialYear: date ? Helpers.getFinancialYear(date) : '',
       isCurrentEvent: markCurrent
     });
+    const cutoff     = document.getElementById('m-cfg-cutoff')?.value || '';
+    const lateChg    = parseFloat(document.getElementById('m-cfg-late-charge')?.value) || 0;
     await DB.setConfig('eventName', name);
     await DB.setConfig('eventDate', date);
     await DB.setConfig('chargePerPerson', charge);
+    await DB.setConfig('cutoffDate', cutoff);
+    await DB.setConfig('lateCharge', String(lateChg));
     await loadEventSelector();
     Helpers.closeModal();
     Helpers.toast('Event saved!' + (markCurrent ? ' Marked as current event.' : ''), 'success');
@@ -5133,7 +5577,7 @@ const App = (() => {
     _selectMyBus, _saveBusCoordHead,
     openBusManageModal, saveBus, deleteBus,
     showCreateEventModal, createEvent,
-    showCountList, showFullReport, shareRegReportAsImage, _toggleSetupPanel,
+    showCountList, showFullReport, shareRegReportAsImage, _shareCatDetail, _toggleSetupPanel,
     initAttendees,
     // Settings inline sections
     _saveSetupEvent,
@@ -5148,7 +5592,7 @@ const App = (() => {
     openOcrModal, confirmOcrMarks, _updateOcrConfirmBtn,
     saveBusFromDetail,
     // Gate & report sub-tabs
-    _reportSubTab, _gateAdminUnlock, _gateShowList,
+    _reportSubTab, _shareTeamPayImg, _shareAllPayImgs, _gateAdminUnlock, _gateShowList,
     _openWalkin, _changeBusSetup,
     // Manage page
     _manageSubTab, _collectPayment, _saveCollectPayment, _showAddReg, _saveAddReg,
