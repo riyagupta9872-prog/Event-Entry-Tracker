@@ -184,6 +184,7 @@ const App = (() => {
     document.getElementById('screen-app').classList.remove('hidden');
 
     await loadEventSelector();
+    await ensureSessionSetup(); // ask event + bus immediately at login, not on Gate tab
     switchTab('home');
   }
 
@@ -234,8 +235,8 @@ const App = (() => {
   }
 
   // ── SESSION SETUP WIZARD ────────────────────────────────────────────────
-  // Step 1: Financial Year → Step 2: Event → Step 3: Area (volunteers only)
-  // Bus selection is deferred to Gate tab entry.
+  // Runs at login: Step 1 → Event, Step 2 → Area + Bus (volunteers mandatory).
+  // Admin: event only (bus optional). Volunteer: bus is required — no skip.
   let _ssWizard = { fy: null, eventId: null, area: null, areas: [], bus: null, buses: [], resolve: null };
 
   function _ssInjectStyles() {
@@ -317,13 +318,14 @@ const App = (() => {
 
     Helpers.modal(`
       <div class="ss-wizard-header">
-        <div class="ss-step-label">Gate Entry Setup</div>
-        <h3 class="ss-wizard-title">Confirm Event</h3>
-        <p class="ss-wizard-sub">Current event is pre-selected. Tap another to change.</p>
+        <div class="ss-step-label">App Setup</div>
+        <h3 class="ss-wizard-title">Select Event</h3>
+        <p class="ss-wizard-sub">Tap to select, then tap Continue.</p>
       </div>
-      <div class="ss-cards">${cards}</div>
-      ${_ssWizard.eventId ? `<button class="btn-primary" style="width:100%;margin-top:1rem"
-        onclick="App._ssConfirmEvent()">Continue ›</button>` : ''}
+      <div class="ss-cards" style="max-height:52vh;overflow-y:auto;margin-bottom:.75rem">${cards}</div>
+      <button class="btn-primary" id="ss-event-continue" style="width:100%"
+        onclick="App._ssConfirmEvent()"
+        ${_ssWizard.eventId ? '' : 'disabled'}>Continue ›</button>
     `);
   }
 
@@ -336,24 +338,14 @@ const App = (() => {
     _ssWizard.eventId = eventId;
     const e = _cachedEvents.find(ev => ev.id === eventId);
     if (e) _ssWizard.fy = e.financialYear || 'Other';
-    // Update card highlights and show/ensure Continue button
+    // Highlight selected card
     document.querySelectorAll('.ss-card').forEach(c => c.classList.remove('ss-card-selected'));
-    const clicked = [...document.querySelectorAll('.ss-card')].find(c =>
-      c.querySelector('.ss-card-title')?.textContent.startsWith(e?.name || '')
-    );
-    if (clicked) clicked.classList.add('ss-card-selected');
-    // Ensure Continue button exists
-    let cont = document.getElementById('ss-event-continue');
-    if (!cont) {
-      cont = document.createElement('button');
-      cont.id = 'ss-event-continue';
-      cont.className = 'btn-primary';
-      cont.style.cssText = 'width:100%;margin-top:1rem';
-      cont.textContent = 'Continue ›';
-      cont.onclick = () => App._ssConfirmEvent();
-      document.getElementById('modal-content')?.appendChild(cont);
-    }
-    cont.disabled = false;
+    document.querySelectorAll('.ss-card').forEach(c => {
+      if (c.getAttribute('onclick')?.includes(eventId)) c.classList.add('ss-card-selected');
+    });
+    // Enable the always-present Continue button
+    const cont = document.getElementById('ss-event-continue');
+    if (cont) cont.disabled = false;
   }
 
   async function _ssConfirmEvent() {
@@ -419,7 +411,7 @@ const App = (() => {
         <h3 class="ss-wizard-title">Select Your Bus</h3>
         <p class="ss-wizard-sub">${isAdmin
           ? 'Select if you are doing bus seva. Skip if you are just checking reports.'
-          : 'Pre-selected in Gate &amp; My Bus for this session.'}</p>
+          : 'Required before marking attendance. All admissions you record will be linked to this bus.'}</p>
       </div>
       <div class="ss-area-grid">${pills}</div>
       <button class="btn-primary" id="ss-bus-confirm" style="width:100%;margin-top:1.25rem"
@@ -865,7 +857,8 @@ const App = (() => {
       case 'dashboard': initDashboard(); break;
       case 'import': initImport(); break;
       case 'attendance':
-        startLiveSync(); // start data stream immediately; setup runs in parallel
+        startLiveSync();
+        // ensureSessionSetup already ran at login; this is a fallback if somehow missed
         ensureSessionSetup().then(() => { initAttendance(); initMyBusPicker(); });
         break;
       case 'walkin': initWalkin(); break;
@@ -2604,6 +2597,10 @@ const App = (() => {
     });
     document.getElementById('btn-pc-skip').addEventListener('click', () => App.submitPaymentCollect(true));
     document.getElementById('btn-pc-submit').addEventListener('click', () => App.submitPaymentCollect());
+    // Volunteers cannot admit without payment — hide the "pay later" button
+    if (currentUser?.role !== 'admin') {
+      document.getElementById('btn-pc-skip').style.display = 'none';
+    }
     document.getElementById('pc-mode-online').addEventListener('change', () => {
       document.getElementById('pc-screenshot-wrap').style.display = 'block';
     });
@@ -2996,22 +2993,36 @@ const App = (() => {
   }
 
   // Called from payment-collect panel submit
-  // skip=true → admit without recording payment (still shows unpaid in reports)
+  // skip=true → admin admits without payment (stays unpaid in reports)
   async function submitPaymentCollect(skip) {
     const id = document.getElementById('pc-attendee-id').value;
     const a  = await DB.getById(DB.STORES.attendees, id);
     if (!a) return;
 
+    const isAdmin = currentUser?.role === 'admin';
+    const amount  = parseFloat(document.getElementById('pc-amount').value) || 0;
+    const remarks = document.getElementById('pc-remarks').value.trim();
+
+    // Volunteers cannot admit without payment — hard block
+    if (!isAdmin && (skip || amount === 0)) {
+      Helpers.toast('Payment amount is required — only admin can admit without payment', 'error');
+      return;
+    }
+    // Anyone admitting with zero amount must leave a remark (who will pay / why)
+    if (amount === 0 && !remarks) {
+      Helpers.toast('Remarks required when admitting without payment', 'error');
+      return;
+    }
+
     document.getElementById('payment-collect-panel').classList.add('hidden');
 
     if (skip) {
-      // Admit without marking paid — person stays unpaid in reports
+      // Admin admits without payment — save remarks as a note for tracking
+      if (remarks) a.remarks = remarks;
       await doAdmit(a);
       return;
     }
 
-    const amount  = parseFloat(document.getElementById('pc-amount').value) || 0;
-    const remarks = document.getElementById('pc-remarks').value.trim();
     const mode    = document.getElementById('pc-mode-online').checked ? 'online' : 'cash';
     const screenshotInput = document.getElementById('pc-screenshot');
 
@@ -3303,6 +3314,16 @@ const App = (() => {
       return;
     }
 
+    // Payment enforcement: volunteers must collect payment; admin can admit unpaid but needs remarks
+    const walkinAmt = parseFloat(payment) || 0;
+    const isAdminUser = currentUser?.role === 'admin';
+    if (!isAdminUser && walkinAmt === 0) {
+      showErr('Payment amount is required'); return;
+    }
+    if (walkinAmt === 0 && !remarks) {
+      showErr('Remarks required when adding without payment (note who will pay later)'); return;
+    }
+
     // Hard block: buses exist but none selected
     if (!getMyBus() && _busesConfigured) {
       _pendingAdmit = {
@@ -3542,6 +3563,7 @@ const App = (() => {
   // ===== MANAGE PAGE (Attendees / Action / Fine Collection) =====
   let _mngTab = 'attendees';
   let _finesCache = [];
+  let _bulkSelectedIds = new Set();
 
   function initManage() { _manageSubTab(_mngTab); }
 
@@ -3561,6 +3583,7 @@ const App = (() => {
 
   // ── Attendees sub-tab: edit, cancel, add registrations ──────────
   async function _initMngAttendees(host) {
+    _bulkSelectedIds.clear();
     const attendees = await DB.getAll(DB.STORES.attendees);
     const esc = Helpers.escapeHtml;
     const teamMap = {}, refMap = {};
@@ -3576,7 +3599,11 @@ const App = (() => {
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">
           <h3 class="card-title" style="margin:0">Manage Registrations</h3>
-          <button class="btn-primary" style="font-size:.82rem;padding:.4rem .85rem" onclick="App._showAddReg()">+ Add Registration</button>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+            <button id="mng-bulk-btn" class="btn-primary" style="font-size:.82rem;padding:.4rem .85rem;background:#0369a1;display:none" onclick="App._bulkCollect()">Bulk Collect (<span id="mng-bulk-count">0</span>)</button>
+            <button class="btn-ghost" style="font-size:.82rem;padding:.4rem .85rem" onclick="App._openPayUpdateImport()">↑ Update Payments</button>
+            <button class="btn-primary" style="font-size:.82rem;padding:.4rem .85rem" onclick="App._showAddReg()">+ Add Registration</button>
+          </div>
         </div>
         <div class="table-controls">
           <input type="text" id="mng-att-search" class="search-input" placeholder="Search..." style="flex:2" />
@@ -3592,6 +3619,14 @@ const App = (() => {
         <div id="mng-att-count" class="table-count"></div>
         <div id="mng-att-table"></div>
       </div>`;
+
+    const updateBulkBtn = () => {
+      const btn = document.getElementById('mng-bulk-btn');
+      const cnt = document.getElementById('mng-bulk-count');
+      if (!btn) return;
+      btn.style.display = _bulkSelectedIds.size > 0 ? '' : 'none';
+      if (cnt) cnt.textContent = _bulkSelectedIds.size;
+    };
 
     const render = () => {
       let filtered = attendees;
@@ -3612,12 +3647,18 @@ const App = (() => {
 
       const rows = filtered.map((a, i) => {
         const cancelled = a.cancelled;
-        const payBadge = a.paymentStatus === 'paid' ? '<span class="badge present">Paid</span>'
+        const isPaid = (a.paymentStatus || 'unpaid') === 'paid';
+        const canCollect = !isPaid && !cancelled;
+        const payBadge = isPaid ? '<span class="badge present">Paid</span>'
           : a.paymentStatus === 'free' ? '<span class="badge before">Free</span>'
           : '<span class="badge unpaid">Unpaid</span>';
         const tags = (cancelled ? ' <span class="badge" style="background:#fee2e2;color:#dc2626;border:1px solid #fca5a5">Cancelled</span>' : '')
           + (a.isWalkIn ? ' <span class="badge walkin">WI</span>' : '');
+        const cbCell = canCollect
+          ? `<td style="width:32px;text-align:center"><input type="checkbox" class="mng-sel-cb" data-id="${a.id}" ${_bulkSelectedIds.has(a.id) ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)" /></td>`
+          : `<td></td>`;
         return `<tr style="${cancelled ? 'opacity:.55;' : ''}">
+          ${cbCell}
           <td>${i + 1}</td>
           <td style="font-weight:500">${esc(a.name)}${tags}</td>
           <td>${esc(a.mobile || '-')}</td>
@@ -3626,7 +3667,7 @@ const App = (() => {
           <td>${esc(a.area || '-')}</td>
           <td style="white-space:nowrap">
             <button class="btn-small" onclick="App.showDetail('${a.id}')">View</button>
-            <button class="btn-small" onclick="App._collectPayment('${a.id}')">Collect</button>
+            ${canCollect ? `<button class="btn-small" onclick="App._collectPayment('${a.id}')">Collect</button>` : ''}
             ${cancelled
               ? `<button class="btn-small success" onclick="App._uncancelReg('${a.id}')">Restore</button>`
               : `<button class="btn-small danger" onclick="App._cancelReg('${a.id}')">Cancel</button>`}
@@ -3636,9 +3677,34 @@ const App = (() => {
 
       document.getElementById('mng-att-table').innerHTML = `
         <div class="att-table-scroll"><table class="att-table">
-          <thead><tr><th>#</th><th>Name</th><th>Mobile</th><th>Team</th><th>Payment</th><th>Area</th><th>Actions</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted)">No registrations</td></tr>'}</tbody>
+          <thead><tr>
+            <th style="width:32px;text-align:center"><input type="checkbox" id="mng-sel-all" title="Select all unpaid" style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)" /></th>
+            <th>#</th><th>Name</th><th>Mobile</th><th>Team</th><th>Payment</th><th>Area</th><th>Actions</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-muted)">No registrations</td></tr>'}</tbody>
         </table></div>`;
+
+      document.querySelectorAll('.mng-sel-cb').forEach(cb => {
+        cb.onchange = () => {
+          if (cb.checked) _bulkSelectedIds.add(cb.dataset.id);
+          else _bulkSelectedIds.delete(cb.dataset.id);
+          const allCbs = [...document.querySelectorAll('.mng-sel-cb')];
+          const selAll = document.getElementById('mng-sel-all');
+          if (selAll) selAll.checked = allCbs.length > 0 && allCbs.every(c => c.checked);
+          updateBulkBtn();
+        };
+      });
+      const selAll = document.getElementById('mng-sel-all');
+      if (selAll) {
+        selAll.onchange = () => {
+          document.querySelectorAll('.mng-sel-cb').forEach(cb => {
+            cb.checked = selAll.checked;
+            if (selAll.checked) _bulkSelectedIds.add(cb.dataset.id);
+            else _bulkSelectedIds.delete(cb.dataset.id);
+          });
+          updateBulkBtn();
+        };
+      }
     };
 
     const debounced = Helpers.debounce(render, 200);
@@ -3700,7 +3766,7 @@ const App = (() => {
           <td>${a.entryTime ? Helpers.formatDateTime(a.entryTime) : '-'}</td>
           <td style="white-space:nowrap">
             <button class="btn-small" onclick="App.showDetail('${a.id}')">View</button>
-            <button class="btn-small" onclick="App._collectPayment('${a.id}')">Collect</button>
+            ${(a.paymentStatus || 'unpaid') !== 'paid' ? `<button class="btn-small" onclick="App._collectPayment('${a.id}')">Collect</button>` : ''}
           </td>
         </tr>`;
       }).join('');
@@ -3850,6 +3916,395 @@ const App = (() => {
     Helpers.toast(amt > 0 ? `₹${amt} collected` : 'Payment cleared', 'success');
     if (_mngTab === 'attendees') _manageSubTab('attendees');
     else if (_mngTab === 'action') _manageSubTab('action');
+  }
+
+  async function _bulkCollect() {
+    if (_bulkSelectedIds.size === 0) return;
+    const ids = [..._bulkSelectedIds];
+    const all = await DB.getAll(DB.STORES.attendees);
+    const selected = all.filter(a => ids.includes(a.id) && (a.paymentStatus || 'unpaid') !== 'paid');
+    if (selected.length === 0) { Helpers.toast('No unpaid records selected', 'warning'); return; }
+    const esc = Helpers.escapeHtml;
+
+    const rows = selected.map(a => {
+      const defaultAmt = a.applicableCharge || a.paymentAmount || 0;
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:.5rem .75rem;font-weight:500">${esc(a.name)}</td>
+        <td style="padding:.5rem .75rem;color:var(--text-secondary);font-size:.85rem">${esc(a.team || '-')}</td>
+        <td style="padding:.5rem .4rem"><input type="number" class="bc-amt" data-id="${a.id}" min="0" value="${defaultAmt}" style="width:85px;padding:.3rem .5rem;border:1px solid var(--border);border-radius:6px;font-weight:700;font-size:.95rem" /></td>
+      </tr>`;
+    }).join('');
+
+    Helpers.modal(`
+      <h3 class="modal-title">Bulk Collect — ${selected.length} person${selected.length !== 1 ? 's' : ''}</h3>
+      <div style="max-height:40vh;overflow-y:auto;margin-bottom:.75rem;border:1px solid var(--border);border-radius:8px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:var(--bg-secondary);position:sticky;top:0">
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.78rem;font-weight:600">Name</th>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.78rem;font-weight:600">Team</th>
+            <th style="padding:.5rem .4rem;text-align:left;font-size:.78rem;font-weight:600">Amount (₹)</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+        <div class="input-group" style="margin:0">
+          <label>Payment Mode</label>
+          <select id="bc-mode"><option value="cash">Cash</option><option value="online">Online</option></select>
+        </div>
+        <div class="input-group" style="margin:0">
+          <label>Remarks</label>
+          <input id="bc-remarks" type="text" placeholder="e.g. collected at gate" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="App._saveBulkCollect()">Save All</button>
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+      </div>`);
+  }
+
+  async function _saveBulkCollect() {
+    const mode = document.getElementById('bc-mode').value;
+    const remarks = document.getElementById('bc-remarks').value.trim();
+    const today = new Date().toISOString().slice(0, 10);
+    const updates = [];
+    document.querySelectorAll('.bc-amt').forEach(input => {
+      updates.push({ id: input.dataset.id, amt: parseFloat(input.value) || 0 });
+    });
+    if (updates.length === 0) return;
+    await Promise.all(updates.map(({ id, amt }) =>
+      DB.put(DB.STORES.attendees, {
+        id, paymentAmount: amt, paymentMode: mode,
+        paymentStatus: amt > 0 ? 'paid' : 'unpaid',
+        remarks, paymentDate: amt > 0 ? today : '',
+        updatedAt: new Date().toISOString()
+      })
+    ));
+    await DB.log('bulkCollect', `Bulk payment: ${updates.length} records (${mode})`, currentUser?.email);
+    _bulkSelectedIds.clear();
+    Helpers.closeModal();
+    Helpers.toast(`${updates.length} payment${updates.length !== 1 ? 's' : ''} saved`, 'success');
+    _manageSubTab('attendees');
+  }
+
+  // ── Payment-only reimport ────────────────────────────────────────
+  function _openPayUpdateImport() {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.xlsx,.xls,.csv';
+    inp.onchange = e => { if (e.target.files[0]) _processPayUpdateFile(e.target.files[0]); };
+    inp.click();
+  }
+
+  async function _processPayUpdateFile(file) {
+    Helpers.toast('Reading file…', 'info', 2000);
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (raw.length < 2) { Helpers.toast('File empty or no data rows', 'error'); return; }
+
+        const headers = raw[0].map(h => String(h).trim().toLowerCase());
+        const rows = raw.slice(1).filter(row => row.some(c => c !== ''));
+
+        const col = (...names) => {
+          for (const n of names) {
+            const idx = headers.findIndex(h => h.includes(n));
+            if (idx >= 0) return idx;
+          }
+          return -1;
+        };
+
+        const colName    = col('name');
+        const colMobile  = col('mobile', 'phone', 'contact', 'number');
+        const colAmt     = col('amount', 'amt', 'fees', 'fee', 'charge');
+        const colMode    = col('mode', 'method');
+        const colStatus  = col('payment status', 'status', 'paid');
+        const colRemarks = col('remarks', 'remark', 'notes', 'comment');
+        const colDate    = col('payment date', 'paid date', 'date');
+
+        if (colName < 0 || colMobile < 0) {
+          Helpers.toast('Could not find Name or Mobile column in the sheet', 'error'); return;
+        }
+
+        const sheetRows = rows.map(row => {
+          const name   = String(row[colName] || '').trim();
+          const mobile = normalizeMobile(String(row[colMobile] || ''));
+          const amt    = colAmt >= 0 ? parseAmount(String(row[colAmt] || '0')) : 0;
+
+          let statusRaw = colStatus >= 0 ? String(row[colStatus] || '').toLowerCase().trim() : '';
+          let status, statusExplicit = false;
+          if (['paid', 'yes', 'done', 'received', 'p', 'haan', 'ha'].includes(statusRaw)) { status = 'paid'; statusExplicit = true; }
+          else if (['free', 'complimentary', 'nil', 'f'].includes(statusRaw)) { status = 'free'; statusExplicit = true; }
+          else if (['unpaid', 'no', 'pending', 'due', 'nhi', 'u'].includes(statusRaw)) { status = 'unpaid'; statusExplicit = true; }
+          else status = amt > 0 ? 'paid' : 'unpaid';
+
+          const modeRaw = colMode >= 0 ? String(row[colMode] || '').toLowerCase().trim() : '';
+          const mode = modeRaw.includes('cash') || modeRaw.includes('hand') ? 'cash'
+            : modeRaw.includes('online') || modeRaw.includes('upi') || modeRaw.includes('gpay')
+              || modeRaw.includes('phonepe') || modeRaw.includes('paytm') || modeRaw.includes('neft') ? 'online'
+            : modeRaw;
+
+          const remarks = colRemarks >= 0 ? String(row[colRemarks] || '').trim() : '';
+          let date = colDate >= 0 ? row[colDate] : '';
+          if (date instanceof Date) date = date.toISOString().slice(0, 10);
+          else if (date) date = String(date).trim();
+
+          // hasData: true if sheet actually has payment info — if all blank, skip (preserve app data)
+          const hasData = amt > 0 || remarks !== '' || mode !== '' || statusExplicit;
+
+          return { name, mobile, amt, status, mode, remarks, date, hasData };
+        }).filter(r => r.name); // mobile can be blank — name-only fallback handles it
+
+        if (!sheetRows.length) {
+          Helpers.toast('No valid rows found — check Name column', 'error'); return;
+        }
+
+        Helpers.toast('Matching against existing records…', 'info', 2000);
+        const existing = await DB.getAll(DB.STORES.attendees);
+
+        // Normalize name: lowercase, collapse all whitespace, trim
+        const normName = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+        // Build name index for O(1) name-only fallback lookup
+        const nameIndex = {};
+        existing.forEach(e => {
+          const key = normName(e.name);
+          if (!nameIndex[key]) nameIndex[key] = [];
+          nameIndex[key].push(e);
+        });
+
+        const matched = [], skippedNoData = [], ambiguous = [], notFound = [];
+
+        sheetRows.forEach(row => {
+          const rowNorm = normName(row.name);
+          const hasMob = row.mobile && row.mobile.length === 10;
+
+          // Step 1: mobile + exact name match
+          if (hasMob) {
+            const mobMatches = existing.filter(e =>
+              normalizeMobile(String(e.mobile || '')) === row.mobile
+            );
+            const exact = mobMatches.find(e => normName(e.name) === rowNorm);
+            if (exact) {
+              if (row.hasData) matched.push({ sheet: row, db: exact });
+              else skippedNoData.push({ sheet: row, db: exact });
+              return;
+            }
+            // Step 2: mobile matches but name slightly different (single candidate only)
+            if (mobMatches.length === 1) {
+              const m = { sheet: row, db: mobMatches[0], nameMismatch: true };
+              if (row.hasData) matched.push(m); else skippedNoData.push(m);
+              return;
+            }
+            // Step 3: mobile matches multiple different people → ambiguous
+            if (mobMatches.length > 1) {
+              ambiguous.push({ sheet: row, candidates: mobMatches }); return;
+            }
+          }
+
+          // Step 4: no mobile match (or no mobile) → try name-only in app
+          const nameMatches = nameIndex[rowNorm] || [];
+          if (nameMatches.length === 1) {
+            const m = { sheet: row, db: nameMatches[0], nameFallback: true };
+            if (row.hasData) matched.push(m); else skippedNoData.push(m);
+          } else if (nameMatches.length > 1) {
+            ambiguous.push({ sheet: row, candidates: nameMatches });
+          } else {
+            notFound.push(row); // name not in app — do nothing
+          }
+        });
+
+        _showPayUpdatePreview(matched, skippedNoData, ambiguous, notFound);
+
+      } catch (err) {
+        console.error('Payment update parse error:', err);
+        Helpers.toast('Failed to read file: ' + (err.message || 'Unknown error'), 'error');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function _showPayUpdatePreview(matched, skippedNoData, ambiguous, notFound) {
+    const esc = Helpers.escapeHtml;
+
+    const tblHead = `<thead><tr style="background:var(--bg-secondary);position:sticky;top:0">
+      <th style="padding:.4rem .6rem;text-align:left">Name</th><th style="padding:.4rem .6rem;text-align:left">Mobile</th>
+      <th style="padding:.4rem .6rem;text-align:left">Payment</th><th style="padding:.4rem .6rem;text-align:left">Mode</th>
+      <th style="padding:.4rem .6rem;text-align:left">Remarks</th>
+    </tr></thead>`;
+
+    const matchRows = matched.map(m => {
+      const rowBg = m.nameFallback ? 'background:#eff6ff' : m.nameMismatch ? 'background:#fefce8' : '';
+      const nameNote = m.nameFallback
+        ? `<br><span style="font-size:.72rem;color:#2563eb">name-only match (no mobile)</span>`
+        : m.nameMismatch
+        ? `<br><span style="font-size:.72rem;color:#b45309">Sheet: ${esc(m.sheet.name)}</span>`
+        : '';
+      return `<tr${rowBg ? ` style="${rowBg}"` : ''}>
+        <td style="font-weight:500;padding:.4rem .6rem">${esc(m.db.name)}${nameNote}</td>
+        <td style="padding:.4rem .6rem;color:var(--text-secondary)">${esc(m.db.mobile)}</td>
+        <td style="padding:.4rem .6rem">${m.sheet.status === 'paid' ? '<span class="badge present">Paid</span>' : m.sheet.status === 'free' ? '<span class="badge before">Free</span>' : '<span class="badge unpaid">Unpaid</span>'}${m.sheet.amt > 0 ? ' ₹' + m.sheet.amt : ''}</td>
+        <td style="padding:.4rem .6rem;font-size:.82rem">${esc(m.sheet.mode || '-')}</td>
+        <td style="padding:.4rem .6rem;font-size:.82rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.sheet.remarks || '-')}</td>
+      </tr>`;
+    }).join('');
+
+    const skipRows = skippedNoData.map(m => `<tr>
+      <td style="font-weight:500;padding:.4rem .6rem">${esc(m.db.name)}</td>
+      <td style="padding:.4rem .6rem;color:var(--text-secondary)">${esc(m.db.mobile)}</td>
+      <td style="padding:.4rem .6rem;color:var(--text-muted);font-size:.82rem" colspan="3">No payment data in sheet — existing status kept</td>
+    </tr>`).join('');
+
+    // Ambiguous section — interactive cards with dropdown to resolve
+    const ambigCards = ambiguous.map((a, idx) => {
+      const payBadge = a.sheet.status === 'paid' ? '<span class="badge present">Paid</span>'
+        : a.sheet.status === 'free' ? '<span class="badge before">Free</span>'
+        : '<span class="badge unpaid">Unpaid</span>';
+      const candidateOpts = a.candidates.map(c =>
+        `<option value="${c.id}">${esc(c.name)} · ${esc(c.mobile || 'no mobile')}${c.area ? ' · ' + esc(c.area) : ''}</option>`
+      ).join('');
+      return `<div style="border:1px solid #fcd34d;border-radius:8px;padding:.65rem .75rem;margin-bottom:.5rem;background:#fffbeb">
+        <div style="display:flex;flex-wrap:wrap;gap:.4rem .75rem;align-items:center;margin-bottom:.45rem">
+          <span style="font-weight:600;font-size:.95rem">${esc(a.sheet.name)}</span>
+          <span style="color:var(--text-secondary);font-size:.84rem">${esc(a.sheet.mobile || '—')}</span>
+          <span>${payBadge}${a.sheet.amt > 0 ? ' ₹' + a.sheet.amt : ''}</span>
+          ${a.sheet.mode ? `<span style="font-size:.82rem">${esc(a.sheet.mode)}</span>` : ''}
+          ${a.sheet.remarks ? `<span style="font-size:.82rem;color:var(--text-secondary)">${esc(a.sheet.remarks)}</span>` : ''}
+        </div>
+        <div style="font-size:.8rem;color:#92400e;margin-bottom:.3rem">Same mobile found for multiple people — select who this payment belongs to:</div>
+        <select class="ambig-resolve" data-idx="${idx}" style="width:100%;padding:.35rem .5rem;border:1px solid #fcd34d;border-radius:6px;background:#fff">
+          <option value="">— Skip (don't update) —</option>
+          ${candidateOpts}
+        </select>
+      </div>`;
+    }).join('');
+
+    // Not found — show with guidance
+    const notFoundCards = notFound.map(r => {
+      const payBadge = r.status === 'paid' ? '<span class="badge present">Paid</span>'
+        : r.status === 'free' ? '<span class="badge before">Free</span>'
+        : '<span class="badge unpaid">Unpaid</span>';
+      return `<div style="border:1px solid #fca5a5;border-radius:8px;padding:.55rem .75rem;margin-bottom:.4rem;background:#fff5f5;display:flex;flex-wrap:wrap;gap:.4rem .75rem;align-items:center">
+        <span style="font-weight:600">${esc(r.name)}</span>
+        <span style="color:var(--text-secondary);font-size:.84rem">${esc(r.mobile || '—')}</span>
+        <span>${payBadge}${r.amt > 0 ? ' ₹' + r.amt : ''}</span>
+        ${r.remarks ? `<span style="font-size:.82rem;color:var(--text-secondary)">${esc(r.remarks)}</span>` : ''}
+        <span style="font-size:.78rem;color:#dc2626;margin-left:auto">Not in app</span>
+      </div>`;
+    }).join('');
+
+    window._payUpdateMatched = matched;
+    window._payUpdateAmbiguous = ambiguous;
+    window._payUpdateNotFound = notFound;
+
+    Helpers.modal(`
+      <h3 class="modal-title">Payment Update Preview</h3>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.85rem">
+        <div style="flex:1;min-width:70px;padding:.5rem;background:#dcfce7;border-radius:8px;text-align:center">
+          <div style="font-size:1.25rem;font-weight:700;color:#16a34a">${matched.length}</div>
+          <div style="font-size:.72rem;color:#15803d">Will Update</div>
+        </div>
+        <div style="flex:1;min-width:70px;padding:.5rem;background:#f1f5f9;border-radius:8px;text-align:center">
+          <div style="font-size:1.25rem;font-weight:700;color:#475569">${skippedNoData.length}</div>
+          <div style="font-size:.72rem;color:#64748b">Kept As-Is</div>
+        </div>
+        <div style="flex:1;min-width:70px;padding:.5rem;background:#fef3c7;border-radius:8px;text-align:center">
+          <div style="font-size:1.25rem;font-weight:700;color:#b45309">${ambiguous.length}</div>
+          <div style="font-size:.72rem;color:#92400e">Resolve Below</div>
+        </div>
+        <div style="flex:1;min-width:70px;padding:.5rem;background:#fee2e2;border-radius:8px;text-align:center">
+          <div style="font-size:1.25rem;font-weight:700;color:#dc2626">${notFound.length}</div>
+          <div style="font-size:.72rem;color:#dc2626">Not in App</div>
+        </div>
+      </div>
+      ${matched.length ? `
+      <details open style="margin-bottom:.5rem">
+        <summary style="cursor:pointer;font-weight:600;padding:.35rem 0">Will update (${matched.length})</summary>
+        <div style="max-height:22vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-top:.35rem">
+          <table style="width:100%;border-collapse:collapse;font-size:.84rem">${tblHead}<tbody>${matchRows}</tbody></table>
+        </div>
+      </details>` : ''}
+      ${skippedNoData.length ? `
+      <details style="margin-bottom:.5rem">
+        <summary style="cursor:pointer;font-weight:600;padding:.35rem 0;color:#475569">Kept as-is — no payment data in sheet (${skippedNoData.length})</summary>
+        <div style="max-height:15vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-top:.35rem">
+          <table style="width:100%;border-collapse:collapse;font-size:.84rem">${tblHead}<tbody>${skipRows}</tbody></table>
+        </div>
+      </details>` : ''}
+      ${ambiguous.length ? `
+      <details open style="margin-bottom:.5rem">
+        <summary style="cursor:pointer;font-weight:600;padding:.35rem 0;color:#b45309">⚠ Resolve these ${ambiguous.length} — same mobile, multiple people</summary>
+        <div style="margin-top:.4rem">${ambigCards}</div>
+      </details>` : ''}
+      ${notFound.length ? `
+      <details style="margin-bottom:.5rem">
+        <summary style="cursor:pointer;font-weight:600;padding:.35rem 0;color:#dc2626">Not in app (${notFound.length}) — add manually via "+ Add Registration"</summary>
+        <div style="margin-top:.4rem">${notFoundCards}</div>
+      </details>` : ''}
+      <p style="font-size:.8rem;color:var(--text-secondary);margin:.6rem 0 .25rem">Only <b>payment fields</b> updated — attendance, walk-in status, area, team untouched.</p>
+      <div class="modal-actions">
+        <button class="btn-primary" id="pay-update-confirm-btn" onclick="App._confirmPayUpdate()">Update ${matched.length} Records</button>
+        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
+      </div>`);
+
+    // Live-update button label as user resolves ambiguous rows
+    document.querySelectorAll('.ambig-resolve').forEach(sel => {
+      sel.onchange = () => {
+        const resolved = [...document.querySelectorAll('.ambig-resolve')].filter(s => s.value).length;
+        const btn = document.getElementById('pay-update-confirm-btn');
+        if (btn) btn.textContent = `Update ${matched.length + resolved} Records`;
+      };
+    });
+  }
+
+  async function _confirmPayUpdate() {
+    const matched = window._payUpdateMatched || [];
+    const ambiguousData = window._payUpdateAmbiguous || [];
+
+    // Collect manually resolved ambiguous rows
+    const resolved = [];
+    document.querySelectorAll('.ambig-resolve').forEach(sel => {
+      const idx = parseInt(sel.dataset.idx);
+      const chosenId = sel.value;
+      if (!chosenId || isNaN(idx) || idx >= ambiguousData.length) return;
+      const a = ambiguousData[idx];
+      const dbRecord = a.candidates.find(c => c.id === chosenId);
+      if (dbRecord) resolved.push({ sheet: a.sheet, db: dbRecord });
+    });
+
+    const allToUpdate = [...matched, ...resolved];
+    if (!allToUpdate.length) { Helpers.toast('Nothing to update', 'warning'); return; }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const btn = document.getElementById('pay-update-confirm-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+    try {
+      await Promise.all(allToUpdate.map(({ sheet, db }) =>
+        DB.put(DB.STORES.attendees, {
+          id: db.id,
+          paymentAmount: sheet.amt,
+          paymentMode: sheet.mode,
+          paymentStatus: sheet.status,
+          paymentDate: sheet.date || (sheet.amt > 0 ? today : ''),
+          remarks: sheet.remarks,
+          updatedAt: new Date().toISOString()
+        })
+      ));
+      await DB.log('paymentUpdate', `Payment reimport: ${allToUpdate.length} records updated (${resolved.length} manually resolved)`, currentUser?.email);
+      window._payUpdateMatched = null;
+      window._payUpdateAmbiguous = null;
+      allAttendees = [];
+      Helpers.closeModal();
+      Helpers.toast(`${matched.length} payment records updated`, 'success', 4000);
+      _manageSubTab('attendees');
+    } catch (err) {
+      console.error('Payment update error:', err);
+      Helpers.toast('Update failed: ' + (err.message || 'Check connection'), 'error');
+      if (btn) { btn.disabled = false; btn.textContent = `Update ${matched.length} Records`; }
+    }
   }
 
   async function _showAddReg() {
@@ -4489,13 +4944,13 @@ const App = (() => {
             <div>${areaBuses.length ? busRows : '<div style="padding:.5rem .85rem;font-size:.82rem;color:var(--text-muted);font-style:italic">No buses yet — add one below</div>'}</div>
             <div id="${addBusFormId}" style="display:none;padding:.6rem .85rem;border-top:1px solid var(--border);background:#f8fafc">
               <div style="font-size:.73rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.4rem">Add Bus to ${esc(area.name)}</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr 70px auto;gap:.4rem;align-items:end">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;align-items:end">
                 <div><div class="setup-label">Bus Name</div><input id="sabn-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="e.g. RJ-01" /></div>
                 <div><div class="setup-label">Coordinator</div><input id="sabc-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="Name" /></div>
                 <div><div class="setup-label">Seats</div><input id="sabcap-${esc(area.id)}" type="number" class="wi-input" style="width:100%" placeholder="45" /></div>
-                <div style="display:flex;gap:.3rem;padding-bottom:.02rem">
-                  <button class="btn-primary" style="font-size:.8rem;padding:.42rem .55rem" data-aid="${esc(area.id)}" data-aname="${esc(area.name)}" onclick="App._setupBusSave(this.dataset.aid,this.dataset.aname)">Add</button>
-                  <button class="btn-ghost" style="font-size:.8rem;padding:.42rem .45rem" onclick="document.getElementById('${addBusFormId}').style.display='none'">&#10005;</button>
+                <div style="display:flex;gap:.4rem;align-items:end;padding-top:.2rem">
+                  <button class="btn-primary" style="flex:1;font-size:.85rem;padding:.5rem" data-aid="${esc(area.id)}" data-aname="${esc(area.name)}" onclick="App._setupBusSave(this.dataset.aid,this.dataset.aname)">Add</button>
+                  <button class="btn-ghost" style="font-size:.85rem;padding:.5rem .6rem" onclick="document.getElementById('${addBusFormId}').style.display='none'">&#10005;</button>
                 </div>
               </div>
             </div>
@@ -4897,13 +5352,13 @@ const App = (() => {
             </div>
             <div>${areaBuses.length ? busRows : '<div style="padding:.5rem .7rem;font-size:.82rem;color:var(--text-muted)">No buses added yet</div>'}</div>
             <div id="atbf-${esc(area.id)}" style="display:none;padding:.5rem .65rem;border-top:1px solid var(--border);background:var(--bg-card2)">
-              <div style="display:grid;grid-template-columns:1fr 1fr 80px auto;gap:.4rem;align-items:end">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;align-items:end">
                 <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.2rem">Bus Name</div><input id="atbn-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="e.g. Bus RJ-01" /></div>
                 <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.2rem">Coordinator</div><input id="atbc-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="Name" /></div>
                 <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.2rem">Seats</div><input id="atbcap-${esc(area.id)}" type="number" class="wi-input" style="width:100%" placeholder="45" /></div>
-                <div style="display:flex;gap:.3rem;padding-bottom:.02rem">
-                  <button class="btn-primary" style="font-size:.8rem;padding:.42rem .6rem;white-space:nowrap" data-aid="${esc(area.id)}" data-aname="${esc(area.name)}" onclick="App._atBusSave(this.dataset.aid,this.dataset.aname)">Save</button>
-                  <button class="btn-ghost" style="font-size:.8rem;padding:.42rem .5rem" onclick="document.getElementById('atbf-${esc(area.id)}').style.display='none'">&#10005;</button>
+                <div style="display:flex;gap:.4rem;align-items:end;padding-top:.2rem">
+                  <button class="btn-primary" style="flex:1;font-size:.85rem;padding:.5rem" data-aid="${esc(area.id)}" data-aname="${esc(area.name)}" onclick="App._atBusSave(this.dataset.aid,this.dataset.aname)">Save</button>
+                  <button class="btn-ghost" style="font-size:.85rem;padding:.5rem .6rem" onclick="document.getElementById('atbf-${esc(area.id)}').style.display='none'">&#10005;</button>
                 </div>
               </div>
             </div>
@@ -5624,7 +6079,8 @@ const App = (() => {
     _reportSubTab, _shareTeamPayImg, _shareAllPayImgs, _gateAdminUnlock, _gateShowList,
     _openWalkin, _changeBusSetup, _refreshSync,
     // Manage page
-    _manageSubTab, _collectPayment, _saveCollectPayment, _showAddReg, _saveAddReg,
+    _manageSubTab, _collectPayment, _saveCollectPayment, _bulkCollect, _saveBulkCollect,
+    _openPayUpdateImport, _confirmPayUpdate, _showAddReg, _saveAddReg,
     _cancelReg, _uncancelReg,
     _filterFines, _generateFines, _collectFine, _saveFineColl, _waiveFine,
   };
