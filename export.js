@@ -40,12 +40,13 @@ const Export = (() => {
     let att = 'Absent';
     if (a.attendance === 'present') att = a.isWalkIn ? 'Present (walk-in)' : 'Present';
 
-    // Payment Timing: paidAtEvent flag = gate collection; paid/free without flag = before event
+    // Payment Timing: paidAtEvent flag = gate collection; walk-ins with payment are always at gate
     let timing = '';
     const psLow = (a.paymentStatus || '').toLowerCase();
-    if (a.paidAtEvent) {
+    const amt = parseFloat(a.paymentAmount || 0);
+    if (a.paidAtEvent || (a.isWalkIn && amt > 0)) {
       timing = 'On Event Date';
-    } else if (psLow === 'paid' || psLow === 'free' || parseFloat(a.paymentAmount || 0) > 0) {
+    } else if (psLow === 'paid' || psLow === 'free' || amt > 0) {
       timing = 'Before Event';
     }
 

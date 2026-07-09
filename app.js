@@ -446,7 +446,9 @@ const App = (() => {
     if (newEid !== DB.getCurrentEvent()) {
       DB.setCurrentEvent(newEid);
       allAttendees = []; attendanceInited = false;
-      _absenteeMap = null; Reports.clearAbsenteeCache();
+      _absenteeMap = null; _dashStaticCache = null; _finesCache = [];
+      _busesConfigured = false; window._cachedBusesForPicker = [];
+      Reports.clearAbsenteeCache();
       const active = _cachedEvents.find(e => e.id === newEid);
       const btn = document.getElementById('event-selector-btn');
       if (btn && active) btn.textContent = active.name + (active.isCurrentEvent ? ' ★' : '');
@@ -536,6 +538,8 @@ const App = (() => {
       // Always fetch all participants, filter client-side for volunteers.
       // Firestore 'in' with null crashes — client filter is simpler and equally fast.
       liveUnsubscribe = col.onSnapshot(snap => {
+        // Guard: Firestore fires one stale callback after unsubscribe — drop it
+        if (DB.getCurrentEvent() !== eid) return;
         let docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         allAttendees = docs.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
         updateAdmitCountersFromCache();
@@ -772,6 +776,9 @@ const App = (() => {
     attendanceInited = false;
     _absenteeMap = null;
     _dashStaticCache = null;
+    _busesConfigured = false;
+    _finesCache = [];
+    window._cachedBusesForPicker = [];
     Reports.clearAbsenteeCache();
     const active = _cachedEvents.find(e => e.id === id);
     const btn = document.getElementById('event-selector-btn');
@@ -2587,8 +2594,6 @@ const App = (() => {
       document.getElementById('walkin-panel').classList.add('hidden');
     });
 
-    // Admin: keep walk-in panel always open so they can verify the feature works
-    if (currentUser?.role === 'admin') _openWalkin();
     document.getElementById('btn-add-walkin').addEventListener('click', addWalkIn);
 
     // Payment collect panel (for unpaid admission)
@@ -3001,7 +3006,9 @@ const App = (() => {
 
     const isAdmin = currentUser?.role === 'admin';
     const amount  = parseFloat(document.getElementById('pc-amount').value) || 0;
-    const remarks = document.getElementById('pc-remarks').value.trim();
+    const remarksRaw = document.getElementById('pc-remarks').value.trim();
+    // Auto-fill with collector's name if left blank — for reporting traceability
+    const remarks = remarksRaw || `Collected by ${currentUser?.name || currentUser?.email || 'Unknown'}`;
 
     // Volunteers cannot admit without payment — hard block
     if (!isAdmin && (skip || amount === 0)) {
@@ -3288,7 +3295,8 @@ const App = (() => {
     const payment = document.getElementById('wi-payment').value;
     const category  = document.getElementById('wi-category').value;
     const payMode   = document.getElementById('wi-paymode').value;
-    const remarks   = document.getElementById('wi-remarks')?.value?.trim() || '';
+    const remarksRaw = document.getElementById('wi-remarks')?.value?.trim() || '';
+    const remarks    = remarksRaw || `Collected by ${currentUser?.name || currentUser?.email || 'Unknown'}`;
     const fb  = document.getElementById('walkin-feedback');
     const btn = document.getElementById('btn-add-walkin');
 
@@ -3300,15 +3308,25 @@ const App = (() => {
     const normMob = mobile.replace(/\D/g, '').slice(-10);
     if (normMob.length < 10) { showErr('Enter a valid 10-digit mobile number'); return; }
 
-    // Hard block: already a registered attendee
-    const registered = allAttendees.find(a => !a.isWalkIn && a.mobile && a.mobile.toString().replace(/\D/g, '').slice(-10) === normMob);
+    const normWIName = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+    // Block: registered attendee with same mobile AND same name (family sharing number is allowed)
+    const registered = allAttendees.find(a =>
+      !a.isWalkIn &&
+      a.mobile && a.mobile.toString().replace(/\D/g, '').slice(-10) === normMob &&
+      normWIName(a.name) === normWIName(name)
+    );
     if (registered) {
       showErr(`Already registered as "${registered.name}" — admit from the Gate tab`);
       return;
     }
 
-    // Hard block: already a walk-in with same mobile (no bypass)
-    const dupWI = allAttendees.find(a => a.isWalkIn && a.mobile && a.mobile.toString().replace(/\D/g, '').slice(-10) === normMob);
+    // Block: walk-in already exists with same mobile AND same name
+    const dupWI = allAttendees.find(a =>
+      a.isWalkIn &&
+      a.mobile && a.mobile.toString().replace(/\D/g, '').slice(-10) === normMob &&
+      normWIName(a.name) === normWIName(name)
+    );
     if (dupWI) {
       showErr(`Walk-in already added: "${dupWI.name}" (${dupWI.mobile})`);
       return;
@@ -3980,6 +3998,16 @@ const App = (() => {
         updatedAt: new Date().toISOString()
       })
     ));
+    // Update in-memory cache immediately so counters reflect changes before next snapshot
+    updates.forEach(({ id, amt }) => {
+      const cached = allAttendees.find(x => x.id === id);
+      if (cached) {
+        cached.paymentAmount = amt; cached.paymentMode = mode;
+        cached.paymentStatus = amt > 0 ? 'paid' : 'unpaid';
+        cached.remarks = remarks;
+      }
+    });
+    updateAdmitCountersFromCache();
     await DB.log('bulkCollect', `Bulk payment: ${updates.length} records (${mode})`, currentUser?.email);
     _bulkSelectedIds.clear();
     Helpers.closeModal();
