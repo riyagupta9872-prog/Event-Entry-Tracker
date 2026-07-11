@@ -255,18 +255,13 @@ const Export = (() => {
   async function saveWorkbook(wb, filename) {
     const buffer = await wb.xlsx.writeBuffer();
     const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url    = URL.createObjectURL(blob);
-    const a      = document.createElement('a');
-    a.href = url; a.download = filename; a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+    Helpers.downloadBlob(blob, filename);
   }
 
   // ── Load event name slug for filenames ─────────────────────────────────────
   async function getEventSlug() {
-    const summ = await Reports.reportSummary();
-    return (summ.cfg.eventName || 'Event').replace(/\s+/g, '_');
+    const evt = await DB.getEvent(DB.getCurrentEvent());
+    return (evt?.name || 'Event').replace(/\s+/g, '_');
   }
 
   // ── PUBLIC: Multi-sheet download grouped by a field (team/category/reference) ─
@@ -369,52 +364,12 @@ const Export = (() => {
   // ── PUBLIC: Group-based multi-sheet export ─────────────────────────────────
   async function exportAttendeesByGroup(groupBy) {
     const allAtts = await DB.getAll(DB.STORES.attendees);
-    const slug    = await getEventSlug();
-    const wb      = new ExcelJS.Workbook();
-    const used    = new Set();
-    const date    = new Date().toISOString().slice(0, 10);
-
     if (groupBy === 'all') {
-      addAttSheet(wb, safeSheetName('All Attendees', used), allAtts);
-      await saveWorkbook(wb, `Prerna_All_${slug}_${date}.xlsx`);
-      Helpers.toast('Downloaded!', 'success');
+      await downloadFiltered(allAtts, 'All');
       return;
     }
-
-    const field  = groupBy === 'team' ? 'team' : 'category';
-    const defVal = groupBy === 'team' ? 'Unassigned' : 'Unknown';
-    const prefix = groupBy === 'team' ? 'Team' : 'Dept';
-
-    const groups  = {};
-    const dispMap = {};
-    allAtts.forEach(a => {
-      const raw  = ((a[field] || '').trim()) || defVal;
-      const key  = raw.toLowerCase();
-      if (!groups[key])  { groups[key] = []; dispMap[key] = {}; }
-      groups[key].push(a);
-      dispMap[key][raw] = (dispMap[key][raw] || 0) + 1;
-    });
-
-    const canonicalName = key => {
-      const entries = Object.entries(dispMap[key] || {}).sort((a, b) => b[1] - a[1]);
-      return entries.length ? entries[0][0] : key;
-    };
-
-    const sorted = Object.entries(groups)
-      .sort((a, b) => b[1].length - a[1].length)
-      .map(([key, members]) => [canonicalName(key), members]);
-
-    const summaryLabel = groupBy === 'team' ? 'Team Name' : 'Category';
-
-    // Sheet 1: All combined
-    addAttSheet(wb, safeSheetName('All Attendees', used), allAtts);
-    addSummarySheet(wb, safeSheetName(`${prefix} Summary`, used), summaryLabel, sorted);
-    sorted.forEach(([displayName, members]) =>
-      addAttSheet(wb, safeSheetName(`${prefix} - ${displayName}`, used), members)
-    );
-
-    await saveWorkbook(wb, `Prerna_${prefix}wise_${slug}_${date}.xlsx`);
-    Helpers.toast(`Downloaded: All + ${sorted.length} ${groupBy === 'team' ? 'team' : 'category'} sheets!`, 'success');
+    const field = groupBy === 'team' ? 'team' : 'category';
+    await downloadFilteredByGroup(allAtts, field);
   }
 
   // ── PUBLIC: Export currently filtered/visible rows from Attendees page ─────

@@ -80,6 +80,9 @@ const Helpers = (() => {
     return dp[m][n];
   }
 
+  // Normalize name — lowercase, strip non-alphanumeric (for matching across events)
+  function normName(s) { return (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
   // Normalize mobile to last 10 digits (strips country code, spaces, dashes)
   function normMobile(val) {
     const digits = String(val || '').replace(/\D/g, '');
@@ -219,7 +222,7 @@ const Helpers = (() => {
 
   return {
     toast, modal, closeModal, currency, formatDate, formatDateTime,
-    similarName, normMobile, detectDuplicates, paymentTiming, qrData,
+    similarName, normName, normMobile, detectDuplicates, paymentTiming, qrData,
     debounce, downloadBlob, buildTable, paginate, searchFilter,
     getFinancialYear, getFYRange, escapeHtml
   };

@@ -6,6 +6,7 @@ const App = (() => {
   let allAttendees = [];
   let _dashAttendees = []; // snapshot for pop-cards
   let liveUnsubscribe = null; // Firestore real-time listener
+  let _liveSyncEid   = null; // event ID the current listener is subscribed to
   let _busesConfigured = false; // set by initMyBusPicker; used by doAdmit to warn
   let _dashStaticCache = null; // { eid, ts, areaCfgBuses, areaCfgAreas, evtDoc } — 30s TTL
   const PAGE_SIZE = 100;
@@ -19,14 +20,6 @@ const App = (() => {
     if (currentPage === 'dashboard') initDashboard();
   }, 200);
 
-  // Return the department for a team name — delegates to Reports module
-  function getCategoryForTeam(teamName) {
-    return Reports.getTeamDept(teamName, null);
-  }
-
-  // Sidebar stubs — sidebar removed; kept so any legacy calls don't throw
-  function closeSidebar() {}
-  function openSidebar() {}
 
   // ===== INIT =====
   async function init() {
@@ -39,6 +32,11 @@ const App = (() => {
 
       if (firebaseUser) {
         const profile = await DB.getUserProfile(firebaseUser.uid);
+        if (profile?.disabled) {
+          Helpers.toast('Your access has been removed by an admin', 'error');
+          await auth.signOut();
+          return;
+        }
         if (profile) {
           currentUser = { uid: firebaseUser.uid, email: firebaseUser.email, ...profile };
         } else {
@@ -183,8 +181,12 @@ const App = (() => {
     document.getElementById('screen-login').classList.add('hidden');
     document.getElementById('screen-app').classList.remove('hidden');
 
-    await loadEventSelector();
-    await ensureSessionSetup(); // ask event + bus immediately at login, not on Gate tab
+    // Load event list but DON'T start the live sync yet — no data should load
+    // until the user has confirmed their event through the setup wizard.
+    const setupAlreadyDone = _sessionSetupDone();
+    await loadEventSelector(/* skipSync= */ !setupAlreadyDone);
+    await ensureSessionSetup(); // wizard calls _ssFinish() → startLiveSync() if it ran
+    if (setupAlreadyDone) startLiveSync(); // setup was already done → start sync now
     switchTab('home');
   }
 
@@ -221,13 +223,15 @@ const App = (() => {
   async function ensureSessionSetup() {
     if (!_cachedEvents || _cachedEvents.length === 0) return;
 
-    // Check if the admin has marked a "current event" that differs from what's stored
+    // If admin changed the isCurrentEvent marker since last login, invalidate the old
+    // setup flag so the wizard re-runs — but NEVER silently switch DB.getCurrentEvent()
+    // here. Silent switches corrupt state (snapshot on wrong event, counters vs list mismatch).
+    // The wizard pre-selects isCurrentEvent and _ssFinish() does the full safe switch.
     const currentMarked = _cachedEvents.find(e => e.isCurrentEvent);
-    if (currentMarked && currentMarked.id !== DB.getCurrentEvent()) {
-      // New current event — reset this event's setup flag so volunteers are prompted
-      const old = DB.getCurrentEvent();
-      DB.setCurrentEvent(currentMarked.id);
-      if (old) localStorage.removeItem(`prerna_setup_vol_${old}`);
+    const stored = DB.getCurrentEvent();
+    if (currentMarked && stored && currentMarked.id !== stored) {
+      localStorage.removeItem(`prerna_setup_vol_${stored}`);
+      localStorage.removeItem(`prerna_setup_admin_${stored}`);
     }
 
     if (_sessionSetupDone()) return;
@@ -257,6 +261,12 @@ const App = (() => {
       .ss-area-grid{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem}
       .ss-area-pill{padding:.5rem 1rem;border-radius:20px;border:1.5px solid var(--border);background:var(--bg-card2);font-size:.88rem;cursor:pointer;transition:.15s;-webkit-tap-highlight-color:transparent}
       .ss-area-pill.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+      .modal-overlay.ss-wizard{background:rgba(8,8,8,0.97)!important;backdrop-filter:none!important}
+      .modal-overlay.ss-wizard .modal-box{overflow:hidden;display:flex;flex-direction:column;padding:0;height:82vh;max-height:560px}
+      .modal-overlay.ss-wizard #modal-content{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+      .ss-wizard-header-wrap{padding:1.25rem 1.25rem .5rem;flex-shrink:0}
+      .ss-wizard-scroll{flex:1;overflow-y:auto;min-height:0;padding:0 1.25rem .5rem;-webkit-overflow-scrolling:touch}
+      .ss-wizard-footer{flex-shrink:0;padding:.65rem 1.25rem 1.1rem;border-top:1px solid #e2e8f0;display:flex;flex-direction:column;gap:.4rem}
     `;
     document.head.appendChild(s);
   }
@@ -275,34 +285,26 @@ const App = (() => {
 
   async function showSessionSetupModal() {
     _ssInjectStyles();
-    let areas = [], buses = [];
-    try {
-      const raw = await DB.getConfig('areas');
-      areas = raw ? JSON.parse(raw).map(a => typeof a === 'string' ? a : a.name).filter(Boolean) : [];
-    } catch { areas = []; }
-    try { buses = await DB.getAll(DB.STORES.buses); } catch { buses = []; }
-    _ssWizard.areas = areas;
-    _ssWizard.buses = buses;
+    _ssWizard.areas = [];
+    _ssWizard.buses = [];
     _ssWizard.fy = null; _ssWizard.eventId = null;
     _ssWizard.area = getMyArea(); _ssWizard.bus = getMyBus();
 
     const overlay = document.getElementById('modal-overlay');
+    overlay.classList.add('ss-wizard');
     const cleanup = _ssLockModal(overlay);
 
     return new Promise(resolve => {
-      _ssWizard.resolve = () => { cleanup(); resolve(); };
+      _ssWizard.resolve = () => { cleanup(); overlay.classList.remove('ss-wizard'); resolve(); };
       _ssRenderStep1();
     });
   }
 
   function _ssRenderStep1() {
-    // Always show event confirmation so user can verify or change
-    // Pre-select the current event if one exists
     const currentEvent = _cachedEvents.find(e => e.isCurrentEvent) || null;
     const allEvents    = [..._cachedEvents].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-    if (currentEvent) {
-      // Pre-select it in wizard state, but still show the screen for manual confirmation
+    if (currentEvent && !_ssWizard.eventId) {
       _ssWizard.fy      = currentEvent.financialYear || 'Other';
       _ssWizard.eventId = currentEvent.id;
     }
@@ -310,23 +312,128 @@ const App = (() => {
     const esc = Helpers.escapeHtml;
     const cards = allEvents.map(e => {
       const isSel = e.id === _ssWizard.eventId;
+      const fy = e.financialYear || Helpers.getFinancialYear(e.date);
       return `<button class="ss-card${isSel ? ' ss-card-selected' : ''}" onclick="App._ssPickEvent('${esc(e.id)}')">
         <div class="ss-card-title">${esc(e.name)}${e.isCurrentEvent ? ' ⭐' : ''}</div>
-        <div class="ss-card-sub">${e.date ? Helpers.formatDate(e.date) : ''}${isSel ? ' · selected' : ''}</div>
+        <div class="ss-card-sub">FY ${esc(fy)}${e.date ? ' · ' + Helpers.formatDate(e.date) : ''}${isSel ? ' · ✓ selected' : ''}</div>
       </button>`;
     }).join('');
 
+    const isAdmin = currentUser?.role === 'admin';
+    Helpers.modal(`
+      <div class="ss-wizard-header-wrap">
+        <div class="ss-wizard-header">
+          <div class="ss-step-label">Step 1 of 3</div>
+          <h3 class="ss-wizard-title">Select Event</h3>
+          <p class="ss-wizard-sub">Tap an event to select — Continue is always at the bottom.</p>
+        </div>
+      </div>
+      <div class="ss-wizard-scroll">
+        <div class="ss-cards">${cards}</div>
+      </div>
+      <div class="ss-wizard-footer">
+        ${isAdmin ? `<button class="btn-ghost" style="width:100%;font-size:.85rem" onclick="App._ssShowCreateForm()">+ Create New Event</button>` : ''}
+        <button class="btn-primary" id="ss-event-continue" style="width:100%"
+          onclick="App._ssConfirmEvent()"
+          ${_ssWizard.eventId ? '' : 'disabled'}>Continue ›</button>
+      </div>
+    `);
+  }
+
+  function _ssShowCreateForm() {
+    const esc = Helpers.escapeHtml;
+    const PRESET_AREAS = ['Gaispura', 'Gobindgarh', 'Samrala Chownk'];
+    const areaBoxes = PRESET_AREAS.map(a =>
+      `<label style="display:flex;align-items:center;gap:.55rem;padding:.22rem 0;cursor:pointer;font-size:.85rem;font-weight:500">
+        <input type="checkbox" class="ss-area-cb" value="${esc(a)}" style="width:15px;height:15px;accent-color:var(--accent)" />${a}
+      </label>`
+    ).join('');
     Helpers.modal(`
       <div class="ss-wizard-header">
-        <div class="ss-step-label">App Setup</div>
-        <h3 class="ss-wizard-title">Select Event</h3>
-        <p class="ss-wizard-sub">Tap to select, then tap Continue.</p>
+        <div class="ss-step-label">Create New Event</div>
+        <h3 class="ss-wizard-title">Event Details</h3>
       </div>
-      <div class="ss-cards" style="max-height:52vh;overflow-y:auto;margin-bottom:.75rem">${cards}</div>
-      <button class="btn-primary" id="ss-event-continue" style="width:100%"
-        onclick="App._ssConfirmEvent()"
-        ${_ssWizard.eventId ? '' : 'disabled'}>Continue ›</button>
+      <div class="input-group" style="margin-bottom:.55rem">
+        <label>Event Name *</label>
+        <input id="ss-ce-name" type="text" class="wi-input" placeholder="e.g. Prerna Festival 2026" style="width:100%" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.4rem">
+        <div>
+          <div class="setup-label">Event Date *</div>
+          <input id="ss-ce-date" type="date" class="wi-input" style="width:100%"
+            oninput="const d=this.value;document.getElementById('ss-ce-fy-lbl').textContent=d?'FY '+Helpers.getFinancialYear(d):'';" />
+        </div>
+        <div>
+          <div class="setup-label">Cut-off Date *</div>
+          <input id="ss-ce-cutoff" type="date" class="wi-input" style="width:100%" />
+          <div style="font-size:.67rem;color:var(--text-muted);margin-top:.12rem">Editing locks after this</div>
+        </div>
+      </div>
+      <div id="ss-ce-fy-lbl" style="font-size:.8rem;color:var(--accent);font-weight:600;min-height:1.1rem;margin-bottom:.45rem"></div>
+      <div class="input-group" style="margin-bottom:.55rem">
+        <label>Charge Per Person (₹)</label>
+        <input id="ss-ce-charge" type="number" class="wi-input" placeholder="0" min="0" style="width:100%" />
+      </div>
+      <div style="margin-bottom:.7rem;border:1px solid var(--border);border-radius:9px;padding:.5rem .65rem;background:var(--bg-card2)">
+        <div style="font-size:.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.3rem">Initial Areas</div>
+        ${areaBoxes}
+        <label style="display:flex;align-items:center;gap:.55rem;padding:.22rem 0;cursor:pointer;font-size:.85rem;font-weight:500">
+          <input type="checkbox" id="ss-ce-area-other" style="width:15px;height:15px;accent-color:var(--accent)"
+            onchange="document.getElementById('ss-ce-other-txt').style.display=this.checked?'block':'none'" />Other
+        </label>
+        <input type="text" id="ss-ce-other-txt" placeholder="Custom area name…"
+          style="display:none;margin-top:.25rem;width:100%;box-sizing:border-box;padding:.35rem .55rem;border:1px solid var(--border);border-radius:7px;font-size:.85rem" />
+      </div>
+      <div style="display:flex;gap:.5rem">
+        <button class="btn-ghost" style="flex:1" onclick="App._ssRenderStep1Back()">← Back</button>
+        <button class="btn-primary" style="flex:2" onclick="App._ssDoCreateEvent()">Create & Select ›</button>
+      </div>
     `);
+  }
+
+  function _ssRenderStep1Back() { _ssRenderStep1(); }
+
+  async function _doCreateEvent(name, date, cutoff, charge, selectedAreaNames) {
+    const fy = Helpers.getFinancialYear(date);
+    const id = await DB.createEvent({
+      name, date, cutoffDate: cutoff,
+      chargePerPerson: charge, financialYear: fy,
+      isCurrentEvent: false, createdBy: currentUser?.uid || ''
+    });
+    if (selectedAreaNames.length) {
+      const areaObjs = selectedAreaNames.map((n, i) => ({
+        id: `a${Date.now()}_${i}`, name: n,
+        perPersonCharge: charge, perBusCost: 0, coordinator: '', capacity: 0
+      }));
+      const prev = DB.getCurrentEvent();
+      DB.setCurrentEvent(id);
+      await DB.setConfig('areas', JSON.stringify(areaObjs));
+      if (prev) DB.setCurrentEvent(prev);
+    }
+    return { id, fy };
+  }
+
+  async function _ssDoCreateEvent() {
+    const name   = (document.getElementById('ss-ce-name')?.value || '').trim();
+    const date   = document.getElementById('ss-ce-date')?.value || '';
+    const cutoff = document.getElementById('ss-ce-cutoff')?.value || '';
+    const charge = parseFloat(document.getElementById('ss-ce-charge')?.value) || 0;
+    if (!name)         { Helpers.toast('Event name is required', 'error'); return; }
+    if (!date)         { Helpers.toast('Event date is required', 'error'); return; }
+    if (!cutoff)       { Helpers.toast('Cut-off date is required', 'error'); return; }
+    if (cutoff > date) { Helpers.toast('Cut-off must be on or before the event date', 'error'); return; }
+
+    const selectedAreas = [...document.querySelectorAll('.ss-area-cb:checked')].map(cb => cb.value);
+    if (document.getElementById('ss-ce-area-other')?.checked) {
+      const custom = (document.getElementById('ss-ce-other-txt')?.value || '').trim();
+      if (custom) selectedAreas.push(custom);
+    }
+    const { id, fy } = await _doCreateEvent(name, date, cutoff, charge, selectedAreas);
+    _cachedEvents = await DB.getEvents();
+    _ssWizard.eventId = id;
+    _ssWizard.fy = fy;
+    Helpers.toast(`"${name}" created!`, 'success');
+    _ssRenderStep1();
   }
 
   function _ssPickFY(fy) {
@@ -350,12 +457,24 @@ const App = (() => {
 
   async function _ssConfirmEvent() {
     if (!_ssWizard.eventId) { Helpers.toast('Please select an event', 'error'); return; }
-    const isAdmin = currentUser?.role === 'admin';
-    const areas   = _ssWizard.areas;
-    if (!isAdmin && areas.length > 0) {
-      _ssRenderStep3(); // volunteer → area → bus
+
+    // Load areas + buses from the SELECTED event (may differ from DB.getCurrentEvent()).
+    // We temporarily point DB at the chosen event just for these config reads, then
+    // restore the old ID — _ssFinish() owns the real authoritative switch.
+    const prevEid = DB.getCurrentEvent();
+    const needSwitch = _ssWizard.eventId !== prevEid;
+    if (needSwitch) DB.setCurrentEvent(_ssWizard.eventId);
+    try {
+      const raw = await DB.getConfig('areas');
+      _ssWizard.areas = raw ? JSON.parse(raw).map(a => typeof a === 'string' ? a : a.name).filter(Boolean) : [];
+    } catch { _ssWizard.areas = []; }
+    try { _ssWizard.buses = await DB.getAll(DB.STORES.buses); } catch { _ssWizard.buses = []; }
+    if (needSwitch) DB.setCurrentEvent(prevEid);
+
+    if (_ssWizard.areas.length > 0) {
+      _ssRenderStep3(); // area selection for all users
     } else {
-      await _ssRenderBusStep(); // admin → bus
+      await _ssRenderBusStep(); // no areas configured → bus only
     }
   }
 
@@ -367,14 +486,20 @@ const App = (() => {
         onclick="App._ssPickArea(this, '${Helpers.escapeHtml(a)}')">${Helpers.escapeHtml(a)}</button>
     `).join('');
     Helpers.modal(`
-      <div class="ss-wizard-header">
-        <div class="ss-step-label">Step 3 of 3</div>
-        <h3 class="ss-wizard-title">Select Your Area</h3>
-        <p class="ss-wizard-sub">Only attendees from your area will appear in the Gate list.</p>
+      <div class="ss-wizard-header-wrap">
+        <div class="ss-wizard-header">
+          <div class="ss-step-label">Step 2 of 3</div>
+          <h3 class="ss-wizard-title">Select Your Area</h3>
+          <p class="ss-wizard-sub">Only attendees from your area will appear in the Gate list.</p>
+        </div>
       </div>
-      <div class="ss-area-grid">${pills}</div>
-      <button class="btn-primary" id="ss-area-confirm" style="width:100%;margin-top:1.25rem" onclick="App._ssConfirmArea()"
-        ${current ? '' : 'disabled'}>Continue ›</button>
+      <div class="ss-wizard-scroll">
+        <div class="ss-area-grid">${pills}</div>
+      </div>
+      <div class="ss-wizard-footer">
+        <button class="btn-primary" id="ss-area-confirm" style="width:100%" onclick="App._ssConfirmArea()"
+          ${current ? '' : 'disabled'}>Continue ›</button>
+      </div>
     `);
   }
 
@@ -406,18 +531,24 @@ const App = (() => {
         onclick="App._ssPickBus(this,'${Helpers.escapeHtml(b.name)}')">${Helpers.escapeHtml(b.name)}</button>
     `).join('');
     Helpers.modal(`
-      <div class="ss-wizard-header">
-        <div class="ss-step-label">Last Step</div>
-        <h3 class="ss-wizard-title">Select Your Bus</h3>
-        <p class="ss-wizard-sub">${isAdmin
-          ? 'Select if you are doing bus seva. Skip if you are just checking reports.'
-          : 'Required before marking attendance. All admissions you record will be linked to this bus.'}</p>
+      <div class="ss-wizard-header-wrap">
+        <div class="ss-wizard-header">
+          <div class="ss-step-label">Step 3 of 3</div>
+          <h3 class="ss-wizard-title">Select Your Bus</h3>
+          <p class="ss-wizard-sub">${isAdmin
+            ? 'Select if you are doing bus seva. Skip if you are just checking reports.'
+            : 'Required before marking attendance. All admissions you record will be linked to this bus.'}</p>
+        </div>
       </div>
-      <div class="ss-area-grid">${pills}</div>
-      <button class="btn-primary" id="ss-bus-confirm" style="width:100%;margin-top:1.25rem"
-        onclick="App._ssConfirmBus()"${current ? '' : ' disabled'}>Let's Go ›</button>
-      ${isAdmin ? `<button class="btn-ghost" style="width:100%;margin-top:.5rem;color:var(--text-muted)"
-        onclick="App._ssSkipBus()">Skip — entering without bus seva</button>` : ''}
+      <div class="ss-wizard-scroll">
+        <div class="ss-area-grid">${pills}</div>
+      </div>
+      <div class="ss-wizard-footer">
+        <button class="btn-primary" id="ss-bus-confirm" style="width:100%"
+          onclick="App._ssConfirmBus()"${current ? '' : ' disabled'}>Let's Go ›</button>
+        ${isAdmin ? `<button class="btn-ghost" style="width:100%;color:var(--text-muted)"
+          onclick="App._ssSkipBus()">Skip — entering without bus seva</button>` : ''}
+      </div>
     `);
   }
 
@@ -445,10 +576,7 @@ const App = (() => {
     if (!newEid) { Helpers.toast('No event selected', 'error'); return; }
     if (newEid !== DB.getCurrentEvent()) {
       DB.setCurrentEvent(newEid);
-      allAttendees = []; attendanceInited = false;
-      _absenteeMap = null; _dashStaticCache = null; _finesCache = [];
-      _busesConfigured = false; window._cachedBusesForPicker = [];
-      Reports.clearAbsenteeCache();
+      _resetEventState();
       const active = _cachedEvents.find(e => e.id === newEid);
       const btn = document.getElementById('event-selector-btn');
       if (btn && active) btn.textContent = active.name + (active.isCurrentEvent ? ' ★' : '');
@@ -527,16 +655,18 @@ const App = (() => {
   // Volunteers see only their area (+ records with no area tag for backward compat).
   // Admins see everything.
   function startLiveSync() {
+    const eid = DB.getCurrentEvent();
+    if (!eid) return;
+    if (liveUnsubscribe && _liveSyncEid === eid) return; // already syncing for this event
     stopLiveSync();
     try {
-      const eid = DB.getCurrentEvent();
-      if (!eid) return;
       const col = firestore.collection('events').doc(eid).collection('participants');
       const myArea = getMyArea();
       const isAdmin = currentUser?.role === 'admin';
 
       // Always fetch all participants, filter client-side for volunteers.
       // Firestore 'in' with null crashes — client filter is simpler and equally fast.
+      _liveSyncEid = eid;
       liveUnsubscribe = col.onSnapshot(snap => {
         // Guard: Firestore fires one stale callback after unsubscribe — drop it
         if (DB.getCurrentEvent() !== eid) return;
@@ -549,7 +679,7 @@ const App = (() => {
   }
 
   function stopLiveSync() {
-    if (liveUnsubscribe) { liveUnsubscribe(); liveUnsubscribe = null; }
+    if (liveUnsubscribe) { liveUnsubscribe(); liveUnsubscribe = null; _liveSyncEid = null; }
   }
 
   function updateAdmitCountersFromCache() {
@@ -676,6 +806,31 @@ const App = (() => {
     initMyBusPicker();
   }
 
+  function openSidebar() {
+    // User profile
+    const name = currentUser?.name || currentUser?.email || '?';
+    const initials = name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?';
+    const role = currentUser?.role === 'admin' ? 'Admin' : 'Volunteer';
+    const avatarEl = document.getElementById('cfg-sb-avatar');
+    const nameEl   = document.getElementById('cfg-sb-name');
+    const roleEl   = document.getElementById('cfg-sb-role');
+    if (avatarEl) avatarEl.textContent = initials;
+    if (nameEl)   nameEl.textContent   = name;
+    if (roleEl)   roleEl.textContent   = role;
+    // Current event
+    const evtName = _cachedEvents?.find(e => e.id === DB.getCurrentEvent())?.name || '—';
+    const evtEl = document.getElementById('cfg-sb-event');
+    if (evtEl) evtEl.textContent = evtName;
+    // Open
+    document.getElementById('cfg-sidebar')?.classList.add('open');
+    document.getElementById('cfg-sidebar-overlay')?.classList.remove('hidden');
+  }
+
+  function closeSidebar() {
+    document.getElementById('cfg-sidebar')?.classList.remove('open');
+    document.getElementById('cfg-sidebar-overlay')?.classList.add('hidden');
+  }
+
   async function _refreshSync() {
     Helpers.toast('Syncing…', 'info', 1500);
     stopLiveSync();
@@ -692,20 +847,21 @@ const App = (() => {
   // ===== EVENT MANAGEMENT =====
   let _cachedEvents = [];
 
-  async function loadEventSelector() {
+  async function loadEventSelector(skipSync = false) {
     const events = await DB.getEvents();
     _cachedEvents = events;
     const activeId = DB.getCurrentEvent();
     const btn = document.getElementById('event-selector-btn');
 
     if (events.length === 0) {
+      // No events yet — create a placeholder; wizard will handle naming
       const id = await DB.createEvent({
-        name: 'Prerna Festival 2025', date: '', chargePerPerson: 0, totalExpense: 0,
+        name: 'New Event', date: '', chargePerPerson: 0,
         financialYear: Helpers.getFinancialYear(new Date().toISOString()),
         createdBy: currentUser?.uid || ''
       });
       DB.setCurrentEvent(id);
-      await loadEventSelector();
+      await loadEventSelector(skipSync);
       return;
     }
 
@@ -716,7 +872,7 @@ const App = (() => {
     const active = events.find(e => e.id === DB.getCurrentEvent()) || events[0];
     if (btn) btn.textContent = active.name + (active.isCurrentEvent ? ' ★' : '');
 
-    startLiveSync();
+    if (!skipSync) startLiveSync();
   }
 
   function _buildEventPickerList(eventsToShow) {
@@ -772,14 +928,7 @@ const App = (() => {
     Helpers.closeModal();
     if (id === DB.getCurrentEvent()) return;
     DB.setCurrentEvent(id);
-    allAttendees = [];
-    attendanceInited = false;
-    _absenteeMap = null;
-    _dashStaticCache = null;
-    _busesConfigured = false;
-    _finesCache = [];
-    window._cachedBusesForPicker = [];
-    Reports.clearAbsenteeCache();
+    _resetEventState();
     const active = _cachedEvents.find(e => e.id === id);
     const btn = document.getElementById('event-selector-btn');
     if (btn && active) btn.textContent = active.name + (active.isCurrentEvent ? ' ★' : '');
@@ -788,34 +937,75 @@ const App = (() => {
   }
 
   function showCreateEventModal() {
+    const esc = Helpers.escapeHtml;
+    const PRESET_AREAS = ['Gaispura', 'Gobindgarh', 'Samrala Chownk'];
+    const areaBoxes = PRESET_AREAS.map(a =>
+      `<label style="display:flex;align-items:center;gap:.55rem;padding:.28rem 0;cursor:pointer;font-size:.88rem;font-weight:500">
+        <input type="checkbox" class="m-evt-area" value="${esc(a)}" style="width:15px;height:15px;accent-color:var(--accent)" />${a}
+      </label>`
+    ).join('');
     Helpers.modal(`
       <h3 class="modal-title">Create New Event</h3>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Event Name</label><input id="m-evt-name" type="text" placeholder="e.g. Prerna Festival 2026" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Event Date</label><input id="m-evt-date" type="date" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Charge Per Person</label><input id="m-evt-charge" type="number" placeholder="0" min="0" /></div>
-      <div class="input-group" style="margin-bottom:.75rem"><label>Total Expense Budget</label><input id="m-evt-expense" type="number" placeholder="0" min="0" /></div>
+      <div class="input-group" style="margin-bottom:.65rem">
+        <label>Event Name *</label>
+        <input id="m-evt-name" type="text" class="wi-input" placeholder="e.g. Prerna Festival 2026" style="width:100%" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:.65rem">
+        <div>
+          <div class="setup-label">Event Date *</div>
+          <input id="m-evt-date" type="date" class="wi-input" style="width:100%" />
+        </div>
+        <div>
+          <div class="setup-label">Cut-off Date *</div>
+          <input id="m-evt-cutoff" type="date" class="wi-input" style="width:100%" />
+          <div style="font-size:.69rem;color:var(--text-muted);margin-top:.2rem">Editing locked after this date</div>
+        </div>
+      </div>
+      <div class="input-group" style="margin-bottom:.65rem">
+        <label>Charge Per Person (₹)</label>
+        <input id="m-evt-charge" type="number" class="wi-input" placeholder="0" min="0" style="width:100%" />
+      </div>
+      <div style="margin-bottom:.85rem;border:1px solid var(--border);border-radius:9px;padding:.6rem .75rem;background:var(--bg-card2)">
+        <div style="font-size:.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.4rem">Initial Areas (select all that apply)</div>
+        ${areaBoxes}
+        <label style="display:flex;align-items:center;gap:.55rem;padding:.28rem 0;cursor:pointer;font-size:.88rem;font-weight:500">
+          <input type="checkbox" id="m-evt-area-other" style="width:15px;height:15px;accent-color:var(--accent)"
+            onchange="const t=document.getElementById('m-evt-other-txt');t.style.display=this.checked?'block':'none';if(this.checked)setTimeout(()=>t.focus(),50)" />
+          Other
+        </label>
+        <input type="text" id="m-evt-other-txt" placeholder="Custom area name…"
+          style="display:none;margin-top:.3rem;width:100%;box-sizing:border-box;padding:.4rem .6rem;border:1px solid var(--border);border-radius:7px;font-size:.87rem" />
+      </div>
       <div class="modal-actions">
         <button class="btn-primary" onclick="App.createEvent()">Create Event</button>
         <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-      </div>
-    `);
+      </div>`);
   }
 
   async function createEvent() {
-    const name = document.getElementById('m-evt-name').value.trim();
-    const date = document.getElementById('m-evt-date').value;
+    const name   = document.getElementById('m-evt-name').value.trim();
+    const date   = document.getElementById('m-evt-date').value;
+    const cutoff = document.getElementById('m-evt-cutoff').value;
     const charge = parseFloat(document.getElementById('m-evt-charge').value) || 0;
-    const expense = parseFloat(document.getElementById('m-evt-expense').value) || 0;
-    if (!name) { Helpers.toast('Event name required', 'error'); return; }
-    const fy = date ? Helpers.getFinancialYear(date) : Helpers.getFinancialYear(new Date().toISOString());
-    const id = await DB.createEvent({ name, date, chargePerPerson: charge, totalExpense: expense, financialYear: fy, createdBy: currentUser?.uid || '' });
+
+    if (!name)          { Helpers.toast('Event name is required', 'error'); return; }
+    if (!date)          { Helpers.toast('Event date is required', 'error'); return; }
+    if (!cutoff)        { Helpers.toast('Cut-off date is required', 'error'); return; }
+    if (cutoff > date)  { Helpers.toast('Cut-off date must be on or before the event date', 'error'); return; }
+
+    const selectedAreas = [...document.querySelectorAll('.m-evt-area:checked')].map(cb => cb.value);
+    if (document.getElementById('m-evt-area-other')?.checked) {
+      const custom = document.getElementById('m-evt-other-txt')?.value.trim();
+      if (custom) selectedAreas.push(custom);
+    }
+
+    const { id } = await _doCreateEvent(name, date, cutoff, charge, selectedAreas);
     DB.setCurrentEvent(id);
-    allAttendees = [];
-    attendanceInited = false;
+    _resetEventState();
     Helpers.closeModal();
     Helpers.toast('Event created!', 'success');
     await loadEventSelector();
-    navigate('dashboard');
+    navigate('settings');
   }
 
   // Pages volunteers are allowed to access
@@ -865,8 +1055,8 @@ const App = (() => {
       case 'import': initImport(); break;
       case 'attendance':
         startLiveSync();
-        // ensureSessionSetup already ran at login; this is a fallback if somehow missed
-        ensureSessionSetup().then(() => { initAttendance(); initMyBusPicker(); });
+        initAttendance();
+        initMyBusPicker();
         break;
       case 'walkin': initWalkin(); break;
       case 'attendees': initAttendees(); break;
@@ -1181,16 +1371,7 @@ const App = (() => {
     return { counts, ordered };
   }
 
-  function _renderBusCard(busName, list, opts = {}) {
-    const total   = list.length;
-    const walkIns = list.filter(a => a.isWalkIn).length;
-    const regs    = total - walkIns;
-    const { counts: deptCounts, ordered: depts } = _deptBreakdown(list);
-
-    const deptChips = depts.length
-      ? depts.map(d => `<span class="dept-chip"><b>${deptCounts[d]}</b> ${d}</span>`).join('')
-      : '<span style="color:var(--text-muted);font-size:.85rem">No devotees yet</span>';
-
+  function _buildBusPassengerTable(list) {
     const rowsHtml = list.length
       ? list.map((a, i) => `
           <tr>
@@ -1203,6 +1384,24 @@ const App = (() => {
             <td style="font-size:.78rem;color:var(--text-muted)">${a.markedBy || '-'}</td>
           </tr>`).join('')
       : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1rem">No devotees boarded yet</td></tr>`;
+    return `<table class="report-table">
+      <thead><tr>
+        <th style="width:40px">#</th><th>Name</th><th>Mobile</th>
+        <th>Team</th><th>Category</th><th>Boarded At</th><th>Marked By</th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`;
+  }
+
+  function _renderBusCard(busName, list, opts = {}) {
+    const total   = list.length;
+    const walkIns = list.filter(a => a.isWalkIn).length;
+    const regs    = total - walkIns;
+    const { counts: deptCounts, ordered: depts } = _deptBreakdown(list);
+
+    const deptChips = depts.length
+      ? depts.map(d => `<span class="dept-chip"><b>${deptCounts[d]}</b> ${d}</span>`).join('')
+      : '<span style="color:var(--text-muted);font-size:.85rem">No devotees yet</span>';
 
     const tableId = `bus-tbl-${(busName || 'none').replace(/[^a-z0-9]/gi, '_')}`;
     const collapsible = opts.collapsible !== false;
@@ -1228,13 +1427,7 @@ const App = (() => {
         </div>
         <div class="bus-chips" style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem">${deptChips}</div>
         <div id="${tableId}" class="table-wrap" style="margin-top:.75rem;display:${display}">
-          <table class="report-table">
-            <thead><tr>
-              <th style="width:40px">#</th><th>Name</th><th>Mobile</th>
-              <th>Team</th><th>Category</th><th>Boarded At</th><th>Marked By</th>
-            </tr></thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
+          ${_buildBusPassengerTable(list)}
         </div>
       </div>`;
   }
@@ -1256,19 +1449,6 @@ const App = (() => {
     const deptRows = depts.map(d =>
       `<tr><td>${d}</td><td style="text-align:center;font-weight:700">${deptCounts[d]}</td></tr>`
     ).join('') || `<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">No devotees admitted yet</td></tr>`;
-
-    const rowsHtml = list.length
-      ? list.map((a, i) => `
-          <tr>
-            <td style="text-align:center;color:var(--text-muted)">${i + 1}</td>
-            <td>${a.name || '-'} ${a.isWalkIn ? '<span class="badge walkin" style="font-size:.7rem">WI</span>' : ''}</td>
-            <td>${a.mobile || '-'}</td>
-            <td>${a.team || '-'}</td>
-            <td>${a.category || '-'}</td>
-            <td style="font-size:.78rem;color:var(--text-muted)">${Helpers.formatDateTime(a.entryTime)}</td>
-            <td style="font-size:.78rem;color:var(--text-muted)">${a.markedBy || '-'}</td>
-          </tr>`).join('')
-      : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.25rem">No devotees boarded yet</td></tr>`;
 
     return `
       <div class="card" style="margin-bottom:1rem">
@@ -1296,15 +1476,7 @@ const App = (() => {
 
       <div class="card">
         <h3 class="card-title" style="margin:0 0 .75rem">All Devotees on this Bus</h3>
-        <div class="table-wrap">
-          <table class="report-table">
-            <thead><tr>
-              <th style="width:40px">#</th><th>Name</th><th>Mobile</th>
-              <th>Team</th><th>Category</th><th>Boarded At</th><th>Marked By</th>
-            </tr></thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-        </div>
+        <div class="table-wrap">${_buildBusPassengerTable(list)}</div>
       </div>`;
   }
 
@@ -1447,7 +1619,7 @@ const App = (() => {
           </div>
           <div class="dash-count-col color-att">
             <div class="dash-count-head">Attendance</div>
-            <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('present','Present')"><span class="dc-label success">Present</span><span class="dc-num">${present.length}</span></div>
+            <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('present','Present')"><span class="dc-label success">Present</span><span class="dc-num">${present.length}${walkins.length > 0 ? `<span style="font-size:.62rem;color:var(--text-muted);font-weight:400;margin-left:.25rem">incl.${walkins.filter(a=>a.attendance==='present').length}WI</span>` : ''}</span></div>
             <div class="dash-count-row dash-count-clickable" onclick="App.showCountList('absent','Absent')"><span class="dc-label warning">Absent</span><span class="dc-num">${absent.length}</span></div>
             <div class="dash-count-pct">${pct}% attended</div>
             <div class="dash-progress">
@@ -2183,12 +2355,6 @@ const App = (() => {
     return parseFloat(cleaned) || 0;
   }
 
-  // Normalize mobile — keep digits only, take last 10
-  function normalizeMobile(val) {
-    const digits = String(val || '').replace(/\D/g, '');
-    return digits.length > 10 ? digits.slice(-10) : digits;
-  }
-
   async function confirmImport() {
     if (!importData || !importHeaders) { Helpers.toast('Please upload a file first', 'error'); return; }
 
@@ -2222,7 +2388,7 @@ const App = (() => {
         });
 
         // Normalize mobile — digits only, last 10 digits
-        r.mobile = normalizeMobile(r.mobile);
+        r.mobile = Helpers.normMobile(r.mobile);
 
         // Normalize payment amount — handle commas and currency symbols
         r.paymentAmount = parseAmount(r.paymentAmount);
@@ -2281,7 +2447,7 @@ const App = (() => {
 
         // Auto-assign category from team name if category is missing
         if (!r.category && r.team) {
-          const guessed = getCategoryForTeam(r.team);
+          const guessed = Reports.getTeamDept(r.team, null);
           if (guessed) r.category = guessed;
         }
 
@@ -2336,7 +2502,7 @@ const App = (() => {
         const dbRecords = allAttendees.length ? allAttendees : await DB.getAll(DB.STORES.attendees);
         records.forEach(r => {
           const match = dbRecords.find(e => {
-            const sameMob = e.mobile && r.mobile && normalizeMobile(String(e.mobile)) === r.mobile;
+            const sameMob = e.mobile && r.mobile && Helpers.normMobile(String(e.mobile)) === r.mobile;
             return sameMob && Helpers.similarName(e.name, r.name);
           });
           if (match) {
@@ -2720,8 +2886,6 @@ const App = (() => {
       })
       .catch(() => {});
   }
-  function _mobileKey(m) { return (m || '').toString().replace(/\D/g, '').slice(-10); }
-  function _nameNorm(s) { return (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, ''); }
   // Map keys are composite (e.g. "m:9876543210|n:priyanka") since the absentee
   // matrix dedupes by mobile + full name. Try the composite key first, then
   // fall back to mobile-only and name-only scans so existing devotees still
@@ -2731,8 +2895,8 @@ const App = (() => {
     const p = (typeof mobileOrParticipant === 'object' && mobileOrParticipant)
       ? mobileOrParticipant
       : { mobile: mobileOrParticipant, name: nameMaybe };
-    const mob10 = _mobileKey(p.mobile);
-    const nameN = _nameNorm(p.name);
+    const mob10 = Helpers.normMobile(p.mobile);
+    const nameN = Helpers.normName(p.name);
 
     let entry = null;
     if (mob10 && nameN) entry = _absenteeMap.get(`m:${mob10}|n:${nameN}`);
@@ -2825,8 +2989,13 @@ const App = (() => {
     if (a.isLateRegistration) nameEl.innerHTML += ' <span style="background:#fef3c7;color:#92400e;padding:.1rem .4rem;border-radius:4px;font-size:.7rem;font-weight:700;margin-left:.3rem">LATE</span>';
     document.getElementById('pc-attendee-id').value = a.id;
     // Pre-fill with applicable charge (late or normal) if unpaid; keep existing amount if already partially paid
-    const prefill = a.paymentAmount > 0 ? a.paymentAmount : (a.applicableCharge || '');
-    document.getElementById('pc-amount').value = prefill;
+    const minAmt = parseFloat(a.applicableCharge) || 0;
+    const prefill = a.paymentAmount > 0 ? a.paymentAmount : (minAmt || '');
+    const amtInput = document.getElementById('pc-amount');
+    amtInput.value = prefill;
+    amtInput.min = minAmt > 0 ? minAmt : 0;
+    const minHint = document.getElementById('pc-amount-min');
+    if (minHint) minHint.textContent = minAmt > 0 ? `Min: ${Helpers.currency(minAmt)}` : '';
     document.getElementById('pc-remarks').value = '';
     document.getElementById('pc-mode-cash').checked = true;
     document.getElementById('pc-screenshot-wrap').style.display = 'none';
@@ -2897,26 +3066,31 @@ const App = (() => {
   // Actually perform the admission (shared by instant and payment-collect flow)
   let _pendingAdmit = null;
 
-  function _promptSelectBusThenAdmit(a, extraPayment) {
-    const buses  = (window._cachedBusesForPicker || []);
-    const myArea = getMyArea();
+  function _buildBusPickModalHtml(displayName, confirmLabel) {
+    const buses   = (window._cachedBusesForPicker || []);
+    const myArea  = getMyArea();
     const visible = myArea ? buses.filter(b => normBus(b.area) === normBus(myArea)) : buses;
-    if (!visible.length) { doAdmit(a, extraPayment); return; }
-    const esc = Helpers.escapeHtml;
+    if (!visible.length) return null;
+    const esc   = Helpers.escapeHtml;
     const pills = visible.map(b =>
       `<button class="ss-area-pill" onclick="App._gatePickBusAndAdmit('${esc(b.name)}',this)">${esc(b.name)}</button>`
     ).join('');
-    _pendingAdmit = { a, extraPayment, chosenBus: '' };
-    Helpers.modal(`
+    return `
       <div style="margin-bottom:.85rem">
         <h3 style="margin:0 0 .25rem;font-size:1rem;font-weight:700">Select bus before admitting</h3>
-        <p style="margin:0;font-size:.82rem;color:var(--text-muted)">Which bus is <strong>${esc(a.name)}</strong> boarding?</p>
+        <p style="margin:0;font-size:.82rem;color:var(--text-muted)">Which bus is <strong>${esc(displayName)}</strong> boarding?</p>
       </div>
       <div class="ss-area-grid" id="gate-bus-pick-grid">${pills}</div>
       <button class="btn-primary" id="gate-bus-pick-confirm" style="width:100%;margin-top:1.25rem" disabled
-        onclick="App._gateConfirmBusAndAdmit()">Admit ›</button>
-      <button class="btn-ghost" style="width:100%;margin-top:.4rem" onclick="Helpers.closeModal()">Cancel</button>
-    `);
+        onclick="App._gateConfirmBusAndAdmit()">${confirmLabel}</button>
+      <button class="btn-ghost" style="width:100%;margin-top:.4rem" onclick="Helpers.closeModal()">Cancel</button>`;
+  }
+
+  function _promptSelectBusThenAdmit(a, extraPayment) {
+    const html = _buildBusPickModalHtml(a.name, 'Admit ›');
+    if (!html) { doAdmit(a, extraPayment); return; }
+    _pendingAdmit = { a, extraPayment, chosenBus: '' };
+    Helpers.modal(html);
   }
 
   function _gatePickBusAndAdmit(busName, btn) {
@@ -2943,6 +3117,13 @@ const App = (() => {
   }
 
   async function doAdmit(a, extraPayment) {
+    // Hard block: cut-off date passed — attendance is locked
+    const evtDoc = await DB.getEvent(DB.getCurrentEvent()).catch(() => null);
+    if (_isCutoffPassed(evtDoc)) {
+      Helpers.toast('Attendance locked — cut-off date has passed for this event', 'error');
+      return;
+    }
+
     const myBus  = getMyBus();
     const myArea = getMyArea();
 
@@ -3013,6 +3194,12 @@ const App = (() => {
     // Volunteers cannot admit without payment — hard block
     if (!isAdmin && (skip || amount === 0)) {
       Helpers.toast('Payment amount is required — only admin can admit without payment', 'error');
+      return;
+    }
+    // Minimum amount enforcement: collected amount cannot be below applicable charge
+    const minAmt = parseFloat(a.applicableCharge) || 0;
+    if (!skip && amount > 0 && minAmt > 0 && amount < minAmt) {
+      Helpers.toast(`Amount too low — minimum is ${Helpers.currency(minAmt)}${a.isLateRegistration ? ' (late rate)' : ''}`, 'error');
       return;
     }
     // Anyone admitting with zero amount must leave a remark (who will pay / why)
@@ -3341,6 +3528,19 @@ const App = (() => {
     if (walkinAmt === 0 && !remarks) {
       showErr('Remarks required when adding without payment (note who will pay later)'); return;
     }
+    // Minimum amount: walk-ins today — determine if after cutoff → use lateCharge
+    if (walkinAmt > 0) {
+      const wiCutoff  = await DB.getConfig('cutoffDate').catch(() => null);
+      const wiNormal  = parseFloat(await DB.getConfig('chargePerPerson').catch(() => 0)) || 0;
+      const wiLate    = parseFloat(await DB.getConfig('lateCharge').catch(() => 0)) || 0;
+      const todayStr  = new Date().toISOString().slice(0, 10);
+      const wiMinAmt  = (wiCutoff && todayStr > wiCutoff && wiLate) ? wiLate : wiNormal;
+      if (wiMinAmt > 0 && walkinAmt < wiMinAmt) {
+        const lateLabel = (wiCutoff && todayStr > wiCutoff && wiLate) ? ' (late rate)' : '';
+        showErr(`Amount too low — minimum is ${Helpers.currency(wiMinAmt)}${lateLabel}`);
+        return;
+      }
+    }
 
     // Hard block: buses exist but none selected
     if (!getMyBus() && _busesConfigured) {
@@ -3351,26 +3551,8 @@ const App = (() => {
         _isWalkIn: true,
         _walkinData: { name, mobile, reference, payment, category, payMode, remarks }
       };
-      const buses  = (window._cachedBusesForPicker || []);
-      const myArea = getMyArea();
-      const visible = myArea ? buses.filter(b => normBus(b.area) === normBus(myArea)) : buses;
-      if (visible.length) {
-        const esc2 = Helpers.escapeHtml;
-        const pills = visible.map(b =>
-          `<button class="ss-area-pill" onclick="App._gatePickBusAndAdmit('${esc2(b.name)}',this)">${esc2(b.name)}</button>`
-        ).join('');
-        Helpers.modal(`
-          <div style="margin-bottom:.85rem">
-            <h3 style="margin:0 0 .25rem;font-size:1rem;font-weight:700">Select bus before admitting</h3>
-            <p style="margin:0;font-size:.82rem;color:var(--text-muted)">Which bus is <strong>${Helpers.escapeHtml(name)}</strong> (walk-in) boarding?</p>
-          </div>
-          <div class="ss-area-grid" id="gate-bus-pick-grid">${pills}</div>
-          <button class="btn-primary" id="gate-bus-pick-confirm" style="width:100%;margin-top:1.25rem" disabled
-            onclick="App._gateConfirmBusAndAdmit()">Add Walk-in ›</button>
-          <button class="btn-ghost" style="width:100%;margin-top:.4rem" onclick="Helpers.closeModal()">Cancel</button>
-        `);
-        return;
-      }
+      const wiHtml = _buildBusPickModalHtml(name + ' (walk-in)', 'Add Walk-in ›');
+      if (wiHtml) { Helpers.modal(wiHtml); return; }
     }
 
     // Lock submission — prevents double-tap on slow network
@@ -3423,7 +3605,7 @@ const App = (() => {
   }
 
   async function renderWalkinList() {
-    const all = await DB.getAll(DB.STORES.attendees);
+    const all = await _getAttendees();
     const walkins = all.filter(a => a.isWalkIn).slice().reverse();
     document.getElementById('walkin-list').innerHTML = walkins.length ? Helpers.buildTable(
       ['Name', 'Mobile', 'Reference', 'Payment', 'Mode', 'Entry'],
@@ -3436,7 +3618,7 @@ const App = (() => {
   // ===== ATTENDEES =====
   const ATTENDEES_LIMIT = 500;
   async function initAttendees() {
-    const attendees = await DB.getAll(DB.STORES.attendees);
+    const attendees = await _getAttendees();
     attendeesPage = 1;
 
     // Deduplicate team names case-insensitively; display canonical (most-frequent) spelling
@@ -3583,6 +3765,19 @@ const App = (() => {
   let _finesCache = [];
   let _bulkSelectedIds = new Set();
 
+  function _resetEventState() {
+    allAttendees = []; attendanceInited = false;
+    _absenteeMap = null; _dashStaticCache = null; _finesCache = [];
+    _busesConfigured = false; window._cachedBusesForPicker = [];
+    Reports.clearAbsenteeCache();
+  }
+
+  async function _getAttendees() {
+    if (allAttendees.length) return allAttendees;
+    allAttendees = await DB.getAll(DB.STORES.attendees);
+    return allAttendees;
+  }
+
   function initManage() { _manageSubTab(_mngTab); }
 
   function _manageSubTab(tab) {
@@ -3602,7 +3797,7 @@ const App = (() => {
   // ── Attendees sub-tab: edit, cancel, add registrations ──────────
   async function _initMngAttendees(host) {
     _bulkSelectedIds.clear();
-    const attendees = await DB.getAll(DB.STORES.attendees);
+    const attendees = await _getAttendees();
     const esc = Helpers.escapeHtml;
     const teamMap = {}, refMap = {};
     attendees.forEach(a => {
@@ -3734,7 +3929,7 @@ const App = (() => {
 
   // ── Walk-ins sub-tab ─────────────────────────────────────────────
   async function _initMngWalkins(host) {
-    const attendees = await DB.getAll(DB.STORES.attendees);
+    const attendees = await _getAttendees();
     const walkins = attendees.filter(a => a.isWalkIn).sort((a, b) => {
       const ta = a.entryTime || a.createdAt || '', tb = b.entryTime || b.createdAt || '';
       return tb.localeCompare(ta);
@@ -3802,7 +3997,7 @@ const App = (() => {
 
   // ── Late Registrations sub-tab ───────────────────────────────────
   async function _initMngLate(host) {
-    const attendees = await DB.getAll(DB.STORES.attendees);
+    const attendees = await _getAttendees();
     const cutoffDate = await DB.getConfig('cutoffDate').catch(() => null);
     const lateCharge = parseFloat(await DB.getConfig('lateCharge').catch(() => 0)) || 0;
     const normalCharge = parseFloat(await DB.getConfig('chargePerPerson').catch(() => 0)) || 0;
@@ -3939,7 +4134,7 @@ const App = (() => {
   async function _bulkCollect() {
     if (_bulkSelectedIds.size === 0) return;
     const ids = [..._bulkSelectedIds];
-    const all = await DB.getAll(DB.STORES.attendees);
+    const all = await _getAttendees();
     const selected = all.filter(a => ids.includes(a.id) && (a.paymentStatus || 'unpaid') !== 'paid');
     if (selected.length === 0) { Helpers.toast('No unpaid records selected', 'warning'); return; }
     const esc = Helpers.escapeHtml;
@@ -4059,7 +4254,7 @@ const App = (() => {
 
         const sheetRows = rows.map(row => {
           const name   = String(row[colName] || '').trim();
-          const mobile = normalizeMobile(String(row[colMobile] || ''));
+          const mobile = Helpers.normMobile(String(row[colMobile] || ''));
           const amt    = colAmt >= 0 ? parseAmount(String(row[colAmt] || '0')) : 0;
 
           let statusRaw = colStatus >= 0 ? String(row[colStatus] || '').toLowerCase().trim() : '';
@@ -4113,7 +4308,7 @@ const App = (() => {
           // Step 1: mobile + exact name match
           if (hasMob) {
             const mobMatches = existing.filter(e =>
-              normalizeMobile(String(e.mobile || '')) === row.mobile
+              Helpers.normMobile(String(e.mobile || '')) === row.mobile
             );
             const exact = mobMatches.find(e => normName(e.name) === rowNorm);
             if (exact) {
@@ -4398,7 +4593,7 @@ const App = (() => {
 
   // ── Action sub-tab: present but unpaid ──────────────────────────
   async function _initMngAction(host) {
-    const attendees = await DB.getAll(DB.STORES.attendees);
+    const attendees = await _getAttendees();
     const esc = Helpers.escapeHtml;
     const unpaid = attendees.filter(a =>
       a.attendance === 'present' && a.paymentStatus !== 'paid' && a.paymentStatus !== 'free' && !a.cancelled
@@ -4446,7 +4641,7 @@ const App = (() => {
     try { fines = await DB.getAll(DB.STORES.fines); } catch {}
     _finesCache = fines;
 
-    const attendees = await DB.getAll(DB.STORES.attendees);
+    const attendees = await _getAttendees();
     const absentees = attendees.filter(a => a.attendance !== 'present' && !a.cancelled && !a.isWalkIn);
     const finedIds = new Set(fines.map(f => f.participantId));
     const unfined = absentees.filter(a => !finedIds.has(a.id));
@@ -4535,7 +4730,7 @@ const App = (() => {
       fineAmt = parseFloat(input);
     }
 
-    const attendees = await DB.getAll(DB.STORES.attendees);
+    const attendees = await _getAttendees();
     let existing = [];
     try { existing = await DB.getAll(DB.STORES.fines); } catch {}
     const finedIds = new Set(existing.map(f => f.participantId));
@@ -4633,7 +4828,7 @@ const App = (() => {
     const host = document.getElementById('page-payment-content');
     host.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:2rem">Loading…</p>';
 
-    const attendees = await DB.getAll(DB.STORES.attendees);
+    const attendees = await _getAttendees();
     const rawTcMap = await DB.getConfig('teamCategoryMap').catch(() => null);
     const tcMap = rawTcMap ? JSON.parse(rawTcMap) : {};
     const evtDoc = await DB.getEvent(DB.getCurrentEvent()).catch(() => null);
@@ -4857,9 +5052,14 @@ const App = (() => {
     await Promise.all([
       _renderSetupEvent(),
       _renderSetupAreas(),
-      _renderSetupTeam(),
       _renderSetupDanger()
     ]);
+  }
+
+  // Returns true when the current event's cut-off date has passed (editing locked)
+  function _isCutoffPassed(evt) {
+    if (!evt?.cutoffDate) return false;
+    return new Date().toISOString().slice(0, 10) > evt.cutoffDate;
   }
 
   // ── Setup: Event section ──────────────────────────────────────────────────
@@ -4869,20 +5069,49 @@ const App = (() => {
     const evt = await DB.getEvent(DB.getCurrentEvent());
     const isCurrent = !!evt?.isCurrentEvent;
     const esc = Helpers.escapeHtml;
-    el.innerHTML = `
+    const seLateCfg = parseFloat(await DB.getConfig('lateCharge').catch(() => 0)) || evt?.lateCharge || 0;
+    const locked = _isCutoffPassed(evt);
+    const lockBanner = locked
+      ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:.55rem .75rem;margin-bottom:.65rem;display:flex;align-items:center;gap:.5rem;font-size:.83rem;font-weight:600;color:#b91c1c">
+           🔒 Cut-off passed (${evt.cutoffDate}) — this event is locked. Only admins can change the cut-off date.
+         </div>`
+      : '';
+    const dis = locked ? 'disabled' : '';
+    el.innerHTML = `${lockBanner}
       <div class="setup-field-row col2">
         <div>
           <div class="setup-label">Event Name</div>
-          <input id="se-name" class="wi-input" style="width:100%" value="${esc(evt?.name || '')}" placeholder="e.g. Prerna 2025" />
+          <input id="se-name" class="wi-input" style="width:100%" value="${esc(evt?.name || '')}" placeholder="e.g. Prerna 2025" ${dis} />
         </div>
         <div>
           <div class="setup-label">Event Date</div>
-          <input id="se-date" type="date" class="wi-input" style="width:100%" value="${evt?.date || ''}" />
+          <input id="se-date" type="date" class="wi-input" style="width:100%" value="${evt?.date || ''}" ${dis} />
         </div>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.5rem;margin-bottom:.5rem">
+        <div>
+          <div class="setup-label">Cut-off Date${locked ? '' : ' (last date for normal registration)'}</div>
+          <input id="se-cutoff" type="date" class="wi-input" style="width:100%" value="${evt?.cutoffDate || ''}" />
+        </div>
+        <div>
+          <div class="setup-label">Charge Per Person (₹)</div>
+          <input id="se-charge" type="number" class="wi-input" style="width:100%" value="${evt?.chargePerPerson || 0}" ${dis} />
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.5rem;margin-bottom:.5rem">
+        <div>
+          <div class="setup-label">Late Registration Charge (₹)</div>
+          <input id="se-late-charge" type="number" class="wi-input" style="width:100%" value="${seLateCfg || 0}" min="0" />
+        </div>
+        <div>
+          <div class="setup-label">Other Expense Budget (₹)</div>
+          <input id="se-expense" type="number" class="wi-input" style="width:100%" value="${evt?.totalExpense || 0}" min="0" ${dis} />
+        </div>
+      </div>
+      <p style="font-size:.72rem;color:var(--text-muted);margin-bottom:.5rem">Registrations on or before cut-off date pay normal rate; after cut-off → late charge applies. Import maps the "Timestamp" column automatically.</p>
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.65rem;margin-top:.35rem">
         <label style="display:flex;align-items:center;gap:.45rem;cursor:pointer;font-size:.87rem;font-weight:500;color:${isCurrent ? 'var(--accent)' : 'var(--text-secondary)'}">
-          <input type="checkbox" id="se-current" ${isCurrent ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)" />
+          <input type="checkbox" id="se-current" ${isCurrent ? 'checked' : ''} ${dis} style="width:16px;height:16px;accent-color:var(--accent)" />
           &#11088; Mark as Current Event
         </label>
         <button class="btn-primary" onclick="App._saveSetupEvent()">Save</button>
@@ -4892,20 +5121,37 @@ const App = (() => {
   async function _saveSetupEvent() {
     const name   = document.getElementById('se-name')?.value.trim();
     const date   = document.getElementById('se-date')?.value;
+    const cutoff = document.getElementById('se-cutoff')?.value;
+    const charge      = parseFloat(document.getElementById('se-charge')?.value) || 0;
+    const lateCharge  = parseFloat(document.getElementById('se-late-charge')?.value) || 0;
+    const totalExpense = parseFloat(document.getElementById('se-expense')?.value) || 0;
     const isCurr = document.getElementById('se-current')?.checked || false;
     const eid    = DB.getCurrentEvent();
     if (!name) { Helpers.toast('Event name is required', 'error'); return; }
+    if (cutoff && date && cutoff > date) { Helpers.toast('Cut-off date must be on or before the event date', 'error'); return; }
     if (isCurr) {
       try {
         const allEvts = await DB.getEvents();
         await Promise.all(allEvts.filter(e => e.id !== eid && e.isCurrentEvent).map(e => DB.updateEvent(e.id, { isCurrentEvent: false })));
       } catch {}
     }
-    await DB.updateEvent(eid, { name, date, financialYear: date ? Helpers.getFinancialYear(date) : '', isCurrentEvent: isCurr });
-    await DB.setConfig('eventName', name);
-    await DB.setConfig('eventDate', date);
+    await DB.updateEvent(eid, {
+      name, date, cutoffDate: cutoff || '',
+      chargePerPerson: charge, lateCharge, totalExpense,
+      financialYear: date ? Helpers.getFinancialYear(date) : '',
+      isCurrentEvent: isCurr
+    });
+    // Sync to config collection so walk-in & payment collection pick up latest rates
+    await Promise.all([
+      DB.setConfig('eventName', name),
+      DB.setConfig('eventDate', date),
+      DB.setConfig('chargePerPerson', charge),
+      DB.setConfig('cutoffDate', cutoff || ''),
+      DB.setConfig('lateCharge', lateCharge),
+    ]);
     await loadEventSelector();
     Helpers.toast('Event saved' + (isCurr ? ' · marked as current' : ''), 'success');
+    await _renderSetupEvent();
   }
 
   // ── Setup: Areas & Buses section ─────────────────────────────────────────
@@ -4993,8 +5239,169 @@ const App = (() => {
         </div>`;
     }).join('') || `<div style="text-align:center;padding:1.5rem;font-size:.88rem;color:var(--text-muted);background:#f8fafc;border-radius:10px;margin-bottom:.75rem;border:1px dashed var(--border)">No areas yet — add one below ↓</div>`;
 
-    el.innerHTML = `${summaryBar}<div id="setup-area-list">${areaCards}</div>
-      <button class="btn-secondary" style="width:100%;margin-top:.25rem" onclick="App._openAddAreaModal()">&#43; Add Area</button>`;
+    const evt = await DB.getEvent(DB.getCurrentEvent()).catch(() => null);
+    const locked = _isCutoffPassed(evt);
+
+    // Fetch registered users for coordinator dropdown in Tab B (A→Z by name)
+    const users = await DB.getAll(DB.STORES.users).catch(() => []);
+    const userOpts = users
+      .map(u => (u.name || u.email || '').trim()).filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+      .map(n => `<option value="${Helpers.escapeHtml(n)}">${Helpers.escapeHtml(n)}</option>`).join('');
+
+    // Build Tab B — Bus Config per area
+    const areaDropdown = areas.length
+      ? areas.map(a => `<option value="${Helpers.escapeHtml(a.name)}">${Helpers.escapeHtml(a.name)}</option>`).join('')
+      : '<option value="">No areas — add areas in Tab A first</option>';
+
+    const tabBContent = `
+      <div style="margin-bottom:.65rem">
+        <div class="setup-label">Select Area</div>
+        <select id="tbb-area" class="wi-input" style="width:100%" onchange="App._setupTabBLoad(this.value)" ${locked ? 'disabled' : ''}>
+          <option value="">— choose area —</option>
+          ${areaDropdown}
+        </select>
+      </div>
+      <div id="tbb-bus-panel" style="display:none">
+        <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.6rem">
+          <div style="flex:1">
+            <div class="setup-label">Number of Buses</div>
+            <input type="number" id="tbb-count" min="1" max="20" placeholder="e.g. 3" class="wi-input" style="width:100%" oninput="App._setupTabBGenRows()" ${locked ? 'disabled' : ''} />
+          </div>
+          <div style="flex:1">
+            <div class="setup-label">Cost per Bus (₹)</div>
+            <input type="number" id="tbb-buscost" min="0" placeholder="0" class="wi-input" style="width:100%" ${locked ? 'disabled' : ''} />
+          </div>
+        </div>
+        <div id="tbb-rows" style="display:flex;flex-direction:column;gap:.45rem;margin-bottom:.65rem"></div>
+        ${locked ? '' : `<button class="btn-primary" style="width:100%" onclick="App._setupTabBSave()">Save Bus Configuration</button>`}
+      </div>`;
+
+    el.innerHTML = `${summaryBar}
+      ${locked ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:.45rem .7rem;margin-bottom:.6rem;font-size:.82rem;font-weight:600;color:#b91c1c">🔒 Locked — cut-off date passed. No changes allowed.</div>` : ''}
+      <div class="setup-cfg-tabs">
+        <button class="setup-cfg-tab active" id="scf-tab-a" onclick="App._setupSwTab('a')">📍 Areas</button>
+        <button class="setup-cfg-tab"         id="scf-tab-b" onclick="App._setupSwTab('b')">🚌 Bus Config</button>
+      </div>
+      <div id="setup-tab-a-content">
+        <div id="setup-area-list">${areaCards}</div>
+        ${locked ? '' : `<button class="btn-secondary" style="width:100%;margin-top:.25rem" onclick="App._openAddAreaModal()">+ Add Area</button>`}
+      </div>
+      <div id="setup-tab-b-content" style="display:none">${tabBContent}</div>`;
+
+    // Tab switcher
+    App._setupSwTab = (tab) => {
+      document.getElementById('setup-tab-a-content').style.display = tab === 'a' ? '' : 'none';
+      document.getElementById('setup-tab-b-content').style.display = tab === 'b' ? '' : 'none';
+      document.getElementById('scf-tab-a').classList.toggle('active', tab === 'a');
+      document.getElementById('scf-tab-b').classList.toggle('active', tab === 'b');
+    };
+
+    // Tab B: load existing buses for selected area and pre-fill rows
+    App._setupTabBLoad = async (areaName) => {
+      const panel = document.getElementById('tbb-bus-panel');
+      if (!areaName) { panel.style.display = 'none'; return; }
+      const areaBuses = buses.filter(b => normBus(b.area) === normBus(areaName));
+      const area      = areas.find(a => normBus(a.name) === normBus(areaName));
+      panel.style.display = '';
+      document.getElementById('tbb-count').value    = areaBuses.length || '';
+      document.getElementById('tbb-buscost').value  = area?.perBusCost || 0;
+      App._setupTabBRender(areaName, areaBuses);
+    };
+
+    // Render bus rows from current count input
+    App._setupTabBGenRows = () => {
+      const areaName  = document.getElementById('tbb-area').value;
+      const areaBuses = buses.filter(b => normBus(b.area) === normBus(areaName));
+      App._setupTabBRender(areaName, areaBuses);
+    };
+
+    App._setupTabBRender = (areaName, areaBuses) => {
+      const count  = parseInt(document.getElementById('tbb-count').value) || 0;
+      const rowDiv = document.getElementById('tbb-rows');
+      if (!rowDiv) return;
+      const rows = [];
+      for (let i = 0; i < count; i++) {
+        const existing  = areaBuses[i];
+        const busName   = existing?.name || `Bus ${i + 1}`;
+        const busCoord  = existing?.coordinator || '';
+        const busCap    = existing?.capacity || '';
+        const busId     = existing?.id || '';
+        rows.push(`
+          <div style="display:grid;grid-template-columns:auto 1fr 1fr auto;gap:.4rem;align-items:center;background:var(--bg-card2);border:1px solid var(--border);border-radius:8px;padding:.45rem .6rem">
+            <span style="font-size:.82rem;font-weight:700;color:var(--text-muted);white-space:nowrap">Bus ${i + 1}</span>
+            <div>
+              <div class="setup-label" style="font-size:.69rem">Bus Name</div>
+              <input type="text" class="tbb-bname wi-input" data-idx="${i}" data-id="${Helpers.escapeHtml(busId)}"
+                value="${Helpers.escapeHtml(busName)}" placeholder="Bus ${i + 1}" style="width:100%;font-size:.83rem;padding:.3rem .5rem" ${locked ? 'disabled' : ''} />
+            </div>
+            <div>
+              <div class="setup-label" style="font-size:.69rem">Coordinator</div>
+              <select class="tbb-coord wi-input" data-idx="${i}" style="width:100%;font-size:.83rem;padding:.3rem .4rem" ${locked ? 'disabled' : ''}>
+                <option value="">— none —</option>
+                ${userOpts}
+                ${busCoord && !users.find(u => (u.name||u.email) === busCoord) ? `<option value="${Helpers.escapeHtml(busCoord)}" selected>${Helpers.escapeHtml(busCoord)}</option>` : ''}
+              </select>
+            </div>
+            <div>
+              <div class="setup-label" style="font-size:.69rem">Seats</div>
+              <input type="number" class="tbb-cap wi-input" data-idx="${i}" value="${busCap}"
+                placeholder="45" style="width:60px;font-size:.83rem;padding:.3rem .4rem" ${locked ? 'disabled' : ''} />
+            </div>
+          </div>`);
+      }
+      rowDiv.innerHTML = rows.join('') || '<div style="font-size:.83rem;color:var(--text-muted);padding:.4rem 0">Enter number of buses above to configure them.</div>';
+      // Pre-select coordinator values
+      areaBuses.forEach((b, i) => {
+        const sel = rowDiv.querySelectorAll('.tbb-coord')[i];
+        if (sel && b.coordinator) sel.value = b.coordinator;
+      });
+    };
+
+    // Save all bus rows for selected area
+    App._setupTabBSave = async () => {
+      const areaName  = document.getElementById('tbb-area').value;
+      const perBusCost = parseFloat(document.getElementById('tbb-buscost').value) || 0;
+      if (!areaName) { Helpers.toast('Select an area first', 'error'); return; }
+
+      // Update area's perBusCost
+      const freshAreas = await _loadAreas().catch(() => []);
+      const aIdx = freshAreas.findIndex(a => normBus(a.name) === normBus(areaName));
+      if (aIdx >= 0) { freshAreas[aIdx].perBusCost = perBusCost; await _saveAreas(freshAreas); }
+
+      // Collect row data
+      const nameInputs  = document.querySelectorAll('.tbb-bname');
+      const coordSels   = document.querySelectorAll('.tbb-coord');
+      const capInputs   = document.querySelectorAll('.tbb-cap');
+      const existingIds = [...nameInputs].map(el => el.dataset.id).filter(Boolean);
+
+      // Delete buses for this area that are no longer in the list
+      const oldBuses = buses.filter(b => normBus(b.area) === normBus(areaName));
+      for (const ob of oldBuses) {
+        if (!existingIds.includes(ob.id)) await DB.deleteRecord(DB.STORES.buses, ob.id).catch(() => {});
+      }
+
+      // Upsert each row
+      for (let i = 0; i < nameInputs.length; i++) {
+        const busName = nameInputs[i].value.trim() || `Bus ${i + 1}`;
+        const coord   = coordSels[i]?.value || '';
+        const cap     = parseInt(capInputs[i]?.value) || 0;
+        const bid     = nameInputs[i].dataset.id;
+        if (bid) {
+          await DB.put(DB.STORES.buses, { id: bid, name: busName, coordinator: coord, area: areaName, capacity: cap });
+        } else {
+          await DB.add(DB.STORES.buses, { name: busName, coordinator: coord, area: areaName, capacity: cap });
+        }
+      }
+
+      _dashStaticCache = null; window._cachedBusesForPicker = [];
+      Helpers.toast(`Bus config saved for ${areaName}`, 'success');
+      await _renderSetupAreas();
+      // Switch back to Tab B and reload the area
+      App._setupSwTab('b');
+      document.getElementById('tbb-area').value = areaName;
+      App._setupTabBLoad(areaName);
+    };
 
     // wire interactive handlers into App.* so onclick= can find them
     App._toggleAreaCard = (areaId) => {
@@ -5146,14 +5553,6 @@ const App = (() => {
   }
 
   // ── Setup: Team & Access section ──────────────────────────────────────────
-  async function _renderSetupTeam() {
-    const el = document.getElementById('setup-team-content');
-    if (!el) return;
-    el.innerHTML = `<div id="users-list" style="margin-bottom:.65rem"></div>
-      <button class="btn-secondary" onclick="App.showAddUserModal()">+ Invite User</button>`;
-    await renderUsers();
-  }
-
   // ── Setup: Danger Zone section ────────────────────────────────────────────
   async function _renderSetupDanger() {
     const el = document.getElementById('setup-danger-content');
@@ -5184,7 +5583,7 @@ const App = (() => {
         try {
           await DB.deleteEvent(DB.getCurrentEvent());
           DB.setCurrentEvent(null);
-          allAttendees = []; attendanceInited = false;
+          _resetEventState();
           Helpers.closeModal();
           await loadEventSelector();
           Helpers.toast('Event deleted', 'success');
@@ -5197,345 +5596,12 @@ const App = (() => {
     };
   }
 
-  async function openEventConfigModal() {
-    const evt = await DB.getEvent(DB.getCurrentEvent());
-    const isCurrent = !!evt?.isCurrentEvent;
-    const cfgCutoff = await DB.getConfig('cutoffDate').catch(() => '');
-    const cfgLateCharge = await DB.getConfig('lateCharge').catch(() => 0);
+  // openEventConfigModal / saveEventConfig / openAreasTransportModal removed — all consolidated into _renderSetupEvent() + _renderSetupAreas()
+
+  async function openUserManagementModal() {
     Helpers.modal(`
-      <h3 class="modal-title">&#128197; Event Configuration</h3>
-      <div class="input-group" style="margin-bottom:.75rem">
-        <label class="settings-label">Event Name</label>
-        <input type="text" id="m-cfg-name" class="wi-input" value="${(evt?.name || '').replace(/"/g,'&quot;')}" style="width:100%" placeholder="e.g. Prerna 2025" />
-      </div>
-      <div class="input-group" style="margin-bottom:.75rem">
-        <label class="settings-label">Event Date</label>
-        <input type="date" id="m-cfg-date" class="wi-input" value="${evt?.date || ''}" style="width:100%" />
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
-        <div>
-          <label class="settings-label">Charge Per Person (&#8377;)</label>
-          <input type="number" id="m-cfg-charge" class="wi-input" value="${evt?.chargePerPerson || 0}" min="0" style="width:100%" />
-        </div>
-        <div>
-          <label class="settings-label">Other Expense Budget (&#8377;)</label>
-          <input type="number" id="m-cfg-expense" class="wi-input" value="${evt?.totalExpense || 0}" min="0" style="width:100%" />
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
-        <div>
-          <label class="settings-label">Registration Cutoff Date</label>
-          <input type="date" id="m-cfg-cutoff" class="wi-input" value="${cfgCutoff || ''}" style="width:100%" />
-        </div>
-        <div>
-          <label class="settings-label">Late Registration Charge (&#8377;)</label>
-          <input type="number" id="m-cfg-late-charge" class="wi-input" value="${cfgLateCharge || 0}" min="0" style="width:100%" />
-        </div>
-      </div>
-      <p style="font-size:.72rem;color:var(--text-muted);margin-bottom:.75rem">Cutoff date is <strong>inclusive</strong> — registrations on or before this date pay the normal rate. After this date → late charge applies. Import maps the "Timestamp" column automatically.</p>
-      <label style="display:flex;align-items:center;gap:.6rem;padding:.7rem;border-radius:8px;border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'};background:${isCurrent ? '#f0fdf4' : 'transparent'};cursor:pointer;margin-bottom:1.1rem;font-size:.9rem;font-weight:500">
-        <input type="checkbox" id="m-cfg-current" ${isCurrent ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--accent)" />
-        <span>&#11088; Mark as Current Event</span>
-        <span style="margin-left:auto;font-size:.77rem;color:var(--text-muted);font-weight:400">Volunteers auto-switch to this event on login</span>
-      </label>
-      <div class="modal-actions" style="margin-bottom:1rem">
-        <button class="btn-primary" onclick="App.saveEventConfig()">Save Changes</button>
-        <button class="btn-ghost" onclick="Helpers.closeModal()">Cancel</button>
-      </div>
-      <hr style="border:none;border-top:1px solid var(--border);margin-bottom:1rem">
-      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
-        <button class="btn-secondary" onclick="App.showCreateEventModal()">+ New Event</button>
-        <button class="btn-danger" id="m-btn-del-evt">Delete This Event</button>
-      </div>
-    `);
-    document.getElementById('m-btn-del-evt').onclick = async () => {
-      const evtName = document.getElementById('m-cfg-name')?.value || 'this event';
-      Helpers.modal(`
-        <h3 class="modal-title" style="color:var(--danger)">Delete Event?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:.75rem">Permanently deletes <strong>${evtName}</strong> and all its data. Cannot be undone.</p>
-        <p style="color:var(--text-secondary);margin-bottom:.5rem">Type <strong>DELETE</strong> to confirm:</p>
-        <input type="text" id="m-del-evt-confirm" class="wi-input" placeholder="DELETE" style="width:100%;margin-bottom:1rem" autofocus />
-        <div class="modal-actions">
-          <button class="btn-danger" id="m-confirm-del-evt">Delete Event</button>
-          <button class="btn-ghost" onclick="App.openEventConfigModal()">Back</button>
-        </div>
-      `);
-      document.getElementById('m-confirm-del-evt').onclick = async () => {
-        if ((document.getElementById('m-del-evt-confirm').value || '').trim() !== 'DELETE') {
-          Helpers.toast('Type DELETE exactly', 'error'); return;
-        }
-        const btn = document.getElementById('m-confirm-del-evt');
-        btn.disabled = true; btn.textContent = 'Deleting...';
-        try {
-          await DB.deleteEvent(DB.getCurrentEvent());
-          DB.setCurrentEvent(null);
-          allAttendees = []; attendanceInited = false;
-          Helpers.closeModal();
-          await loadEventSelector();
-          Helpers.toast('Event deleted', 'success');
-          navigate('attendance');
-        } catch (err) {
-          btn.disabled = false; btn.textContent = 'Delete Event';
-          Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error');
-        }
-      };
-    };
-  }
-
-  async function saveEventConfig() {
-    const name          = document.getElementById('m-cfg-name').value;
-    const date          = document.getElementById('m-cfg-date').value;
-    const charge        = parseFloat(document.getElementById('m-cfg-charge').value) || 0;
-    const expense       = parseFloat(document.getElementById('m-cfg-expense').value) || 0;
-    const markCurrent   = document.getElementById('m-cfg-current')?.checked || false;
-    const eid           = DB.getCurrentEvent();
-
-    // If marking as current, clear the flag from all other events first
-    if (markCurrent) {
-      try {
-        const allEvts = await DB.getEvents();
-        const others = allEvts.filter(e => e.id !== eid && e.isCurrentEvent);
-        await Promise.all(others.map(e => DB.updateEvent(e.id, { isCurrentEvent: false })));
-      } catch {}
-    }
-
-    await DB.updateEvent(eid, {
-      name, date, chargePerPerson: charge, totalExpense: expense,
-      financialYear: date ? Helpers.getFinancialYear(date) : '',
-      isCurrentEvent: markCurrent
-    });
-    const cutoff     = document.getElementById('m-cfg-cutoff')?.value || '';
-    const lateChg    = parseFloat(document.getElementById('m-cfg-late-charge')?.value) || 0;
-    await DB.setConfig('eventName', name);
-    await DB.setConfig('eventDate', date);
-    await DB.setConfig('chargePerPerson', charge);
-    await DB.setConfig('cutoffDate', cutoff);
-    await DB.setConfig('lateCharge', String(lateChg));
-    await loadEventSelector();
-    Helpers.closeModal();
-    Helpers.toast('Event saved!' + (markCurrent ? ' Marked as current event.' : ''), 'success');
-  }
-
-  async function openAreasTransportModal() {
-    const esc = Helpers.escapeHtml;
-    const [areas, buses] = await Promise.all([
-      _loadAreas(),
-      DB.getAll(DB.STORES.buses).catch(() => [])
-    ]);
-
-    const _render = () => {
-      // ── Overall summary ──
-      const totalReg     = allAttendees.length;
-      const totalPresent = allAttendees.filter(a => a.attendance === 'present').length;
-      const totalCollect = allAttendees.reduce((s, a) => s + (parseFloat(a.paymentAmount) || 0), 0);
-      const summaryBar = `
-        <div style="display:flex;flex-wrap:wrap;gap:.5rem 1.25rem;padding:.55rem .75rem;background:var(--accent);color:#fff;border-radius:8px;font-size:.82rem;margin-bottom:1rem">
-          <span><b>${areas.length}</b> areas</span>
-          <span><b>${buses.length}</b> buses</span>
-          <span><b>${totalReg}</b> registered</span>
-          <span><b>${totalPresent}</b> present</span>
-          <span>Collected: <b>&#8377;${totalCollect.toLocaleString('en-IN')}</b></span>
-        </div>`;
-
-      // ── Per-area cards ──
-      const areaCards = areas.map(area => {
-        const aReg       = allAttendees.filter(a => normBus(a.area) === normBus(area.name));
-        const aPresent   = aReg.filter(a => a.attendance === 'present').length;
-        const aCollected = aReg.reduce((s, a) => s + (parseFloat(a.paymentAmount) || 0), 0);
-        const aExpected  = aReg.length * (area.perPersonCharge || 0);
-        const busCost    = (area.busCount || 0) * (area.perBusCost || 0);
-        const areaBuses  = buses.filter(b => normBus(b.area) === normBus(area.name));
-
-        const busRows = areaBuses.map(b => {
-          const onBus = allAttendees.filter(a => a.attendance === 'present' && normBus(a.boardedBus) === normBus(b.name)).length;
-          const cap   = b.capacity || 0;
-          const pct   = cap > 0 ? Math.min(100, Math.round(onBus / cap * 100)) : 0;
-          const bar   = cap > 0
-            ? `<div style="width:70px;height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:.3rem"><div style="height:100%;width:${pct}%;background:var(--accent)"></div></div>`
-            : '';
-          return `
-            <div style="display:flex;align-items:center;gap:.5rem;padding:.38rem .6rem;border-top:1px solid var(--border);font-size:.83rem">
-              <span>&#128652;</span>
-              <span style="flex:1;font-weight:500">${esc(b.name)}</span>
-              <span style="color:var(--text-muted);font-size:.78rem">${esc(b.coordinator || '')}</span>
-              <span style="white-space:nowrap">${bar}<b>${onBus}</b>${cap > 0 ? '/' + cap : ''} boarded</span>
-              <button data-bid="${esc(b.id)}" onclick="App._atBusDelete(this.dataset.bid)" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:.9rem;line-height:1;padding:.1rem .25rem" title="Remove">&#10005;</button>
-            </div>`;
-        }).join('');
-
-        return `
-          <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:.85rem">
-            <div style="background:var(--bg-card2);padding:.55rem .7rem;display:flex;align-items:center;gap:.5rem">
-              <span>&#128205;</span>
-              <span style="flex:1;font-weight:700;font-size:.95rem">${esc(area.name)}</span>
-              <span style="font-size:.78rem;color:var(--text-muted)">${aReg.length} reg &middot; ${aPresent} present</span>
-              <button data-aid="${esc(area.id)}" onclick="App._atAreaEdit(this.dataset.aid)" style="background:none;border:none;cursor:pointer;font-size:.82rem;padding:.2rem .35rem;color:var(--text-secondary)" title="Edit">&#9998;</button>
-              <button data-aid="${esc(area.id)}" onclick="App._atAreaDelete(this.dataset.aid)" style="background:none;border:none;cursor:pointer;font-size:.82rem;padding:.2rem .35rem;color:var(--danger)" title="Delete">&#10005;</button>
-            </div>
-            <div style="padding:.35rem .7rem;display:flex;flex-wrap:wrap;gap:.6rem 1rem;font-size:.79rem;background:#f8fafc;border-bottom:1px solid var(--border)">
-              <span>&#8377;${area.perPersonCharge || 0}/person</span>
-              <span>${area.busCount || 0} bus${area.busCount !== 1 ? 'es' : ''} &times; &#8377;${(area.perBusCost || 0).toLocaleString('en-IN')} = <b>&#8377;${busCost.toLocaleString('en-IN')} cost</b></span>
-              <span style="color:#15803d">Collected: <b>&#8377;${aCollected.toLocaleString('en-IN')}</b></span>
-              <span style="color:#1d4ed8">Expected: <b>&#8377;${aExpected.toLocaleString('en-IN')}</b></span>
-            </div>
-            <div>${areaBuses.length ? busRows : '<div style="padding:.5rem .7rem;font-size:.82rem;color:var(--text-muted)">No buses added yet</div>'}</div>
-            <div id="atbf-${esc(area.id)}" style="display:none;padding:.5rem .65rem;border-top:1px solid var(--border);background:var(--bg-card2)">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;align-items:end">
-                <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.2rem">Bus Name</div><input id="atbn-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="e.g. Bus RJ-01" /></div>
-                <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.2rem">Coordinator</div><input id="atbc-${esc(area.id)}" class="wi-input" style="width:100%" placeholder="Name" /></div>
-                <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.2rem">Seats</div><input id="atbcap-${esc(area.id)}" type="number" class="wi-input" style="width:100%" placeholder="45" /></div>
-                <div style="display:flex;gap:.4rem;align-items:end;padding-top:.2rem">
-                  <button class="btn-primary" style="flex:1;font-size:.85rem;padding:.5rem" data-aid="${esc(area.id)}" data-aname="${esc(area.name)}" onclick="App._atBusSave(this.dataset.aid,this.dataset.aname)">Save</button>
-                  <button class="btn-ghost" style="font-size:.85rem;padding:.5rem .6rem" onclick="document.getElementById('atbf-${esc(area.id)}').style.display='none'">&#10005;</button>
-                </div>
-              </div>
-            </div>
-            <div style="padding:.38rem .65rem;border-top:1px solid var(--border)">
-              <button onclick="document.getElementById('atbf-${esc(area.id)}').style.display='';document.getElementById('atbn-${esc(area.id)}').focus()"
-                style="width:100%;background:none;border:1px dashed var(--border);border-radius:6px;padding:.32rem;font-size:.82rem;color:var(--accent);cursor:pointer">
-                + Add Bus to ${esc(area.name)}
-              </button>
-            </div>
-          </div>`;
-      }).join('') || `<p style="color:var(--text-muted);text-align:center;padding:1rem 0">No areas yet. Add one below.</p>`;
-
-      // ── Add area form ──
-      const addForm = `
-        <div style="border:1px dashed var(--border);border-radius:10px;padding:.85rem;margin-top:.25rem">
-          <div style="font-size:.88rem;font-weight:700;margin-bottom:.6rem;color:var(--text-secondary)">+ Add New Area</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.45rem;margin-bottom:.45rem">
-            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">Area Name *</div><input id="atna-name" class="wi-input" style="width:100%" placeholder="e.g. Rajkot North" /></div>
-            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">Area Coordinator</div><input id="atna-coord" class="wi-input" style="width:100%" placeholder="In-charge name" /></div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.45rem;margin-bottom:.45rem">
-            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">&#8377; Per Person</div><input id="atna-charge" type="number" class="wi-input" style="width:100%" placeholder="0" oninput="App._atCalcTotal()" /></div>
-            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">No. of Buses</div><input id="atna-buses" type="number" class="wi-input" style="width:100%" placeholder="0" oninput="App._atCalcTotal()" /></div>
-            <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">&#8377; Per Bus Cost</div><input id="atna-buscost" type="number" class="wi-input" style="width:100%" placeholder="0" oninput="App._atCalcTotal()" /></div>
-          </div>
-          <div id="atna-calc" style="font-size:.8rem;color:var(--text-muted);margin-bottom:.55rem">Total bus cost: &#8377;0</div>
-          <button class="btn-primary" onclick="App._atAreaSave()">Add Area</button>
-        </div>`;
-
-      return `<h3 class="modal-title">&#127758; Areas &amp; Transport</h3>${summaryBar}<div id="at-area-list">${areaCards}</div>${addForm}`;
-    };
-
-    const _openModal = () => {
-      Helpers.modal(_render());
-      document.getElementById('modal-content').style.maxWidth = '680px';
-      document.getElementById('atna-name').onkeydown = e => { if (e.key === 'Enter') App._atAreaSave(); };
-    };
-    _openModal();
-
-    App._atCalcTotal = () => {
-      const b = parseInt(document.getElementById('atna-buses')?.value) || 0;
-      const c = parseFloat(document.getElementById('atna-buscost')?.value) || 0;
-      const el = document.getElementById('atna-calc');
-      if (el) el.textContent = `Total bus cost: ₹${(b * c).toLocaleString('en-IN')}`;
-    };
-
-    App._atAreaSave = async () => {
-      const name = document.getElementById('atna-name')?.value.trim();
-      if (!name) { Helpers.toast('Area name is required', 'error'); return; }
-      if (areas.find(a => normBus(a.name) === normBus(name))) { Helpers.toast('Area already exists', 'warning'); return; }
-      areas.push({
-        id: 'a' + Date.now(),
-        name,
-        coordinator:      document.getElementById('atna-coord')?.value.trim() || '',
-        perPersonCharge:  parseFloat(document.getElementById('atna-charge')?.value) || 0,
-        busCount:         parseInt(document.getElementById('atna-buses')?.value) || 0,
-        perBusCost:       parseFloat(document.getElementById('atna-buscost')?.value) || 0
-      });
-      await _saveAreas(areas);
-      Helpers.toast(`${name} added`, 'success');
-      _openModal();
-    };
-
-    App._atAreaEdit = async (areaId) => {
-      const area = areas.find(a => a.id === areaId);
-      if (!area) return;
-      Helpers.modal(`
-        <h3 class="modal-title">&#9998; Edit — ${esc(area.name)}</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.5rem">
-          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">Area Name</div><input id="atea-name" class="wi-input" style="width:100%" value="${esc(area.name)}" /></div>
-          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">Coordinator</div><input id="atea-coord" class="wi-input" style="width:100%" value="${esc(area.coordinator || '')}" /></div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;margin-bottom:.85rem">
-          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">&#8377;/Person</div><input id="atea-charge" type="number" class="wi-input" style="width:100%" value="${area.perPersonCharge || 0}" /></div>
-          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">No. of Buses</div><input id="atea-buses" type="number" class="wi-input" style="width:100%" value="${area.busCount || 0}" /></div>
-          <div><div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.18rem">&#8377;/Bus Cost</div><input id="atea-buscost" type="number" class="wi-input" style="width:100%" value="${area.perBusCost || 0}" /></div>
-        </div>
-        <div class="modal-actions">
-          <button class="btn-primary" onclick="App._atAreaUpdate('${esc(areaId)}')">Save</button>
-          <button class="btn-ghost" onclick="App.openAreasTransportModal()">Back</button>
-        </div>`);
-      document.getElementById('modal-content').style.maxWidth = '680px';
-    };
-
-    App._atAreaUpdate = async (areaId) => {
-      const idx = areas.findIndex(a => a.id === areaId);
-      if (idx < 0) return;
-      areas[idx] = {
-        ...areas[idx],
-        name:            document.getElementById('atea-name')?.value.trim() || areas[idx].name,
-        coordinator:     document.getElementById('atea-coord')?.value.trim() || '',
-        perPersonCharge: parseFloat(document.getElementById('atea-charge')?.value) || 0,
-        busCount:        parseInt(document.getElementById('atea-buses')?.value) || 0,
-        perBusCost:      parseFloat(document.getElementById('atea-buscost')?.value) || 0
-      };
-      await _saveAreas(areas);
-      Helpers.toast('Area updated', 'success');
-      await openAreasTransportModal();
-    };
-
-    App._atAreaDelete = (areaId) => {
-      const area = areas.find(a => a.id === areaId);
-      if (!area) return;
-      Helpers.modal(`
-        <h3 class="modal-title" style="color:var(--danger)">Delete Area?</h3>
-        <p style="color:var(--text-secondary);margin-bottom:.75rem">Delete <b>${esc(area.name)}</b>? Buses in this area will become unassigned.</p>
-        <div class="modal-actions">
-          <button class="btn-danger" onclick="App._atAreaConfirmDelete('${esc(areaId)}')">Delete</button>
-          <button class="btn-ghost" onclick="App.openAreasTransportModal()">Cancel</button>
-        </div>`);
-    };
-
-    App._atAreaConfirmDelete = async (areaId) => {
-      const area = areas.find(a => a.id === areaId);
-      const areaBuses = buses.filter(b => normBus(b.area) === normBus(area?.name || ''));
-      for (const b of areaBuses) {
-        await DB.put(DB.STORES.buses, { id: b.id, area: '' }).catch(() => {});
-      }
-      areas.splice(areas.findIndex(a => a.id === areaId), 1);
-      await _saveAreas(areas);
-      Helpers.toast('Area deleted', 'success');
-      await openAreasTransportModal();
-    };
-
-    App._atBusSave = async (areaId, areaName) => {
-      const name  = document.getElementById(`atbn-${areaId}`)?.value.trim();
-      const coord = document.getElementById(`atbc-${areaId}`)?.value.trim() || '';
-      const cap   = parseInt(document.getElementById(`atbcap-${areaId}`)?.value) || 0;
-      if (!name) { Helpers.toast('Bus name required', 'error'); return; }
-      await DB.add(DB.STORES.buses, { name, coordinator: coord, area: areaName, capacity: cap });
-      Helpers.toast(`${name} added to ${areaName}`, 'success');
-      const newBuses = await DB.getAll(DB.STORES.buses).catch(() => []);
-      buses.length = 0; buses.push(...newBuses);
-      _openModal();
-    };
-
-    App._atBusDelete = async (busId) => {
-      await DB.deleteRecord(DB.STORES.buses, busId).catch(() => {});
-      Helpers.toast('Bus removed', 'success');
-      const newBuses = await DB.getAll(DB.STORES.buses).catch(() => []);
-      buses.length = 0; buses.push(...newBuses);
-      _openModal();
-    };
-  }
-
-  async function openTeamAccessModal() {
-    Helpers.modal(`
-      <h3 class="modal-title">&#128101; Team &amp; Access</h3>
-      <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:.75rem">Manage who can use this app and their permissions.</p>
+      <h3 class="modal-title">&#128101; User Management</h3>
+      <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:.75rem">Change roles or remove a user's access. Removed users can no longer log in.</p>
       <div id="users-list"></div>
       <button class="btn-secondary" style="margin-top:.75rem;width:100%" onclick="App.showAddUserModal()">+ Invite User</button>
     `);
@@ -5615,7 +5681,7 @@ const App = (() => {
           const all = await DB.getAll(DB.STORES.attendees);
           if (!all.length) { Helpers.toast('No records to clear', 'warning'); return; }
           for (const a of all) { a.attendance = 'absent'; a.entryTime = null; a.markedBy = null; await DB.put(DB.STORES.attendees, a); }
-          allAttendees = []; attendanceInited = false;
+          _resetEventState();
           Helpers.toast(`Attendance cleared for ${all.length} records`, 'success');
         } catch (err) { Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error'); }
       };
@@ -5635,7 +5701,7 @@ const App = (() => {
         try {
           await DB.clearStore(DB.STORES.attendees);
           await DB.clearStore(DB.STORES.auditLog);
-          allAttendees = []; attendanceInited = false;
+          _resetEventState();
           Helpers.toast('Data cleared. Upload your new sheet.', 'success');
           navigate('import');
         } catch (err) { Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error'); }
@@ -5663,7 +5729,7 @@ const App = (() => {
           await DB.clearStore(DB.STORES.attendees);
           await DB.clearStore(DB.STORES.busRoutes);
           await DB.clearStore(DB.STORES.auditLog);
-          allAttendees = []; attendanceInited = false;
+          _resetEventState();
           Helpers.closeModal();
           Helpers.toast('All data deleted', 'success');
         } catch (err) {
@@ -5865,31 +5931,48 @@ const App = (() => {
   async function deleteBusRouteFromDash(id) { await deleteBusRoute(id); }
 
   async function renderUsers() {
+    const esc = Helpers.escapeHtml;
     const snap = await firestore.collection('users').get();
     const users = snap.docs.map(doc => ({ uid: doc.id, ...doc.data() }))
-      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
 
-    document.getElementById('users-list').innerHTML = users.length ? users.map(u => {
+    const active  = users.filter(u => !u.disabled);
+    const removed = users.filter(u => u.disabled);
+
+    const userRow = (u) => {
       const isYou = u.uid === currentUser?.uid;
       const isAdmin = u.role === 'admin';
-      const roleBadge = isAdmin
-        ? `<span class="badge present" style="font-size:.7rem">Admin</span>`
-        : `<span class="badge before" style="font-size:.7rem">Volunteer</span>`;
-      const actionBtn = isYou
-        ? `<span style="font-size:.72rem;color:var(--text-muted);padding:.25rem .5rem">You</span>`
+      const roleBadge = u.disabled
+        ? `<span class="badge" style="font-size:.7rem;background:#f1f5f9;color:#64748b">Removed</span>`
         : isAdmin
-          ? `<button class="btn-small warning" onclick="App.toggleUserRole('${u.uid}','${u.role}')">Make Volunteer</button>`
-          : `<button class="btn-small" onclick="App.toggleUserRole('${u.uid}','${u.role}')">Make Admin</button>`;
-      return `<div class="user-row">
-        <div class="user-row-avatar">${((u.name || u.email || '?')[0]).toUpperCase()}</div>
+          ? `<span class="badge present" style="font-size:.7rem">Admin</span>`
+          : `<span class="badge before" style="font-size:.7rem">Volunteer</span>`;
+      const actions = isYou
+        ? `<span style="font-size:.72rem;color:var(--text-muted);padding:.25rem .5rem">You</span>`
+        : u.disabled
+          ? `<button class="btn-small success" onclick="App.restoreUser('${u.uid}')">Restore</button>`
+          : `${isAdmin
+              ? `<button class="btn-small warning" onclick="App.toggleUserRole('${u.uid}','${u.role}')">Make Volunteer</button>`
+              : `<button class="btn-small" onclick="App.toggleUserRole('${u.uid}','${u.role}')">Make Admin</button>`}
+             <button class="btn-small danger" onclick="App.removeUser('${u.uid}')">Remove</button>`;
+      return `<div class="user-row" style="${u.disabled ? 'opacity:.55' : ''}">
+        <div class="user-row-avatar">${esc((u.name || u.email || '?')[0]).toUpperCase()}</div>
         <div class="user-row-info">
-          <div class="user-row-name">${u.name || '—'}</div>
-          <div class="user-row-meta">${u.email}</div>
+          <div class="user-row-name">${esc(u.name || '—')}</div>
+          <div class="user-row-meta">${esc(u.email || '')}</div>
         </div>
         ${roleBadge}
-        ${actionBtn}
+        ${actions}
       </div>`;
-    }).join('') : '<p style="color:var(--text-muted);font-size:.85rem;padding:.5rem 0">No users found</p>';
+    };
+
+    const removedBlock = removed.length
+      ? `<div style="font-size:.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin:.75rem 0 .3rem">Removed users</div>${removed.map(userRow).join('')}`
+      : '';
+
+    document.getElementById('users-list').innerHTML =
+      (active.length ? active.map(userRow).join('') : '<p style="color:var(--text-muted);font-size:.85rem;padding:.5rem 0">No users found</p>')
+      + removedBlock;
   }
 
   function showAddUserModal() {
@@ -5899,6 +5982,40 @@ const App = (() => {
   async function toggleUserRole(uid, role) {
     await DB.setUserProfile(uid, { role: role === 'admin' ? 'volunteer' : 'admin' });
     Helpers.toast('Role changed', 'success'); renderUsers();
+  }
+
+  async function removeUser(uid) {
+    const profile = await DB.getUserProfile(uid).catch(() => null);
+    const who = profile?.name || profile?.email || 'this user';
+    Helpers.modal(`
+      <h3 class="modal-title" style="color:var(--danger)">Remove User?</h3>
+      <p style="color:var(--text-secondary);margin-bottom:1rem"><strong>${Helpers.escapeHtml(who)}</strong> will no longer be able to log in to this app. You can restore them later from this list.</p>
+      <div class="modal-actions">
+        <button class="btn-danger" id="btn-confirm-remove-user">Remove</button>
+        <button class="btn-ghost" onclick="App.openUserManagementModal()">Cancel</button>
+      </div>`);
+    document.getElementById('btn-confirm-remove-user').onclick = async () => {
+      try {
+        await DB.setUserProfile(uid, { disabled: true, disabledAt: new Date().toISOString(), disabledBy: currentUser?.email || '' });
+        await DB.log('user', `User removed: ${who}`, currentUser?.email).catch(() => {});
+        Helpers.toast('User removed', 'success');
+      } catch (err) {
+        Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error');
+      }
+      await openUserManagementModal();
+    };
+  }
+
+  async function restoreUser(uid) {
+    try {
+      await DB.setUserProfile(uid, { disabled: false });
+      const profile = await DB.getUserProfile(uid).catch(() => null);
+      await DB.log('user', `User restored: ${profile?.name || profile?.email || uid}`, currentUser?.email).catch(() => {});
+      Helpers.toast('User restored', 'success');
+    } catch (err) {
+      Helpers.toast('Error: ' + (err.message || 'Permission denied'), 'error');
+    }
+    renderUsers();
   }
 
   function updateNetworkStatus() {
@@ -6082,6 +6199,7 @@ const App = (() => {
     showAddBusModal, deleteBusRouteFromDash,
     showEventPicker, _filterEvents, _pickEvent, showSessionSetupModal,
     _ssPickFY, _ssPickEvent, _ssConfirmEvent, _ssPickArea, _ssConfirmArea, _ssOnEventChange, _ssAreaSelected,
+    _ssShowCreateForm, _ssRenderStep1Back, _ssDoCreateEvent,
     _ssPickBus, _ssConfirmBus, _ssSkipBus,
     _gatePickBusAndAdmit, _gateConfirmBusAndAdmit,
     _gateBusPick,
@@ -6093,9 +6211,8 @@ const App = (() => {
     initAttendees,
     // Settings inline sections
     _saveSetupEvent,
-    // Settings modals (kept for back-compat / danger zone)
-    openEventConfigModal, saveEventConfig, openAreasTransportModal,
-    openTeamAccessModal,
+
+    openUserManagementModal, removeUser, restoreUser,
     openBusRoutesModal,
     openDangerZoneModal,
     showAddUserModal,
@@ -6105,6 +6222,7 @@ const App = (() => {
     saveBusFromDetail,
     // Gate & report sub-tabs
     _reportSubTab, _shareTeamPayImg, _shareAllPayImgs, _gateAdminUnlock, _gateShowList,
+    openSidebar, closeSidebar,
     _openWalkin, _changeBusSetup, _refreshSync,
     // Manage page
     _manageSubTab, _collectPayment, _saveCollectPayment, _bulkCollect, _saveBulkCollect,

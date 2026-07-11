@@ -1155,6 +1155,9 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
 .setup-area-header .icon-btn.edit { color: var(--text-secondary); }
 .setup-area-chev { font-size: .75rem; color: var(--text-muted); transition: transform .2s; flex-shrink: 0; }
 .setup-area-chev.open { transform: rotate(180deg); }
+.setup-cfg-tabs { display: flex; gap: 0; margin-bottom: .75rem; border-bottom: 2px solid var(--border); }
+.setup-cfg-tab { background: none; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; padding: .5rem 1rem; font-size: .85rem; font-weight: 600; color: var(--text-muted); cursor: pointer; transition: color .15s, border-color .15s; }
+.setup-cfg-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .setup-area-meta { padding: .35rem .85rem; display: flex; flex-wrap: wrap; gap: .3rem .85rem; font-size: .76rem; color: var(--text-muted); background: #fafafa; border-bottom: 1px solid #f1f5f9; }
 .setup-area-meta span { display: inline-flex; align-items: center; gap: .2rem; }
 .setup-area-body { border-top: 1px solid #e2e8f0; }
@@ -1419,6 +1422,101 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
   .stat-value { font-size: 1.25rem; }
 }
 
+/* ===== SIDEBAR HAMBURGER ===== */
+.sidebar-hamburger {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-secondary); padding: .3rem .4rem;
+  border-radius: 7px; display: flex; align-items: center; justify-content: center;
+  margin-right: .15rem; -webkit-tap-highlight-color: transparent;
+  transition: background .15s, color .15s;
+}
+.sidebar-hamburger:hover, .sidebar-hamburger:active { background: var(--accent-glow); color: var(--accent); }
+
+/* ===== CONFIG SIDEBAR ===== */
+.cfg-sidebar-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.5); backdrop-filter: blur(2px);
+  z-index: 900; opacity: 1; transition: opacity .2s ease;
+}
+.cfg-sidebar-overlay.hidden { opacity: 0; pointer-events: none; }
+.cfg-sidebar {
+  position: fixed; top: 0; left: 0;
+  width: 290px; max-width: 88vw; height: 100vh;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  box-shadow: 6px 0 28px rgba(0,0,0,.18);
+  z-index: 950;
+  transform: translateX(-105%);
+  transition: transform .26s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.cfg-sidebar.open { transform: translateX(0); }
+.cfg-sidebar-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  background: linear-gradient(135deg, #1a5c3a, #16a34a);
+  color: #fff; padding: 1.2rem 1rem 1rem; flex-shrink: 0;
+}
+/* sidebar header / user profile */
+.cfg-sidebar-user { display: flex; align-items: center; gap: .7rem; flex: 1; min-width: 0; }
+.cfg-sidebar-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: rgba(255,255,255,.22); color: #fff;
+  font-size: .95rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; border: 1.5px solid rgba(255,255,255,.35);
+}
+.cfg-sidebar-user-info { min-width: 0; }
+.cfg-sidebar-user-name { font-size: .92rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cfg-sidebar-user-role { font-size: .72rem; color: rgba(255,255,255,.72); margin-top: .05rem; }
+.cfg-sidebar-acct-btn {
+  background: rgba(255,255,255,.15); border: none; color: #fff;
+  width: 28px; height: 28px; border-radius: 50%; font-size: 1rem;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.cfg-sidebar-acct-btn:hover { background: rgba(255,255,255,.28); }
+.cfg-sidebar-close {
+  background: rgba(255,255,255,.15); border: none; color: #fff;
+  width: 28px; height: 28px; border-radius: 50%; font-size: .85rem;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; -webkit-tap-highlight-color: transparent;
+}
+.cfg-sidebar-close:hover { background: rgba(255,255,255,.28); }
+/* current event band */
+.cfg-sidebar-event-band {
+  background: var(--bg-card2); border-bottom: 1px solid var(--border);
+  padding: .7rem 1rem; flex-shrink: 0;
+}
+.cfg-sidebar-event-band-inner { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.cfg-sidebar-event-lbl { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; color: var(--text-muted); margin-bottom: .12rem; }
+.cfg-sidebar-event-name { font-size: .88rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cfg-sidebar-change-evt {
+  background: var(--accent); color: #fff; border: none;
+  font-size: .72rem; font-weight: 600; padding: .32rem .65rem;
+  border-radius: 6px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.cfg-sidebar-change-evt:hover { background: #15803d; }
+.cfg-sidebar-nav { flex: 1; overflow-y: auto; padding: .6rem 0 1.5rem; }
+.cfg-sidebar-group-label {
+  font-size: .68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--text-muted);
+  padding: .8rem 1rem .3rem; pointer-events: none;
+}
+.cfg-sidebar-group-label--danger { color: var(--danger); }
+.cfg-sidebar-item {
+  display: flex; align-items: center; gap: .7rem;
+  width: 100%; padding: .72rem 1rem; border: none;
+  background: none; text-align: left; font-size: .9rem;
+  font-weight: 500; color: var(--text); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s, color .12s;
+}
+.cfg-sidebar-item:hover, .cfg-sidebar-item:active { background: var(--bg-card2); color: var(--accent); }
+.cfg-sidebar-item--danger { color: var(--danger); }
+.cfg-sidebar-item--danger:hover { background: #fef2f2; color: var(--danger); }
+.cfg-sidebar-icon { font-size: 1.05rem; width: 22px; text-align: center; flex-shrink: 0; }
+
 /* ===== SCROLLBAR ===== */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1502,6 +1600,9 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
       <!-- Main Content -->
       <div id="main-content">
         <header id="top-bar">
+          <button class="admin-only sidebar-hamburger" onclick="App.openSidebar()" title="Configuration" aria-label="Open configuration menu">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
           <span class="topbar-logo">🪷</span>
           <span class="topbar-title">PRERNA</span>
           <span id="page-title" style="margin-left:.25rem"></span>
@@ -1510,7 +1611,6 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
             <button onclick="App._refreshSync()" title="Refresh / Sync" style="background:none;border:none;cursor:pointer;font-size:1.15rem;padding:0.2rem;color:var(--text-secondary);-webkit-tap-highlight-color:transparent">&#8635;</button>
             <span id="sync-status" class="sync-status online">●</span>
             <span id="offline-badge" class="offline-badge hidden">Queued</span>
-            <button class="user-avatar admin-only" id="topbar-user-avatar" title="Account" onclick="App.showMyAccountModal()">A</button>
             <button class="btn-logout" id="btn-logout">Sign Out</button>
           </div>
         </header>
@@ -1665,7 +1765,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
                 <!-- Amount row -->
                 <div style="display:flex;gap:.75rem;margin-bottom:.75rem;align-items:flex-end">
                   <div style="flex:1">
-                    <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Amount Collected (₹)</label>
+                    <label style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.4rem;display:block">Amount Collected (₹) <span id="pc-amount-min" style="color:#15803d;font-weight:600;font-size:.78rem"></span></label>
                     <input type="number" id="pc-amount" class="wi-input" placeholder="0" min="0" style="width:100%;font-size:1.2rem;font-weight:700" />
                   </div>
                   <div style="flex:1">
@@ -1960,15 +2060,6 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
               <div id="setup-areas-content"></div>
             </div>
 
-            <!-- Team & Access -->
-            <div class="setup-section" style="padding:0">
-              <div class="setup-collapsible-hdr" onclick="App._toggleSetupPanel('setup-team-content','setup-team-chev')">
-                <span class="setup-section-title" style="margin:0">&#128100; Team &amp; Access</span>
-                <span id="setup-team-chev" class="setup-panel-chev">&#9660;</span>
-              </div>
-              <div id="setup-team-content" class="setup-collapsible-body hidden"></div>
-            </div>
-
             <!-- Data -->
             <div class="setup-section">
               <div class="setup-section-title">&#128229; Data</div>
@@ -2006,7 +2097,7 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
             <span class="bnav-icon"><svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg></span>
             <span class="bnav-label">Manage</span>
           </button>
-          <button class="bnav-item admin-only" data-tab="setup" onclick="App.switchTab('setup')">
+          <button class="bnav-item admin-only" data-tab="setup" onclick="App.switchTab('setup')" style="display:none">
             <span class="bnav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
             <span class="bnav-label">Setup</span>
           </button>
@@ -2019,6 +2110,60 @@ tbody tr.walkin-row { background: rgba(52,152,219,0.05); border-left: 3px solid 
       </div>
     </div>
   </div>
+
+  <!-- Config Sidebar -->
+  <div id="cfg-sidebar-overlay" class="cfg-sidebar-overlay hidden" onclick="App.closeSidebar()"></div>
+  <aside id="cfg-sidebar" class="cfg-sidebar">
+
+    <!-- User profile header -->
+    <div class="cfg-sidebar-header">
+      <div class="cfg-sidebar-user">
+        <div class="cfg-sidebar-avatar" id="cfg-sb-avatar">?</div>
+        <div class="cfg-sidebar-user-info">
+          <div class="cfg-sidebar-user-name" id="cfg-sb-name">—</div>
+          <div class="cfg-sidebar-user-role" id="cfg-sb-role">—</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:.4rem;flex-shrink:0">
+        <button class="cfg-sidebar-acct-btn" onclick="App.closeSidebar();App.showMyAccountModal()" title="My Account">⚙</button>
+        <button class="cfg-sidebar-close" onclick="App.closeSidebar()" aria-label="Close">✕</button>
+      </div>
+    </div>
+
+    <!-- Current event band -->
+    <div class="cfg-sidebar-event-band">
+      <div class="cfg-sidebar-event-band-inner">
+        <div>
+          <div class="cfg-sidebar-event-lbl">Current Event</div>
+          <div class="cfg-sidebar-event-name" id="cfg-sb-event">—</div>
+        </div>
+        <button class="cfg-sidebar-change-evt" onclick="App.closeSidebar();App.showEventPicker()">Change ›</button>
+      </div>
+    </div>
+
+    <nav class="cfg-sidebar-nav">
+      <div class="cfg-sidebar-group-label">Event</div>
+      <button class="cfg-sidebar-item" onclick="App.closeSidebar();App.showCreateEventModal()">
+        <span class="cfg-sidebar-icon">➕</span><span>Create New Event</span>
+      </button>
+      <button class="cfg-sidebar-item" onclick="App.closeSidebar();App.navigate('import')">
+        <span class="cfg-sidebar-icon">📥</span><span>Import Participant Sheet</span>
+      </button>
+
+      <div class="cfg-sidebar-group-label">People</div>
+      <button class="cfg-sidebar-item" onclick="App.closeSidebar();App.navigate('attendees')">
+        <span class="cfg-sidebar-icon">👥</span><span>View All Participants</span>
+      </button>
+      <button class="cfg-sidebar-item" onclick="App.closeSidebar();App.openUserManagementModal()">
+        <span class="cfg-sidebar-icon">🔑</span><span>User Management</span>
+      </button>
+
+      <div class="cfg-sidebar-group-label cfg-sidebar-group-label--danger">Danger</div>
+      <button class="cfg-sidebar-item cfg-sidebar-item--danger" onclick="App.closeSidebar();App.openDangerZoneModal()">
+        <span class="cfg-sidebar-icon">⚠️</span><span>Danger Zone</span>
+      </button>
+    </nav>
+  </aside>
 
   <!-- Modals -->
   <div id="modal-overlay" class="modal-overlay hidden">

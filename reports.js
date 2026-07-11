@@ -23,6 +23,22 @@ const Reports = (() => {
     return null;
   }
 
+  // Returns fn: normalizedKey → most-frequent original spelling seen in items
+  function _canonicalFn(items, getStr) {
+    const freq = {};
+    items.forEach(item => {
+      const raw = (getStr ? getStr(item) : String(item || '')).trim();
+      if (!raw) return;
+      const key = raw.toLowerCase();
+      if (!freq[key]) freq[key] = {};
+      freq[key][raw] = (freq[key][raw] || 0) + 1;
+    });
+    return key => {
+      const e = Object.entries(freq[key] || {}).sort((a, b) => b[1] - a[1]);
+      return e.length ? e[0][0] : key;
+    };
+  }
+
   // ── Module-level filter state ─────────────────────────────────────────────
   let _attendees  = [];
   let _groupType  = 'all';   // 'all' | 'team' | 'category' | 'reference' | 'bus'
@@ -41,17 +57,10 @@ const Reports = (() => {
       totalExpense:   0
     };
 
-    // Deduplicate group values case-insensitively; display the most-common spelling
     const dedupeGroup = (arr) => {
-      const freq = {};
-      arr.filter(Boolean).forEach(v => {
-        const k = v.trim().toLowerCase();
-        if (!freq[k]) freq[k] = {};
-        freq[k][v.trim()] = (freq[k][v.trim()] || 0) + 1;
-      });
-      return Object.values(freq)
-        .map(spellings => Object.entries(spellings).sort((a, b) => b[1] - a[1])[0][0])
-        .sort();
+      const canonical = _canonicalFn(arr.filter(Boolean));
+      const keys = [...new Set(arr.filter(Boolean).map(v => v.trim().toLowerCase()))];
+      return keys.sort().map(k => canonical(k));
     };
     const teams      = dedupeGroup(_attendees.map(a => a.team));
     const categories = dedupeGroup(_attendees.map(a => a.category));
@@ -150,22 +159,14 @@ const Reports = (() => {
                  : groupType === 'bus' ? 'Bus'
                  : 'Reference';
 
-    // Normalize keys: trim + lowercase for grouping; track original spelling for display
-    const map     = {};  // normalizedKey → members[]
-    const dispMap = {};  // normalizedKey → { originalSpelling: count }
+    const map = {};
     attendees.forEach(a => {
       const raw  = ((a[field] || '').trim()) || defVal;
       const key  = raw.toLowerCase();
-      if (!map[key])  { map[key] = []; dispMap[key] = {}; }
+      if (!map[key]) map[key] = [];
       map[key].push(a);
-      dispMap[key][raw] = (dispMap[key][raw] || 0) + 1;
     });
-
-    // Most-frequent original spelling wins as the display name
-    const canonical = key => {
-      const entries = Object.entries(dispMap[key] || {}).sort((a, b) => b[1] - a[1]);
-      return entries.length ? entries[0][0] : key;
-    };
+    const canonical = _canonicalFn(attendees, a => ((a[field] || '').trim()) || defVal);
 
     const rows = Object.entries(map)
       .sort((a, b) => b[1].length - a[1].length)
@@ -217,21 +218,12 @@ const Reports = (() => {
     const savedMap = teamCategoryMap || {};
 
     // ── TABLE 1: Category-wise (devotee's own category) ───────────────────
-    // "Har category ke kitne devotees aa rhe hai" → group by a.category
-    // Normalize: case-insensitive + trim; display canonical (most-frequent) spelling
-    const devCatMap   = {};  // normalizedKey → count
-    const catDispMap  = {};  // normalizedKey → { spelling: count }
+    const devCatMap = {};
     attendees.forEach(a => {
-      const raw = (a.category || 'Unknown').trim();
-      const key = raw.toLowerCase();
-      devCatMap[key]  = (devCatMap[key] || 0) + 1;
-      if (!catDispMap[key]) catDispMap[key] = {};
-      catDispMap[key][raw] = (catDispMap[key][raw] || 0) + 1;
+      const key = (a.category || 'Unknown').trim().toLowerCase();
+      devCatMap[key] = (devCatMap[key] || 0) + 1;
     });
-    const catCanonical = key => {
-      const entries = Object.entries(catDispMap[key] || {}).sort((a, b) => b[1] - a[1]);
-      return entries.length ? entries[0][0] : key;
-    };
+    const catCanonical = _canonicalFn(attendees, a => (a.category || 'Unknown').trim());
     const catOrderKeys = [...CATEGORY_ORDER.map(c => c.toLowerCase()).filter(k => devCatMap[k]),
                           ...Object.keys(devCatMap).filter(k => !CATEGORY_ORDER.map(c => c.toLowerCase()).includes(k)).sort()];
     const catBodyRows = catOrderKeys.map(key =>
@@ -243,17 +235,16 @@ const Reports = (() => {
     // Group by which department the TEAM belongs to (not devotee's category)
     // Count ALL devotees a team brought, regardless of their own category
     // Keys are normalized (lowercase trim) to merge "Anant" / "anant" / " Anant"
-    const deptMap = {}; // dept → { normalizedTeamKey → { display, members[] } }
+    const deptMap = {}; // dept → { normalizedTeamKey → { members[] } }
     attendees.forEach(a => {
       const rawTeam  = (a.team || 'Other').trim();
       const teamKey  = rawTeam.toLowerCase();
       const dept     = getTeamDept(rawTeam, savedMap) || 'Unassigned';
       if (!deptMap[dept]) deptMap[dept] = {};
-      if (!deptMap[dept][teamKey]) deptMap[dept][teamKey] = { display: rawTeam, members: [], _freq: {} };
+      if (!deptMap[dept][teamKey]) deptMap[dept][teamKey] = { members: [] };
       deptMap[dept][teamKey].members.push(a);
-      // Track most common original spelling for display
-      deptMap[dept][teamKey]._freq[rawTeam] = (deptMap[dept][teamKey]._freq[rawTeam] || 0) + 1;
     });
+    const teamCanonical = _canonicalFn(attendees, a => (a.team || 'Other').trim());
 
     const allDepts = [...CATEGORY_ORDER.filter(d => deptMap[d]), ...Object.keys(deptMap).filter(d => !CATEGORY_ORDER.includes(d)).sort()];
 
@@ -269,9 +260,8 @@ const Reports = (() => {
       teamBodyRows += `<tr class="pre-cat-hdr"><td colspan="4">${dept}</td></tr>`;
 
       teamKeys.forEach(teamKey => {
-        const { members, _freq } = teamMap[teamKey];
-        // Pick most-frequent original spelling as display name
-        const teamDisplay = Object.entries(_freq || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || teamKey;
+        const { members } = teamMap[teamKey];
+        const teamDisplay = teamCanonical(teamKey);
         const paid   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'paid').length;
         const free   = members.filter(m => (m.paymentStatus || '').toLowerCase() === 'free').length;
         const unpaid = members.length - paid - free;
@@ -520,21 +510,14 @@ const Reports = (() => {
   let _absenteeCache = null;
   let _absenteeCacheEventId = null;
 
-  function _mobileKey(m) {
-    return (m || '').toString().replace(/\D/g, '').slice(-10);
-  }
-
   // Cross-event devotee key. Built so:
   //   - Same person across multiple events matches (by full mobile + name prefix)
   //   - Family members sharing a mobile stay separate (name prefix differs)
   //   - Devotees with missing/short mobile still get included (fallback to name)
   //   - As a last resort, a unique per-record id is used so nobody is dropped
-  function _normName(s) {
-    return (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
-  }
   function _devoteeKey(p) {
-    const mob10 = _mobileKey(p.mobile);
-    const nameNorm = _normName(p.name);
+    const mob10 = Helpers.normMobile(p.mobile);
+    const nameNorm = Helpers.normName(p.name);
     // Use the FULL normalized name (not a prefix) so distinct devotees on the
     // same family phone — "Sunita devi" vs "Sunita verma" — never collapse.
     if (mob10.length === 10) {
@@ -586,7 +569,7 @@ const Reports = (() => {
         const amt = parseFloat(p.paymentAmount || 0);
         if (!existing) {
           perDevoteeInEvent.set(key, {
-            name: p.name || '', mobile: _mobileKey(p.mobile),
+            name: p.name || '', mobile: Helpers.normMobile(p.mobile),
             team: p.team || '', reference: p.reference || '',
             present: p.attendance === 'present',
             paymentStatus: ps || 'unpaid',
@@ -594,7 +577,7 @@ const Reports = (() => {
           });
         } else {
           if (!existing.name && p.name) existing.name = p.name;
-          if (!existing.mobile && p.mobile) existing.mobile = _mobileKey(p.mobile);
+          if (!existing.mobile && p.mobile) existing.mobile = Helpers.normMobile(p.mobile);
           if (!existing.team && p.team) existing.team = p.team;
           if (!existing.reference && p.reference) existing.reference = p.reference;
           if (p.attendance === 'present') existing.present = true;
@@ -660,7 +643,7 @@ const Reports = (() => {
     const map = await computeRepeatAbsenteeMap();
     let entry = map.get(_devoteeKey(p));
     if (!entry) {
-      const mob10 = _mobileKey(p.mobile);
+      const mob10 = Helpers.normMobile(p.mobile);
       if (mob10) {
         for (const [k, v] of map) {
           if (k.startsWith(`m:${mob10}`)) { entry = v; break; }
@@ -1020,13 +1003,13 @@ const Reports = (() => {
         const existing = perDevotee.get(key);
         if (!existing) {
           perDevotee.set(key, {
-            name: p.name || '', mobile: _mobileKey(p.mobile),
+            name: p.name || '', mobile: Helpers.normMobile(p.mobile),
             team: p.team || '', reference: p.reference || '',
             present: p.attendance === 'present'
           });
         } else {
           if (!existing.name && p.name) existing.name = p.name;
-          if (!existing.mobile && p.mobile) existing.mobile = _mobileKey(p.mobile);
+          if (!existing.mobile && p.mobile) existing.mobile = Helpers.normMobile(p.mobile);
           if (!existing.team && p.team) existing.team = p.team;
           if (!existing.reference && p.reference) existing.reference = p.reference;
           if (p.attendance === 'present') existing.present = true;
